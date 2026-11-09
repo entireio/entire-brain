@@ -170,7 +170,9 @@ func (e seedHeadEntry) regularFile() bool {
 // user's own git config (repository-scoped filter drivers are already blanked by
 // repoFilterDriverOverrides). Either way the object is read locally or the
 // checkout fails, and a failed checkout falls back to the refusal; an LFS
-// object already stored locally is then filled in by settleSmallFiles.
+// object already stored locally is then filled in by settleLFSPointers. Where
+// the lfs filter is git-lfs, populate leaves it out of the checkout
+// altogether, since its command line can set GIT_LFS_SKIP_SMUDGE itself.
 func seedHeadGitEnv(scratchIndex string) map[string]string {
 	env := localOnlyGitEnv()
 	env["GIT_LFS_SKIP_SMUDGE"] = "1"
@@ -441,13 +443,26 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	if len(absent) > 0 {
 		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files were not read because this partial clone has not fetched them (first: %s)", len(absent), absent[0]))
 	}
+	// Where the caller's lfs filter is git-lfs, seed does itself what git-lfs
+	// would (settleLFSPointers), so the checkout leaves git-lfs out, as the
+	// hardened runner does for a repository's own filter. Its command line
+	// can set GIT_LFS_SKIP_SMUDGE=0 over seedHeadGitEnv's, and it would then
+	// download objects in the middle of a background seed.
+	lfsMode := seedHeadLFSUnfiltered
+	var checkoutConfig []string
+	if len(lfs) > 0 {
+		lfsMode = seedHeadLFSCheckoutMode(ctx, runner, repoDir)
+		if lfsMode != seedHeadLFSUnfiltered {
+			checkoutConfig = []string{"-c", "filter.lfs.process=", "-c", "filter.lfs.smudge=", "-c", "filter.lfs.required=false"}
+		}
+	}
 	// git appends each path to the prefix verbatim, so it needs the trailing
 	// separator; forward slashes are what git expects on every platform.
 	prefix := "--prefix=" + filepath.ToSlash(c.dir) + "/"
 	// -f: write over whatever is at a path, so the checkout never fails on
 	// one it did not expect there.
 	for _, batch := range chunkPathsByBytes(wanted, seedHeadCheckoutArgBytes) {
-		args := append([]string{"checkout-index", "-f", prefix, "--"}, batch...)
+		args := append(append(slices.Clone(checkoutConfig), "checkout-index", "-f", prefix, "--"), batch...)
 		if _, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...); err != nil {
 			return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
 		}
@@ -473,7 +488,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	for start := 0; start < len(driven); start += seedHeadDriverBatchFiles {
 		group := driven[start:min(start+seedHeadDriverBatchFiles, len(driven))]
 		for _, batch := range chunkPathsByBytes(group, seedHeadCheckoutArgBytes) {
-			args := append([]string{"checkout-index", "-f", prefix, "--"}, batch...)
+			args := append(append(slices.Clone(checkoutConfig), "checkout-index", "-f", prefix, "--"), batch...)
 			_, stderr, err := runner.RunWithEnv(ctx, repoDir, driverEnv, "git", args...)
 			if err != nil {
 				return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
@@ -490,7 +505,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	if warning := driverStderr.warning(); warning != "" {
 		c.warnings = append(c.warnings, warning)
 	}
-	c.settleLFSPointers(ctx, runner, repoDir, lfs, opts)
+	c.settleLFSPointers(ctx, runner, repoDir, lfs, lfsMode, opts)
 	return nil
 }
 
@@ -870,24 +885,27 @@ type seedHeadSmallFile struct {
 }
 
 // settleLFSPointers finishes the blobs the commit tracks with filter=lfs. The
-// checkout skips the smudge filter so a background seed never downloads
-// anything (seedHeadGitEnv), which on its own seeded every LFS document as its
-// pointer text. A pointer whose object is already in the local LFS store is
+// checkout never runs git-lfs, so a background seed never downloads anything
+// (populate, seedHeadGitEnv), which on its own seeded every LFS document as
+// its pointer text. A pointer whose object is already in the local LFS store is
 // replaced with that object, which is what a working tree with the content
 // fetched holds; one whose object is not stored locally stays the pointer, the
 // same text a working tree without the content shows. Only the default store
 // (<git-common-dir>/lfs) is consulted. An object that is stored but cannot be
 // copied is reported in the seed's warnings rather than passed off as read.
-// The caller's Git LFS settings come first (seedHeadLFSCheckoutMode): with no
-// lfs filter, every pointer stays as committed, and where the smudge is
-// skipped, every pointer is written the way git-lfs writes it.
+// The caller's Git LFS settings come first (mode, from
+// seedHeadLFSCheckoutMode): with no lfs filter, every pointer stays as the
+// checkout wrote it, and where the smudge is skipped, every pointer is written
+// the way git-lfs writes it.
 //
 // Each file is then held to the same rule as every other blob, at its real
 // size: one the scan would only stat leaves the checkout and is recorded
 // unread, so a large LFS binary is never copied here either.
-func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, files []seedHeadSmallFile, opts seedCommandOptions) {
+func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, files []seedHeadSmallFile, mode seedHeadLFSMode, opts seedCommandOptions) {
+	if mode == seedHeadLFSUnfiltered {
+		return
+	}
 	objectsDir, objectsResolved := "", false
-	mode, modeResolved := seedHeadLFSUnfiltered, false
 	fetchFiltered, filterResolved := false, false
 	var filteredPaths []string
 	defer func() {
@@ -905,14 +923,7 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 		if !ok {
 			continue
 		}
-		if !modeResolved {
-			modeResolved = true
-			mode = seedHeadLFSCheckoutMode(ctx, runner, repoDir)
-		}
-		switch mode {
-		case seedHeadLFSUnfiltered:
-			return
-		case seedHeadLFSSkips:
+		if mode == seedHeadLFSSkips {
 			c.encodeLFSPointer(file.path, target, data, oid, size, extended)
 			continue
 		}

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -1408,6 +1409,63 @@ func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 				t.Errorf("warnings = %q, want none", head.warnings)
 			}
 		})
+	}
+}
+
+// TestDirtySeedNeverRunsGitLFSInItsCheckout: a git-lfs filter in the user's
+// own config runs in seed's checkout unless seed leaves it out, and its command
+// line can set GIT_LFS_SKIP_SMUDGE=0 over seed's, so git-lfs would download a
+// missing object in the middle of a background seed. Seed does what git-lfs
+// would itself, so the filter never runs and the stored object is still used.
+func TestDirtySeedNeverRunsGitLFSInItsCheckout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in git-lfs is a shell script")
+	}
+	stored := "# manual kept in LFS\n"
+	isolateSeedHeadTemp(t)
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(global, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_LFS_SKIP_SMUDGE", "")
+	for _, key := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repoDir := seedHeadTestRepo(t)
+	writeLFSObject(t, repoDir, stored, stored)
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		".gitattributes": "docs/manual.md filter=lfs -text\n",
+		"docs/manual.md": lfsPointer(stored),
+	})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointer")
+	// A stand-in git-lfs that says it ran and passes the pointer through.
+	bin := t.TempDir()
+	ran := filepath.Join(t.TempDir(), "ran")
+	if err := os.WriteFile(filepath.Join(bin, "git-lfs"), []byte("#!/bin/sh\n: > '"+ran+"'\nexec cat\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gitAt(t, repoDir, "config", "--global", "filter.lfs.smudge", "GIT_LFS_SKIP_SMUDGE=0 '"+filepath.Join(bin, "git-lfs")+"' smudge -- %f")
+	dirtySeedHeadTree(t, repoDir)
+
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD: %v", err)
+	}
+	defer head.remove()
+	if _, err := os.Stat(ran); err == nil {
+		t.Error("seed's checkout ran the user's git-lfs")
+	}
+	if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "manual.md")); err != nil || string(got) != stored {
+		t.Errorf("docs/manual.md = %q, %v; want the stored object %q", got, err, stored)
+	}
+	if len(head.warnings) > 0 {
+		t.Errorf("warnings = %q, want none", head.warnings)
 	}
 }
 
