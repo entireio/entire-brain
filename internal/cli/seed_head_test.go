@@ -1152,6 +1152,73 @@ func TestParseLFSPointerReadsWhatGitLFSReads(t *testing.T) {
 	}
 }
 
+// TestDirtySeedKeepsLFSPointersWhenFetchFiltersAreSet: Git LFS keeps the
+// pointer of a path lfs.fetchinclude or lfs.fetchexclude leaves out, even
+// with its object stored locally (git-lfs 3.4.1 does). Seed does not match
+// paths the way Git LFS does, so while either is set, in the configuration or
+// the commit's .lfsconfig, it keeps every pointer and says so. A key with no
+// pattern filters nothing.
+func TestDirtySeedKeepsLFSPointersWhenFetchFiltersAreSet(t *testing.T) {
+	stored := "# manual kept in LFS\n"
+	for _, tc := range []struct {
+		name        string
+		configure   func(t *testing.T, repoDir string)
+		lfsconfig   string
+		wantPointer bool
+	}{
+		{name: "configuration", wantPointer: true, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "lfs.fetchexclude", "docs/other.md")
+		}},
+		{name: "committed .lfsconfig", wantPointer: true, lfsconfig: "[lfs]\n\tfetchinclude = assets/**\n"},
+		{name: "no pattern", configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "lfs.fetchexclude", " , ")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateSeedHeadTemp(t)
+			global := filepath.Join(t.TempDir(), "gitconfig")
+			if err := os.WriteFile(global, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("GIT_CONFIG_GLOBAL", global)
+			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+			repoDir := seedHeadTestRepo(t)
+			writeLFSObject(t, repoDir, stored, stored)
+			files := map[string]string{
+				".gitattributes": "docs/manual.md filter=lfs -text\n",
+				"docs/manual.md": lfsPointer(stored),
+			}
+			if tc.lfsconfig != "" {
+				files[".lfsconfig"] = tc.lfsconfig
+			}
+			writeSeedHeadFiles(t, repoDir, files)
+			gitAt(t, repoDir, "add", "-A")
+			gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointer")
+			if tc.configure != nil {
+				tc.configure(t, repoDir)
+			}
+			dirtySeedHeadTree(t, repoDir)
+
+			head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+			if err != nil {
+				t.Fatalf("check out HEAD: %v", err)
+			}
+			defer head.remove()
+			want := stored
+			if tc.wantPointer {
+				want = lfsPointer(stored)
+			}
+			if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "manual.md")); err != nil || string(got) != want {
+				t.Errorf("docs/manual.md = %q, %v; want %q", got, err, want)
+			}
+			warned := strings.Contains(strings.Join(head.warnings, "\n"), "fetch include/exclude")
+			if warned != tc.wantPointer {
+				t.Errorf("fetch filter warning = %v, want %v: %q", warned, tc.wantPointer, head.warnings)
+			}
+		})
+	}
+}
+
 func lfsPointer(content string) string {
 	sum := sha256.Sum256([]byte(content))
 	return fmt.Sprintf("version https://git-lfs.github.com/spec/v1\noid sha256:%s\nsize %d\n", hex.EncodeToString(sum[:]), len(content))
@@ -1406,6 +1473,53 @@ func TestDirtySeedChecksOutWhatIdentShrinks(t *testing.T) {
 		}
 	}
 	assertNoSeedHeadLeftovers(t, tempDir)
+}
+
+// TestDirtySeedChecksOutALossyEncodingWhateverItsBlobSize: in a UTF-8 locale
+// ASCII//TRANSLIT writes a combining mark as nothing, so a 306-byte blob
+// checks out at 6 bytes, under --max-file-bytes 64 although the blob is over
+// seedHeadEncodingMaxShrink times it. The file is checked out and stat'd, so
+// its entry is the one a checkout of the commit gives, not "too large" at the
+// blob's size. Where the locale transliterates the marks to "?" instead, the
+// checkout is 156 bytes and the same comparison holds.
+func TestDirtySeedChecksOutALossyEncodingWhateverItsBlobSize(t *testing.T) {
+	isolateSeedHeadTemp(t)
+	t.Setenv("LC_ALL", "C.UTF-8")
+	repoDir := seedHeadTestRepo(t)
+	const rel = "data/marks.txt"
+	blob := "abcdef" + strings.Repeat("\u0301", 150)
+	writeSeedHeadFiles(t, repoDir, map[string]string{rel: blob})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "UTF-8 blob")
+	// Committed after the blob, so the blob stays the UTF-8 bytes.
+	writeSeedHeadFiles(t, repoDir, map[string]string{".gitattributes": rel + " working-tree-encoding=ASCII//TRANSLIT\n"})
+	gitAt(t, repoDir, "add", ".gitattributes")
+	gitAt(t, repoDir, "commit", "-q", "-m", "lossy encoding")
+	if err := os.Remove(filepath.Join(repoDir, filepath.FromSlash(rel))); err != nil {
+		t.Fatal(err)
+	}
+	gitAt(t, repoDir, "checkout-index", "-f", "--", rel)
+	clean, err := os.Stat(filepath.Join(repoDir, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clean.Size() >= int64(len(blob)) || int64(len(blob)) <= seedHeadEncodingMaxShrink*64 {
+		t.Fatalf("fixture: a %d-byte blob checked out at %d bytes; want a shrink past %dx 64 bytes", len(blob), clean.Size(), seedHeadEncodingMaxShrink)
+	}
+
+	dirtySeedHeadTree(t, repoDir)
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD: %v", err)
+	}
+	defer head.remove()
+	if size, unread := head.unreadSize(rel); unread {
+		if size != clean.Size() {
+			t.Errorf("%s recorded unread at %d bytes; a checkout of the commit writes %d", rel, size, clean.Size())
+		}
+	} else if got, err := os.Stat(filepath.Join(head.dir, filepath.FromSlash(rel))); err != nil || got.Size() != clean.Size() {
+		t.Errorf("%s checked out as %v, %v; a checkout of the commit writes %d bytes", rel, got, err, clean.Size())
+	}
 }
 
 // skipWhereCaseFolds skips a test whose fixture commits paths that differ

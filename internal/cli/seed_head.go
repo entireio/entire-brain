@@ -78,7 +78,8 @@ const seedHeadLFSPointerMaxBytes = 1024
 
 // seedHeadEncodingMaxShrink bounds how much smaller a working-tree-encoding
 // checkout can be than its blob: the blob is UTF-8, at most 4 bytes a
-// character, and no encoding writes a character in under one byte.
+// character, and no encoding writes a character in under one byte. A lossy
+// one can (seedHeadLossyEncoding).
 const seedHeadEncodingMaxShrink = 4
 
 // seedHeadDriverMaxShrink is the shrink a filter driver is allowed before its
@@ -416,18 +417,19 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			for _, reader := range reading {
 				c.unread[reader] = entry.size
 			}
-			if drivers.runs(attr.filter) || attr.ident {
+			if seedHeadConvertsUnbounded(attr, drivers) {
 				convertSkipped = append(convertSkipped, path)
 			}
 			continue
 		}
 		// Every file a driver converts goes through the driver checkout below,
-		// which passes the driver's stderr on, and so does every ident file:
-		// ident shrinks an expanded keyword and grows each "$Id$" by an object
-		// id, so either can end up any size. Both are checked out in bounded
-		// batches and dropped there when they come out too large. A doc the
-		// scan reads at any size is never removed there.
-		if drivers.runs(attr.filter) || attr.ident {
+		// which passes the driver's stderr on, and so does every ident file
+		// and every file with a lossy encoding: ident shrinks an expanded
+		// keyword and grows each "$Id$" by an object id, and ASCII//TRANSLIT
+		// can drop characters, so any of them can end up any size. They are
+		// checked out in bounded batches and dropped there when they come out
+		// too large. A doc the scan reads at any size is never removed there.
+		if seedHeadConvertsUnbounded(attr, drivers) {
 			driven = append(driven, path)
 			continue
 		}
@@ -437,7 +439,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		// Past the cap a driver or ident could still have shrunk the file
 		// under --max-file-bytes, where a clean checkout would include it. Say
 		// so rather than let the entry read like an ordinary size exclusion.
-		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files over %dx --max-file-bytes were not converted by their filter driver or ident attribute and are reported too large at their committed size (first: %s)", len(convertSkipped), seedHeadDriverMaxShrink, convertSkipped[0]))
+		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files over %dx --max-file-bytes were not converted by their filter driver, ident attribute or lossy working-tree-encoding and are reported too large at their committed size (first: %s)", len(convertSkipped), seedHeadDriverMaxShrink, convertSkipped[0]))
 	}
 	if len(absent) > 0 {
 		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files were not read because this partial clone has not fetched them (first: %s)", len(absent), absent[0]))
@@ -737,17 +739,34 @@ func specifiedAttr(value string) bool {
 // seedHeadMaxShrink is how many times smaller than its blob a path's checkout
 // can be. A driver can shrink a file without bound, and so can ident: checkout
 // rewrites an expanded "$Id: ... $" committed as it is to "$Id: <object> $",
-// however long the line, so both get the driver cap. An encoding shrinks a
-// file at most seedHeadEncodingMaxShrink times. eol, all that is left, does
-// not shrink one, so a blob over --max-file-bytes is too large.
+// however long the line. So can a lossy encoding (seedHeadLossyEncoding). All
+// of them get the driver cap. Any other encoding shrinks a file at most
+// seedHeadEncodingMaxShrink times. eol, all that is left, does not shrink
+// one, so a blob over --max-file-bytes is too large.
 func seedHeadMaxShrink(attr seedHeadAttrs, drivers seedHeadDrivers) int64 {
 	switch {
-	case drivers.runs(attr.filter) || attr.ident:
+	case seedHeadConvertsUnbounded(attr, drivers):
 		return seedHeadDriverMaxShrink
 	case specifiedAttr(attr.encoding):
 		return seedHeadEncodingMaxShrink
 	}
 	return 1
+}
+
+// seedHeadConvertsUnbounded reports whether a path's checkout can come out
+// any size relative to its blob: a filter driver runs on it, it has ident, or
+// its encoding is lossy.
+func seedHeadConvertsUnbounded(attr seedHeadAttrs, drivers seedHeadDrivers) bool {
+	return drivers.runs(attr.filter) || attr.ident || seedHeadLossyEncoding(attr.encoding)
+}
+
+// seedHeadLossyEncoding reports whether a working-tree-encoding asks iconv to
+// transliterate or skip what it cannot convert (ASCII//TRANSLIT, //IGNORE).
+// Such a conversion can drop characters: in a UTF-8 locale ASCII//TRANSLIT
+// writes a combining mark as nothing, so the checkout can be any size under
+// the blob's.
+func seedHeadLossyEncoding(encoding string) bool {
+	return specifiedAttr(encoding) && strings.Contains(encoding, "//")
 }
 
 // seedHeadDrivers is the set of filter drivers that run a command on checkout:
@@ -853,6 +872,13 @@ type seedHeadSmallFile struct {
 // unread, so a large LFS binary is never copied here either.
 func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, files []seedHeadSmallFile, opts seedCommandOptions) {
 	objectsDir, objectsResolved := "", false
+	fetchFiltered, filterResolved := false, false
+	var filteredPaths []string
+	defer func() {
+		if len(filteredPaths) > 0 {
+			c.warnings = append(c.warnings, fmt.Sprintf("Git LFS fetch include/exclude patterns are configured, which seed does not evaluate; seeded the pointer text of %d files whose LFS objects are stored locally (first: %s)", len(filteredPaths), filteredPaths[0]))
+		}
+	}()
 	for _, file := range files {
 		target := filepath.Join(c.dir, filepath.FromSlash(file.path))
 		data, err := clibase.SafeReadFile(target, seedHeadLFSPointerMaxBytes)
@@ -887,6 +913,18 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 			c.warnings = append(c.warnings, fmt.Sprintf("LFS pointer for %s names an LFS extension, which seed does not run; seeded the pointer text", file.path))
 			continue
 		}
+		if !filterResolved {
+			filterResolved = true
+			fetchFiltered = seedHeadLFSFetchFiltered(ctx, runner, repoDir, c.commit)
+		}
+		if fetchFiltered {
+			// A clean checkout keeps the pointer of a path the patterns leave
+			// out, although its object is stored locally, and smudges the
+			// rest. Telling which is which would mean matching paths the way
+			// Git LFS does, so every pointer is kept and the warning says so.
+			filteredPaths = append(filteredPaths, file.path)
+			continue
+		}
 		if !c.needsContent(file.path, size, opts) {
 			c.dropCheckedOut(file.path, target, size)
 			continue
@@ -895,6 +933,31 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 			c.warnings = append(c.warnings, fmt.Sprintf("LFS object for %s could not be read (%v); seeded the pointer text", file.path, err))
 		}
 	}
+}
+
+// seedHeadLFSFetchFiltered reports whether Git LFS is set to smudge only some
+// paths: lfs.fetchinclude or lfs.fetchexclude in the git configuration, or in
+// the .lfsconfig of commit, which is what a clean checkout of it has.
+func seedHeadLFSFetchFiltered(ctx context.Context, runner EnvironmentCommandRunner, repoDir, commit string) bool {
+	const keys = `^lfs\.fetch(in|ex)clude$`
+	env := seedHeadGitEnv("")
+	for _, args := range [][]string{
+		{"config", "--get-regexp", keys},
+		{"config", "--blob", commit + ":.lfsconfig", "--get-regexp", keys},
+	} {
+		out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...)
+		if err != nil {
+			continue
+		}
+		// Each line is the key, a space and the value: a comma-separated
+		// pattern list, which Git LFS ignores when it holds no pattern.
+		for _, line := range strings.Split(string(out), "\n") {
+			if _, value, ok := strings.Cut(line, " "); ok && strings.Trim(value, " ,\t\r") != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // seedHeadLFSObjectsDir is the repository's default Git LFS object store, or ""
