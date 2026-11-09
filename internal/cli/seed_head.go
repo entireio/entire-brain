@@ -1045,25 +1045,31 @@ func seedHeadTrackedPath(root, file string, entries map[string]seedHeadEntry) (s
 
 // seedHeadTreePath walks rel, a path relative to the work tree, through
 // HEAD's tree as a clean checkout lays it out, and returns the tracked
-// ordinary file it ends at ("" for none). settled is false where the walk
-// passes through a directory HEAD does not track, or through a tracked
-// symlink, whose target only the work tree can resolve.
+// ordinary file it ends at ("" for none). A path that ends in a separator,
+// "." or ".." names a directory, which no file is. settled is false where the
+// walk passes through a directory HEAD does not track or a tracked symlink,
+// whose target only the work tree can resolve, or climbs above the work
+// tree, where only the OS can tell whether ../<root name>/... comes back in.
 func seedHeadTreePath(rel string, entries map[string]seedHeadEntry) (path string, settled bool) {
 	var parts []string
 	start := 0
 	for i := 0; i <= len(rel); i++ {
 		if i == len(rel) || os.IsPathSeparator(rel[i]) || rel[i] == '/' {
-			if part := rel[start:i]; part != "" && part != "." {
-				parts = append(parts, part)
-			}
+			parts = append(parts, rel[start:i])
 			start = i + 1
 		}
 	}
+	if last := parts[len(parts)-1]; last == "" || last == "." || last == ".." {
+		return "", true
+	}
 	var stack []string
 	for i, part := range parts {
-		if part == ".." {
+		switch part {
+		case "", ".":
+			continue
+		case "..":
 			if len(stack) == 0 {
-				return "", true // out of the work tree
+				return "", false
 			}
 			stack = stack[:len(stack)-1]
 			continue
@@ -1076,9 +1082,6 @@ func seedHeadTreePath(rel string, entries map[string]seedHeadEntry) (path string
 		if !seedHeadTreeHasDir(entries, strings.Join(stack, "/")) {
 			return "", false
 		}
-	}
-	if len(stack) == 0 || parts[len(parts)-1] == ".." {
-		return "", true
 	}
 	path = strings.Join(stack, "/")
 	if entry, ok := entries[path]; ok && entry.ordinaryFile() {

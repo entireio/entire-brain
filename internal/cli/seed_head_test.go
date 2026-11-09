@@ -1904,15 +1904,40 @@ func TestSeedHeadTreePathWalksHEADsLayout(t *testing.T) {
 		"cfg/other.attrs":               {"", true},
 		"cfg":                           {"", true},
 		"cfg/..":                        {"", true},
-		"../custom.attrs":               {"", true},
+		"../custom.attrs":               {"", false}, // the OS decides where it comes back in
 		"gone/../custom.attrs":          {"", false}, // only the worktree has gone
 		"link/../custom.attrs":          {"", false}, // a tracked symlink
 		"custom.attrs/x":                {"", false},
+		// A trailing separator, "." or ".." names a directory.
+		"custom.attrs/":        {"", true},
+		"custom.attrs/.":       {"", true},
+		"cfg/custom.attrs/":    {"", true},
+		"../repo/custom.attrs": {"", false},
 	}
 	for rel, want := range cases {
 		path, settled := seedHeadTreePath(rel, entries)
 		if (result{path, settled}) != want {
 			t.Errorf("seedHeadTreePath(%q) = %q, %v; want %q, %v", rel, path, settled, want.path, want.settled)
+		}
+	}
+}
+
+func TestSeedHeadTrackedPathReadsPathsAsACleanCheckoutDoes(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	sep := string(filepath.Separator)
+	entries := map[string]seedHeadEntry{"custom.attrs": {mode: "100644", kind: "blob", object: "0123", size: 1}}
+	cases := map[string]string{
+		root + sep + "custom.attrs": "custom.attrs",
+		// Out of the work tree and back in through its own name.
+		root + sep + ".." + sep + filepath.Base(root) + sep + "custom.attrs": "custom.attrs",
+		root + sep + "custom.attrs" + sep:                                    "",
+		root + sep + "custom.attrs" + sep + ".":                              "",
+	}
+	for file, want := range cases {
+		got, ok := seedHeadTrackedPath(root, file, entries)
+		if ok != (want != "") || got != want {
+			t.Errorf("seedHeadTrackedPath(%q) = %q, %v; want %q", file, got, ok, want)
 		}
 	}
 }
