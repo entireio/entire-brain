@@ -1690,6 +1690,7 @@ func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
 		stored     bool   // the attributes file's LFS object is in the local store
 		skipSmudge bool   // GIT_LFS_SKIP_SMUDGE=1
 		later      string // the worktree's file once seed has read it
+		config     string // more global git configuration
 		applied    bool
 		warned     bool
 	}{
@@ -1702,6 +1703,9 @@ func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
 		{name: "in LFS, edited in the worktree", committed: inLFS, worktree: rules + "# edited\n", warned: true},
 		{name: "in LFS, smudge skipped", committed: inLFS, worktree: rules, stored: true, skipSmudge: true},
 		{name: "in LFS, empty", committed: map[string]string{".gitattributes": "custom.attrs filter=lfs -text\n", "custom.attrs": lfsPointer("")}, worktree: rules},
+		// Its own filter or encoding is not run; its committed bytes are read.
+		{name: "committed with a filter", committed: map[string]string{".gitattributes": "custom.attrs filter=pass\n", "custom.attrs": rules}, worktree: noRules, config: "[filter \"pass\"]\n\tsmudge = cat\n", applied: true, warned: true},
+		{name: "committed with an encoding", committed: map[string]string{".gitattributes": "custom.attrs working-tree-encoding=ISO-8859-1\n", "custom.attrs": rules}, worktree: noRules, applied: true, warned: true},
 		{name: "pointer text not marked filter=lfs", committed: map[string]string{"custom.attrs": lfsPointer(rules)}, worktree: rules, stored: true},
 	}
 	for _, tc := range cases {
@@ -1709,7 +1713,7 @@ func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
 			stored := "# manual kept in LFS\n"
 			isolateSeedHeadTemp(t)
 			global := filepath.Join(t.TempDir(), "gitconfig")
-			if err := os.WriteFile(global, []byte("[core]\n\tattributesFile = custom.attrs\n"), 0o600); err != nil {
+			if err := os.WriteFile(global, []byte("[core]\n\tattributesFile = custom.attrs\n"+tc.config), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			t.Setenv("GIT_CONFIG_GLOBAL", global)
@@ -1837,6 +1841,79 @@ func TestSeedHeadAttributesFileConfigReadsAnUnsizedEntryAsCommitted(t *testing.T
 	}
 	if data, err := os.ReadFile(committed); err != nil || string(data) != rules {
 		t.Errorf("committed copy = %q, %v; want %q", data, err, rules)
+	}
+}
+
+// TestSeedHeadAttributesFileConfigReadsHEADsLayoutOverADirtySymlink: a
+// worktree that turned a tracked directory into a symlink does not move the
+// tracked attributes file under it, since a clean checkout of HEAD has the
+// directory.
+func TestSeedHeadAttributesFileConfigReadsHEADsLayoutOverADirtySymlink(t *testing.T) {
+	t.Parallel()
+	repoDir := seedHeadTestRepo(t)
+	rules := "*.md text eol=crlf\n"
+	writeSeedHeadFiles(t, repoDir, map[string]string{"cfg/custom.attrs": rules})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "attributes")
+	gitAt(t, repoDir, "config", "core.attributesFile", "cfg/custom.attrs")
+	elsewhere := t.TempDir()
+	writeSeedHeadFiles(t, elsewhere, map[string]string{"custom.attrs": "# not HEAD's\n"})
+	if err := os.RemoveAll(filepath.Join(repoDir, "cfg")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(repoDir, "cfg")); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skip(err)
+		}
+		t.Fatal(err)
+	}
+	object, _, err := ExecRunner{}.RunWithEnv(context.Background(), repoDir, nil, "git", "rev-parse", "HEAD:cfg/custom.attrs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &seedHeadCheckout{tempRoot: t.TempDir()}
+	entries := map[string]seedHeadEntry{"cfg/custom.attrs": {mode: "100644", kind: "blob", object: strings.TrimSpace(string(object)), size: int64(len(rules))}}
+	got := c.attributesFileConfig(context.Background(), ExecRunner{}, repoDir, seedHeadGitEnv(""), entries)
+	committed := filepath.Join(c.tempRoot, "attributes")
+	if want := []string{"-c", "core.attributesFile=" + committed}; !slices.Equal(got, want) {
+		t.Fatalf("config = %q, want %q", got, want)
+	}
+	if data, err := os.ReadFile(committed); err != nil || string(data) != rules {
+		t.Errorf("committed copy = %q, %v; want %q", data, err, rules)
+	}
+}
+
+func TestSeedHeadTreePathWalksHEADsLayout(t *testing.T) {
+	t.Parallel()
+	file := seedHeadEntry{mode: "100644", kind: "blob", object: "0123", size: 1}
+	entries := map[string]seedHeadEntry{
+		"custom.attrs": file, "cfg/custom.attrs": file, "deep/a/b.attrs": file,
+		"link": {mode: "120000", kind: "blob", object: "4567", size: 3},
+	}
+	type result struct {
+		path    string
+		settled bool
+	}
+	cases := map[string]result{
+		"custom.attrs":                  {"custom.attrs", true},
+		"cfg/custom.attrs":              {"cfg/custom.attrs", true},
+		"./cfg//custom.attrs":           {"cfg/custom.attrs", true},
+		"cfg/../custom.attrs":           {"custom.attrs", true},
+		"deep/a/../../cfg/custom.attrs": {"cfg/custom.attrs", true},
+		"untracked.attrs":               {"", true},
+		"cfg/other.attrs":               {"", true},
+		"cfg":                           {"", true},
+		"cfg/..":                        {"", true},
+		"../custom.attrs":               {"", true},
+		"gone/../custom.attrs":          {"", false}, // only the worktree has gone
+		"link/../custom.attrs":          {"", false}, // a tracked symlink
+		"custom.attrs/x":                {"", false},
+	}
+	for rel, want := range cases {
+		path, settled := seedHeadTreePath(rel, entries)
+		if (result{path, settled}) != want {
+			t.Errorf("seedHeadTreePath(%q) = %q, %v; want %q, %v", rel, path, settled, want.path, want.settled)
+		}
 	}
 }
 

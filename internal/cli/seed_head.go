@@ -874,11 +874,12 @@ const seedHeadAttributesFileMaxBytes = 1 << 20
 // regular file there that HEAD tracks is part of the commit and, like
 // .gitattributes, is read as committed: its blob is written to the scratch
 // area as it is, with no filter or conversion run (git reads LF and CRLF
-// rules alike), and that copy is named. One HEAD stores in Git LFS is settled
-// by lfsAttributesFile. One that cannot be read from HEAD is left out, with a
-// warning, rather than read with its uncommitted edits. Any other file is
-// read where it is, as git reads it. --path expands ~ and %(prefix); an unset
-// value needs nothing.
+// rules alike), and that copy is named; settleAttributesFile then hydrates
+// one HEAD stores in Git LFS. Whether the value names a tracked file is read
+// from HEAD's own layout where it can be (seedHeadTrackedPath). One that
+// cannot be read from HEAD is left out, with a warning, rather than read with
+// its uncommitted edits. Any other file is read where it is, as git reads it.
+// --path expands ~ and %(prefix); an unset value needs nothing.
 func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, entries map[string]seedHeadEntry) []string {
 	out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "config", "-z", "--path", "--get", "core.attributesFile")
 	if err != nil {
@@ -898,7 +899,7 @@ func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner Envi
 	if relative {
 		file = root + string(filepath.Separator) + value
 	}
-	if tracked, ok := seedHeadWorkTreePath(root, file); ok {
+	if tracked, ok := seedHeadTrackedPath(root, file, entries); ok {
 		if entry, ok := entries[tracked]; ok && entry.ordinaryFile() {
 			committed := filepath.Join(c.tempRoot, "attributes")
 			if err := writeSeedHeadBlob(ctx, runner, repoDir, env, entry, committed); err != nil {
@@ -908,7 +909,7 @@ func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner Envi
 				}
 				return []string{"-c", "core.attributesFile=" + committed}
 			}
-			c.lfsAttributesFile(ctx, runner, repoDir, env, tracked, committed, file)
+			c.settleAttributesFile(ctx, runner, repoDir, env, tracked, committed, file)
 			return []string{"-c", "core.attributesFile=" + committed}
 		}
 	}
@@ -944,23 +945,51 @@ func writeSeedHeadBlob(ctx context.Context, runner EnvironmentCommandRunner, rep
 	return os.WriteFile(target, data, 0o600)
 }
 
-// lfsAttributesFile settles a tracked attributes file whose HEAD copy
-// (committed) is a Git LFS pointer, as a clean checkout of HEAD writes it,
-// and always in that copy, so nothing the work tree holds is read after it
-// was checked. The pointer is kept as committed unless HEAD's attributes mark
-// the file filter=lfs and the caller's git-lfs smudges it
-// (smudgesAttributesFile). Then its object is read from the local store, as
-// settleLFSPointers reads one, or from the worktree's file where that is
-// exactly the object (both copied and verified as they are read), and
-// otherwise the pointer is kept, with a warning unless the worktree shows the
-// pointer too.
-func (c *seedHeadCheckout) lfsAttributesFile(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, path, committed, worktree string) {
+// settleAttributesFile makes seed's copy (committed) of the tracked attributes
+// file at path what a clean checkout of HEAD writes, as far as seed can. Its
+// own attributes are the ones a fresh checkout reads before that file exists:
+// HEAD's .gitattributes and info/attributes. Where they mark it filter=lfs and
+// the caller's git-lfs smudges (seedHeadLFSCheckoutMode), lfsAttributesFile
+// hydrates it. Any other filter driver, or a working-tree-encoding, is not
+// run for it, since running the file's own filters could fetch or fail
+// unreported; seed reads its committed bytes and says so.
+func (c *seedHeadCheckout) settleAttributesFile(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, path, committed, worktree string) {
+	none := filepath.Join(c.tempRoot, "no-attributes")
+	if os.WriteFile(none, nil, 0o600) != nil {
+		return
+	}
+	attrs, err := c.attributes(ctx, runner, repoDir, env, []string{"-c", "core.attributesFile=" + none}, []string{path})
+	if err != nil {
+		return
+	}
+	attr := attrs[path]
+	lfsMode := seedHeadLFSUnfiltered
+	if attr.filter == "lfs" {
+		lfsMode = seedHeadLFSCheckoutMode(ctx, runner, repoDir)
+	}
+	switch {
+	case lfsMode == seedHeadLFSSmudges:
+		c.lfsAttributesFile(ctx, runner, repoDir, path, committed, worktree)
+	case specifiedAttr(attr.encoding),
+		lfsMode == seedHeadLFSUnfiltered && seedHeadFilterDrivers(ctx, runner, repoDir, env).runs(attr.filter):
+		c.warnings = append(c.warnings, fmt.Sprintf("the attributes file core.attributesFile names (%s) has a filter or working-tree-encoding, which seed does not run for it; seed read the rules in its committed bytes", path))
+	}
+}
+
+// lfsAttributesFile hydrates seed's copy (committed) of a tracked attributes
+// file that HEAD stores as a Git LFS pointer and git-lfs smudges, always in
+// that copy, so nothing the work tree holds is read after it was checked. Its
+// object is read from the local store, as settleLFSPointers reads one, or
+// from the worktree's file where that is exactly the object (both copied and
+// verified as they are read). Otherwise the pointer is kept, with a warning
+// unless the worktree shows the pointer too.
+func (c *seedHeadCheckout) lfsAttributesFile(ctx context.Context, runner EnvironmentCommandRunner, repoDir, path, committed, worktree string) {
 	pointer, err := clibase.SafeReadFile(committed, seedHeadLFSPointerMaxBytes)
 	if err != nil {
 		return
 	}
 	oid, size, extended, ok := parseLFSPointer(pointer)
-	if !ok || !c.smudgesAttributesFile(ctx, runner, repoDir, env, path) {
+	if !ok {
 		return
 	}
 	keep := func(why string) {
@@ -997,21 +1026,76 @@ func (c *seedHeadCheckout) lfsAttributesFile(ctx context.Context, runner Environ
 	}
 }
 
-// smudgesAttributesFile reports whether a clean checkout of HEAD hands the
-// attributes file at path to git-lfs's smudge: the attributes a fresh checkout
-// reads before that file exists (HEAD's .gitattributes and info/attributes)
-// mark it filter=lfs, and the caller's git-lfs smudges
-// (seedHeadLFSCheckoutMode).
-func (c *seedHeadCheckout) smudgesAttributesFile(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, path string) bool {
-	none := filepath.Join(c.tempRoot, "no-attributes")
-	if os.WriteFile(none, nil, 0o600) != nil {
-		return false
+// seedHeadTrackedPath returns the path HEAD tracks that file names, in git's
+// form, and whether it names one. A clean checkout of HEAD lays its tracked
+// directories out as ordinary directories, so a file under root is read
+// against that layout first (seedHeadTreePath): a worktree that has turned a
+// tracked directory into a symlink does not move it. Only a path HEAD's
+// layout does not settle, one through a directory HEAD does not track or a
+// symlink it does, or one under another spelling of root, is resolved as the
+// OS resolves it in the work tree (seedHeadWorkTreePath).
+func seedHeadTrackedPath(root, file string, entries map[string]seedHeadEntry) (string, bool) {
+	if rel, ok := strings.CutPrefix(file, root+string(filepath.Separator)); ok {
+		if path, settled := seedHeadTreePath(rel, entries); settled {
+			return path, path != ""
+		}
 	}
-	attrs, err := c.attributes(ctx, runner, repoDir, env, []string{"-c", "core.attributesFile=" + none}, []string{path})
-	if err != nil || attrs[path].filter != "lfs" {
-		return false
+	return seedHeadWorkTreePath(root, file)
+}
+
+// seedHeadTreePath walks rel, a path relative to the work tree, through
+// HEAD's tree as a clean checkout lays it out, and returns the tracked
+// ordinary file it ends at ("" for none). settled is false where the walk
+// passes through a directory HEAD does not track, or through a tracked
+// symlink, whose target only the work tree can resolve.
+func seedHeadTreePath(rel string, entries map[string]seedHeadEntry) (path string, settled bool) {
+	var parts []string
+	start := 0
+	for i := 0; i <= len(rel); i++ {
+		if i == len(rel) || os.IsPathSeparator(rel[i]) || rel[i] == '/' {
+			if part := rel[start:i]; part != "" && part != "." {
+				parts = append(parts, part)
+			}
+			start = i + 1
+		}
 	}
-	return seedHeadLFSCheckoutMode(ctx, runner, repoDir) == seedHeadLFSSmudges
+	var stack []string
+	for i, part := range parts {
+		if part == ".." {
+			if len(stack) == 0 {
+				return "", true // out of the work tree
+			}
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		stack = append(stack, part)
+		if i == len(parts)-1 {
+			break
+		}
+		// HEAD tracks nothing under a symlink or a file, so neither is one.
+		if !seedHeadTreeHasDir(entries, strings.Join(stack, "/")) {
+			return "", false
+		}
+	}
+	if len(stack) == 0 || parts[len(parts)-1] == ".." {
+		return "", true
+	}
+	path = strings.Join(stack, "/")
+	if entry, ok := entries[path]; ok && entry.ordinaryFile() {
+		return path, true
+	}
+	return "", true
+}
+
+// seedHeadTreeHasDir reports whether HEAD tracks anything under dir.
+func seedHeadTreeHasDir(entries map[string]seedHeadEntry, dir string) bool {
+	prefix := dir + "/"
+	for path := range entries {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // seedHeadWorkTreePath returns file's path in the work tree at root, in git's
