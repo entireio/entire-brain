@@ -2045,7 +2045,7 @@ func TestSeedHeadTrackedPathReadsPathsAsACleanCheckoutDoes(t *testing.T) {
 		root:                                            "",
 	}
 	for path, want := range cases {
-		got, kind, err := seedHeadTrackedPath(root, path, entries, follow)
+		got, kind, err := seedHeadTrackedPath(root, path, newSeedHeadTree(entries, false), follow)
 		switch kind {
 		case seedHeadPathUntracked:
 			got = untracked(got)
@@ -2059,20 +2059,93 @@ func TestSeedHeadTrackedPathReadsPathsAsACleanCheckoutDoes(t *testing.T) {
 			t.Errorf("seedHeadTrackedPath(%q) = %q, %v, %v; want %q", path, got, kind, err, want)
 		}
 	}
-	if got, kind, err := seedHeadTrackedPath(root, in("broken"), entries, follow); got != "broken" || kind != seedHeadPathTracked || err == nil {
+	if got, kind, err := seedHeadTrackedPath(root, in("broken"), newSeedHeadTree(entries, false), follow); got != "broken" || kind != seedHeadPathTracked || err == nil {
 		t.Errorf("an unreadable symlink: %q, %v, %v; want broken and its error", got, kind, err)
 	}
 	// With core.symlinks false a symlink is a plain file.
 	plain := func(seedHeadEntry) (string, bool, error) { return "", false, nil }
 	for path, want := range map[string]string{in("link.attrs"): "link.attrs", in("link/custom.attrs"): ""} {
-		if got, _, err := seedHeadTrackedPath(root, path, entries, plain); err != nil || got != want {
+		if got, _, err := seedHeadTrackedPath(root, path, newSeedHeadTree(entries, false), plain); err != nil || got != want {
 			t.Errorf("seedHeadTrackedPath(%q), core.symlinks false = %q, %v; want %q", path, got, err, want)
 		}
 	}
 	// A work tree at the top of the filesystem.
 	top := filepath.VolumeName(root) + sep
-	if got, kind, err := seedHeadTrackedPath(top, top+"custom.attrs", entries, follow); got != "custom.attrs" || kind != seedHeadPathTracked || err != nil {
+	if got, kind, err := seedHeadTrackedPath(top, top+"custom.attrs", newSeedHeadTree(entries, false), follow); got != "custom.attrs" || kind != seedHeadPathTracked || err != nil {
 		t.Errorf("seedHeadTrackedPath(%q) under %q = %q, %v, %v; want custom.attrs", top+"custom.attrs", top, got, kind, err)
+	}
+}
+
+// TestSeedHeadTrackedPathReadsCaseFoldedNames: where the repository's
+// filesystem folds case, a name reads the committed path of any spelling, and
+// one that several committed paths share holds the last of them a clean
+// checkout writes (a present blob over a missing one). A symlink's target is
+// read the same way.
+func TestSeedHeadTrackedPathReadsCaseFoldedNames(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	file := seedHeadEntry{mode: "100644", kind: "blob", object: "0123", size: 1}
+	entries := map[string]seedHeadEntry{
+		"rules.attrs": file, "A.attrs": file, "a.attrs": file, "B.attrs": file, "Cfg/x.attrs": file,
+		"b.attrs":     {mode: "100644", kind: "blob", object: "4567", size: 1, missing: true},
+		"alias.attrs": {mode: seedHeadSymlinkMode, kind: "blob", object: "89ab", size: 11},
+	}
+	follow := func(seedHeadEntry) (string, bool, error) { return "Rules.attrs", true, nil }
+	sep := string(filepath.Separator)
+	in := func(rel string) string { return root + sep + filepath.FromSlash(rel) }
+	for folds, cases := range map[bool]map[string]string{
+		true: {
+			in("RULES.attrs"): "rules.attrs", in("A.attrs"): "a.attrs", in("a.attrs"): "a.attrs",
+			in("b.attrs"): "B.attrs", in("cfg/X.attrs"): "Cfg/x.attrs", in("alias.attrs"): "rules.attrs",
+		},
+		false: {in("A.attrs"): "A.attrs", in("b.attrs"): "b.attrs", in("RULES.attrs"): "", in("cfg/X.attrs"): ""},
+	} {
+		tree := newSeedHeadTree(entries, folds)
+		for path, want := range cases {
+			got, kind, err := seedHeadTrackedPath(root, path, tree, follow)
+			if err != nil || got != want || (want != "") != (kind == seedHeadPathTracked) {
+				t.Errorf("folds %v: seedHeadTrackedPath(%q) = %q, %v, %v; want %q", folds, path, got, kind, err, want)
+			}
+		}
+	}
+}
+
+// TestSeedHeadAttributesPathReadsValuesAsGitDoes: git opens a relative value
+// from the top of the work tree, joined without cleaning, and on Windows a
+// value rooted without a drive is on the work tree's drive and a
+// drive-relative one on the work tree's drive is read from its top.
+func TestSeedHeadAttributesPathReadsValuesAsGitDoes(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	sep := string(filepath.Separator)
+	cases := map[string]string{
+		"custom.attrs":   root + sep + "custom.attrs",
+		"cfg/../x.attrs": root + sep + "cfg/../x.attrs",
+		"./custom.attrs": root + sep + "./custom.attrs",
+		root + sep + "x": root + sep + "x",
+	}
+	if runtime.GOOS == "windows" {
+		volume := filepath.VolumeName(root)
+		cases[`\attrs`] = volume + `\attrs`
+		cases["/attrs"] = volume + "/attrs"
+		cases[volume+"attrs"] = root + sep + "attrs"
+		cases[volume+`cfg\x`] = root + sep + `cfg\x`
+	} else {
+		cases["/etc/gitattributes"] = "/etc/gitattributes"
+	}
+	for value, want := range cases {
+		if got := seedHeadAttributesPath(root, value); got != want {
+			t.Errorf("seedHeadAttributesPath(%q) = %q, want %q", value, got, want)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		other := "Q:"
+		if strings.EqualFold(filepath.VolumeName(root), other) {
+			other = "R:"
+		}
+		if got := seedHeadAttributesPath(root, other+"attrs"); !filepath.IsAbs(got) || filepath.VolumeName(got) != other || filepath.Base(got) != "attrs" {
+			t.Errorf("seedHeadAttributesPath(%q) = %q, want it under that drive's current directory", other+"attrs", got)
+		}
 	}
 }
 

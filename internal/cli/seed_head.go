@@ -869,8 +869,8 @@ const seedHeadAttributesFileMaxBytes = 1 << 20
 // attributesFileConfig keeps the user's own attributes file
 // (core.attributesFile) in force for the checkout, as a clean checkout of
 // HEAD has it. git reads a relative value from the top of the work tree,
-// which the checkout points at an empty directory, so such a value is joined
-// to the real one (repoDir) instead, as git joins it, without cleaning.
+// which the checkout points at an empty directory, so such a value is read
+// from the real one (repoDir) instead (seedHeadAttributesPath).
 // seedHeadTrackedPath then reads the path as a clean checkout of HEAD
 // resolves it. A file HEAD tracks there is part of the commit and, like
 // .gitattributes, is read as committed: its blob is written to the scratch
@@ -896,11 +896,12 @@ func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner Envi
 			return nil
 		}
 	}
-	file := value
-	if !seedHeadGitAbsolutePath(value) {
-		file = root + string(filepath.Separator) + value
+	folds, ok := seedRepoFoldsCase(root)
+	if !ok {
+		folds = c.foldsCase
 	}
-	path, kind, err := seedHeadTrackedPath(root, file, entries, seedHeadLinkReader(ctx, runner, repoDir, env))
+	tree := newSeedHeadTree(entries, folds)
+	path, kind, err := seedHeadTrackedPath(root, seedHeadAttributesPath(root, value), tree, seedHeadLinkReader(ctx, runner, repoDir, env))
 	if err == nil && kind == seedHeadPathUntracked {
 		return []string{"-c", "core.attributesFile=" + path}
 	}
@@ -925,6 +926,31 @@ func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner Envi
 
 // seedHeadSymlinkMode is the mode git records for a symlink.
 const seedHeadSymlinkMode = "120000"
+
+// seedHeadAttributesPath is the absolute path git opens for value, a
+// core.attributesFile value, from the top of the work tree (root), where git
+// runs in the repository. A relative value is joined to root as git joins it,
+// without cleaning. On Windows a value rooted without a drive (\attrs) is on
+// root's drive, and a drive-relative one (C:attrs) is read from root on
+// root's own drive and from that drive's current directory on another.
+func seedHeadAttributesPath(root, value string) string {
+	sep := string(filepath.Separator)
+	volume := filepath.VolumeName(value)
+	switch {
+	case !seedHeadGitAbsolutePath(value):
+		return root + sep + value
+	case filepath.IsAbs(value):
+		return value
+	case volume == "":
+		return filepath.VolumeName(root) + value
+	case strings.EqualFold(volume, filepath.VolumeName(root)):
+		return root + sep + value[len(volume):]
+	}
+	if abs, err := filepath.Abs(value); err == nil {
+		return abs
+	}
+	return value
+}
 
 // seedHeadLinkMaxBytes bounds a symlink target seed reads from HEAD (Linux's
 // PATH_MAX).
@@ -1079,6 +1105,56 @@ const (
 	seedHeadPathUntracked
 )
 
+// seedHeadTree is HEAD's layout as a clean checkout of the repository has
+// it. Where the repository's filesystem treats names that differ only in case
+// as one (folds), a name is any spelling of a committed path, and one shared
+// by several files holds the last of them that checkout writes, as
+// seedHeadCaseAliases has it.
+type seedHeadTree struct {
+	entries map[string]seedHeadEntry
+	folds   bool
+	files   map[string]string // lower-cased path: the path whose content is there
+	dirs    map[string]bool   // lower-cased directories
+}
+
+func newSeedHeadTree(entries map[string]seedHeadEntry, folds bool) seedHeadTree {
+	tree := seedHeadTree{entries: entries, folds: folds}
+	if !folds {
+		return tree
+	}
+	tree.files, tree.dirs = map[string]string{}, map[string]bool{}
+	for _, path := range slices.Sorted(maps.Keys(entries)) {
+		key := strings.ToLower(path)
+		if owner, ok := tree.files[key]; !ok || entries[owner].missing || !entries[path].missing {
+			tree.files[key] = path
+		}
+		for i := strings.LastIndexByte(key, '/'); i > 0; i = strings.LastIndexByte(key[:i], '/') {
+			tree.dirs[key[:i]] = true
+		}
+	}
+	return tree
+}
+
+// lookup returns the committed path a clean checkout reads at path, and its
+// entry.
+func (t seedHeadTree) lookup(path string) (string, seedHeadEntry, bool) {
+	if t.folds {
+		if owner, ok := t.files[strings.ToLower(path)]; ok {
+			path = owner
+		}
+	}
+	entry, ok := t.entries[path]
+	return path, entry, ok
+}
+
+// hasDir reports whether HEAD tracks anything under dir.
+func (t seedHeadTree) hasDir(dir string) bool {
+	if t.folds {
+		return t.dirs[strings.ToLower(dir)]
+	}
+	return seedHeadTreeHasDir(t.entries, dir)
+}
+
 // seedHeadLinks reads the target of a symlink HEAD tracks
 // (seedHeadLinkReader).
 type seedHeadLinks func(entry seedHeadEntry) (target string, ok bool, err error)
@@ -1089,21 +1165,23 @@ const seedHeadMaxSymlinks = 40
 
 // seedHeadTrackedPath reads file, an absolute path, as a clean checkout of
 // HEAD resolves it: one part at a time, following each symlink to its target.
-// Inside the work tree a name HEAD tracks is what HEAD has there, whatever
-// the worktree made of it: a directory, a file (so a path through it names
+// Inside the work tree a name HEAD tracks (tree, which knows its spellings
+// where the filesystem folds case) is what HEAD has there, whatever the
+// worktree made of it: a directory, a file (so a path through it names
 // nothing), or a symlink, whose committed target is followed (links). A name
 // HEAD does not track is what the filesystem has, looked for only in a
 // directory the worktree still has as HEAD does, and so is everything outside
-// the work tree; a path that comes back in is read through HEAD's layout
-// again. A path that ends in a separator, "." or ".." names a directory,
+// the work tree; a path that comes back in, under any spelling, is read
+// through HEAD's layout again. A path that ends in a separator, "." or ".." names a directory,
 // never the file, as git's open of it finds. It returns the path HEAD tracks,
 // or the real path of a file it does not, and which it is. An error is a
 // symlink HEAD tracks, at the path returned, whose target could not be read.
-func seedHeadTrackedPath(root, file string, entries map[string]seedHeadEntry, links seedHeadLinks) (string, seedHeadPathKind, error) {
-	w := &seedHeadWalk{realRoot: root, entries: entries, links: links}
+func seedHeadTrackedPath(root, file string, tree seedHeadTree, links seedHeadLinks) (string, seedHeadPathKind, error) {
+	w := &seedHeadWalk{realRoot: root, tree: tree, links: links}
 	if real, err := filepath.EvalSymlinks(root); err == nil {
 		w.realRoot = real
 	}
+	w.root, _ = os.Stat(w.realRoot)
 	volume := filepath.VolumeName(file)
 	w.move(volume + string(filepath.Separator))
 	todo := seedHeadPathParts(file[len(volume):])
@@ -1142,7 +1220,8 @@ func seedHeadTrackedPath(root, file string, entries map[string]seedHeadEntry, li
 // layout, or outside it, as a real path.
 type seedHeadWalk struct {
 	realRoot string
-	entries  map[string]seedHeadEntry
+	root     fs.FileInfo // realRoot's, to know it under any spelling
+	tree     seedHeadTree
 	links    seedHeadLinks
 	inside   []string
 	outside  string
@@ -1200,8 +1279,7 @@ func (w *seedHeadWalk) jump(target string) []string {
 // directory, returning a symlink's target to follow, or ending the walk at a
 // file. It reports false when HEAD has nothing there.
 func (w *seedHeadWalk) headStep(part string, final bool) (string, bool, *seedHeadPathEnd, bool) {
-	path := strings.Join(append(slices.Clone(w.inside), part), "/")
-	entry, tracked := w.entries[path]
+	path, entry, tracked := w.tree.lookup(strings.Join(append(slices.Clone(w.inside), part), "/"))
 	switch {
 	case tracked && entry.mode == seedHeadSymlinkMode:
 		target, ok, err := w.links(entry)
@@ -1212,7 +1290,7 @@ func (w *seedHeadWalk) headStep(part string, final bool) (string, bool, *seedHea
 			return target, true, nil, true
 		}
 		// checked out as a plain file holding its target
-	case tracked && !entry.ordinaryFile(), !tracked && seedHeadTreeHasDir(w.entries, path):
+	case tracked && !entry.ordinaryFile(), !tracked && w.tree.hasDir(path):
 		// a directory, or a submodule's
 		w.inside = append(w.inside, part)
 		return "", false, nil, true
@@ -1249,7 +1327,14 @@ func (w *seedHeadWalk) fsStep(part string, final bool) (string, bool, *seedHeadP
 		}
 		return target, true, nil
 	case info.IsDir():
-		w.move(name)
+		switch {
+		case w.outside == "":
+			w.inside = append(w.inside, part)
+		case os.SameFile(info, w.root): // the work tree, however it is spelled
+			w.inside, w.outside = nil, ""
+		default:
+			w.outside = name
+		}
 		return "", false, nil
 	case final:
 		return "", false, &seedHeadPathEnd{path: name, kind: seedHeadPathUntracked}
