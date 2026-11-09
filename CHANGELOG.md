@@ -7,6 +7,13 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- The pattern corpus now reads current Codex sessions (the cli's item path,
+  in cli 0.13.1 and later). A command that failed is stored as failed, with no
+  exit code since the session records none, and counts in `exit_fails`. A file
+  edit gives a file ref, stored relative to the repository root (taken from the
+  files the session's checkpoint touched) so it links to the file's symbols.
+  The indexer version moves to 12, so the next refresh re-indexes existing
+  sessions (#600).
 - `recall --evidence` no longer returns harness-injected `<system-reminder>`
   text as `role: "user"` evidence. User-role strings and text blocks now go
   through the same wrapper filter as the conversation reader, so reminders,
