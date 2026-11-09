@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"path"
 	"regexp"
 	"sort"
@@ -97,15 +96,9 @@ func corpusEpisodeOps(workText, repoRoot string) (tools []corpusToolOp, commands
 			continue
 		}
 		ln := i + 1
-		var uses []toolUse
-		if record.etf != nil {
-			if !record.etfIs(transcript.TypeAssistant) {
-				continue
-			}
-			uses = etfToolUses(record.etf)
-			if strings.EqualFold(record.etf.Agent, "codex") {
-				compactCodexResults(uses, exitByCall, failedByCall)
-			}
+		uses := recordToolUses(record)
+		if record.etf != nil && strings.EqualFold(record.etf.Agent, "codex") {
+			compactCodexResults(uses, exitByCall, failedByCall)
 		}
 		obj := record.obj // nil for a format line, which matches no case below
 		switch jsonString(obj["type"]) {
@@ -137,12 +130,6 @@ func corpusEpisodeOps(workText, repoRoot string) (tools []corpusToolOp, commands
 					}
 				}
 			}
-		case "assistant", "message":
-			msg := jsonMap(obj["message"])
-			if jsonString(obj["type"]) == "message" && jsonString(msg["role"]) != "assistant" {
-				continue
-			}
-			uses = nativeToolUses(msg["content"])
 		}
 		t, c, f := toolUseOps(uses, repoRoot, ln)
 		tools = append(tools, t...)
@@ -163,6 +150,29 @@ func corpusEpisodeOps(workText, repoRoot string) (tools []corpusToolOp, commands
 		}
 	}
 	return tools, commands, dedupeFileRefs(files)
+}
+
+// recordToolUses returns the tool calls an assistant transcript line makes: a
+// format line's tool_use blocks, or the tool_use and tool blocks of a native
+// Claude Code or pi assistant message. Any other line makes none. The episode
+// ops and the FileChange root (codexFileChangePaths) both read a session's
+// tool calls through it, so they agree on which blocks are edits.
+func recordToolUses(record transcriptRecord) []toolUse {
+	if record.etf != nil {
+		if !record.etfIs(transcript.TypeAssistant) {
+			return nil
+		}
+		return etfToolUses(record.etf)
+	}
+	switch recordType := jsonString(record.obj["type"]); recordType {
+	case "assistant", "message":
+		msg := jsonMap(record.obj["message"])
+		if recordType == "message" && jsonString(msg["role"]) != "assistant" {
+			return nil
+		}
+		return nativeToolUses(msg["content"])
+	}
+	return nil
 }
 
 // toolUseOps returns the tool, command, and file operations of one record's
@@ -188,7 +198,7 @@ func toolUseOps(uses []toolUse, repoRoot string, ln int) (tools []corpusToolOp, 
 				files = append(files, patchFiles(patchInputText(use.input), ln)...)
 			}
 		}
-		if use.name == "filechange" {
+		if use.name == fileChangeToolName {
 			files = append(files, fileChangeFiles(use.input, repoRoot, ln)...)
 		}
 	}
@@ -208,19 +218,29 @@ func patchInputText(input any) string {
 	return text
 }
 
-// fileChangeFiles reads the file refs of a compact codex FileChange, the tool
+// fileChangeToolName is a compact codex FileChange's tool name as toolUse
+// carries it (lowercased).
+const fileChangeToolName = "filechange"
+
+// fileChangeNamePattern finds a line that may hold a FileChange, in any case,
+// before it is decoded.
+var fileChangeNamePattern = regexp.MustCompile(`(?i)filechange`)
+
+// fileChangeRefs reads the file refs of a compact codex FileChange, the tool
 // the cli's item path (a current Codex rollout) writes for an edit:
 // {"changes":[{"path","kind","move_path","diff"}]}. kind is add, delete or
 // update; an update with a move_path deletes path and adds move_path. Like an
-// apply_patch, every change counts whatever its result status.
-func fileChangeFiles(input any, repoRoot string, ln int) []corpusFileRef {
+// apply_patch, every change counts whatever its result status. Paths are
+// trimmed but otherwise as written: fileChangeFiles makes them repo-relative,
+// and codexFileChangePaths infers the session's root from these same paths.
+func fileChangeRefs(input any, ln int) []corpusFileRef {
 	changes, _ := asObject(input)["changes"].([]any)
 	var out []corpusFileRef
 	for _, c := range changes {
 		cm := jsonMap(c)
-		p := repoRelativePath(jsonString(cm["path"]), repoRoot)
+		p := strings.TrimSpace(jsonString(cm["path"]))
 		kind := strings.ToLower(strings.TrimSpace(jsonString(cm["kind"])))
-		if move := repoRelativePath(jsonString(cm["move_path"]), repoRoot); move != "" && kind == "update" {
+		if move := strings.TrimSpace(jsonString(cm["move_path"])); move != "" && kind == "update" {
 			if p != "" {
 				out = append(out, corpusFileRef{path: p, action: "delete", line: ln})
 			}
@@ -237,6 +257,16 @@ func fileChangeFiles(input any, repoRoot string, ln int) []corpusFileRef {
 		out = append(out, corpusFileRef{path: p, action: action, line: ln})
 	}
 	return out
+}
+
+// fileChangeFiles is fileChangeRefs with each path under repoRoot made
+// relative to it.
+func fileChangeFiles(input any, repoRoot string, ln int) []corpusFileRef {
+	refs := fileChangeRefs(input, ln)
+	for i := range refs {
+		refs[i].path = repoRelativePath(refs[i].path, repoRoot)
+	}
+	return refs
 }
 
 // repoRelativePath is p relative to repoRoot (a clean forward-slash path from
@@ -278,7 +308,7 @@ func repoRelativePath(p, repoRoot string) string {
 // it stores must not depend on which checkout, subdirectory or symlinked
 // spelling happened to build it first.
 func codexSessionRoot(transcript string, filesTouched []string) string {
-	if len(filesTouched) == 0 || !strings.Contains(transcript, `"FileChange"`) {
+	if len(filesTouched) == 0 || !fileChangeNamePattern.MatchString(transcript) {
 		return ""
 	}
 	touched := map[string]bool{}
@@ -315,40 +345,35 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 	return best
 }
 
-// codexFileChangePaths is every distinct absolute path (path and move_path)
-// in a compact codex transcript's FileChange blocks, cleaned by cleanAbsPath.
-// resolved is false when any of them has a ".." segment: where that path
-// really is cannot be known here, and leaving it out could hand the root to
-// whichever paths are left.
+// codexFileChangePaths is every distinct absolute path of the file refs a
+// compact codex transcript's FileChange calls give (fileChangeRefs, read
+// through recordToolUses as the episode ops read them), cleaned by
+// cleanAbsPath. resolved is false when any of them has a ".." segment: where
+// that path really is cannot be known here, and leaving it out could hand the
+// root to whichever paths are left.
 func codexFileChangePaths(transcript string) (paths []string, resolved bool) {
 	seen := map[string]bool{}
 	var out []string
 	resolved = true
 	for _, line := range strings.Split(transcript, "\n") {
-		if !strings.Contains(line, `"FileChange"`) {
+		if !fileChangeNamePattern.MatchString(line) {
 			continue
 		}
-		var obj map[string]any
-		if json.Unmarshal([]byte(strings.TrimSpace(line)), &obj) != nil {
+		record, ok := decodeTranscriptRecord(line)
+		if !ok {
 			continue
 		}
-		blocks, _ := obj["content"].([]any)
-		for _, b := range blocks {
-			bm := jsonMap(b)
-			if jsonString(bm["name"]) != "FileChange" {
+		for _, use := range recordToolUses(record) {
+			if use.name != fileChangeToolName {
 				continue
 			}
-			changes, _ := asObject(bm["input"])["changes"].([]any)
-			for _, c := range changes {
-				cm := jsonMap(c)
-				for _, p := range []string{jsonString(cm["path"]), jsonString(cm["move_path"])} {
-					if hasDotDotSegment(slashPath(p)) {
-						resolved = false
-					}
-					if s, ok := cleanAbsPath(p); ok && !seen[s] {
-						seen[s] = true
-						out = append(out, s)
-					}
+			for _, ref := range fileChangeRefs(use.input, 0) {
+				if hasDotDotSegment(slashPath(ref.path)) {
+					resolved = false
+				}
+				if s, ok := cleanAbsPath(ref.path); ok && !seen[s] {
+					seen[s] = true
+					out = append(out, s)
 				}
 			}
 		}
