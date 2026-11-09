@@ -5296,8 +5296,9 @@ func (s *brainBriefShownHistory) repeats(match brainTextMatch, line, query strin
 	if len(excerpts) == 0 {
 		return false
 	}
+	values, decoded := rawLineTexts(line)
 	var shown historyMentionCount
-	for _, text := range rawLineTexts(line) {
+	for _, text := range values {
 		if !historyTextMatchesQuery(text, query) {
 			continue
 		}
@@ -5307,7 +5308,12 @@ func (s *brainBriefShownHistory) repeats(match brainTextMatch, line, query strin
 		}
 		shown = shown.add(countHistoryMentions(cleaned, query))
 	}
-	return shown.literal+shown.normalized > 0 && countHistoryMentions(normalizeHistoryTextForExcerpt(line), query) == shown
+	// Count the line both as the raw matcher reads it and decoded, keys
+	// included: a JSON escape (\u0041) hides a mention from one reading only,
+	// and either may hold one the shown values lack.
+	return shown.literal+shown.normalized > 0 &&
+		countHistoryMentions(normalizeHistoryTextForExcerpt(line), query) == shown &&
+		countHistoryMentions(cleanHistorySummary(decoded), query) == shown
 }
 
 // historyMentionCount counts a query's mentions in a text the two ways
@@ -5349,16 +5355,17 @@ func countOverlapping(text, sub string) int {
 	}
 }
 
-// rawLineTexts returns the string values of a JSON line in order, or the
-// line itself when it is not JSON.
-func rawLineTexts(line string) []string {
+// rawLineTexts returns the string values of a JSON line in order, and every
+// decoded key and string value joined by spaces. A line that is not one
+// complete JSON value is its own single value and decoded text.
+func rawLineTexts(line string) (values []string, decoded string) {
 	text := strings.TrimSpace(line)
 	if !strings.HasPrefix(text, "{") && !strings.HasPrefix(text, "[") {
-		return []string{text}
+		return []string{text}, text
 	}
 	type level struct{ object, key bool }
 	var (
-		texts []string
+		strs  []string
 		stack []level
 	)
 	valueDone := func() {
@@ -5370,10 +5377,10 @@ func rawLineTexts(line string) []string {
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF && len(stack) == 0 {
-			return texts
+			return values, strings.Join(strs, " ")
 		}
 		if err != nil {
-			return []string{text}
+			return []string{text}, text
 		}
 		if delim, ok := token.(json.Delim); ok {
 			if delim == '{' || delim == '[' {
@@ -5384,12 +5391,16 @@ func rawLineTexts(line string) []string {
 			}
 			continue
 		}
+		str, isString := token.(string)
+		if isString {
+			strs = append(strs, str)
+		}
 		if n := len(stack); n > 0 && stack[n-1].key {
 			stack[n-1].key = false
 			continue
 		}
-		if value, ok := token.(string); ok && strings.TrimSpace(value) != "" {
-			texts = append(texts, value)
+		if isString && strings.TrimSpace(str) != "" {
+			values = append(values, str)
 		}
 		valueDone()
 	}

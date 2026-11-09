@@ -231,6 +231,15 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 			wantIn:   "failed",
 		},
 		{
+			// Decoded, the shown value has the line's only mention apart from
+			// the key; read raw, the escape hides it and the counts balance.
+			name:     "an escaped shown value and a key that has the query",
+			blocks:   []string{`{"type":"text","text":"\u0041LPHA_IDENTIFIER discussed","ALPHA_IDENTIFIER":"failed"}`},
+			shown:    []string{"ALPHA_IDENTIFIER discussed"},
+			wantKept: true,
+			wantIn:   "failed",
+		},
+		{
 			name:     "every block with the query is shown",
 			blocks:   []string{textBlock("ALPHA_IDENTIFIER was discussed"), textBlock("ALPHA_IDENTIFIER failed with exit 1")},
 			shown:    []string{"ALPHA_IDENTIFIER was discussed", "ALPHA_IDENTIFIER failed with exit 1"},
@@ -352,16 +361,26 @@ func TestRawHistoryTopUpKeepsToolOutputTheIndexLeavesOut(t *testing.T) {
 
 func TestRawLineTextsReadsStringValuesInOrder(t *testing.T) {
 	t.Parallel()
-	cases := map[string][]string{
-		`{"type":"assistant","content":[{"type":"text","text":"first"},{"input":{"command":"second"},"n":3,"ok":true,"none":null}],"text":"third"}`: {"assistant", "text", "first", "second", "third"},
-		`["a",["b",{"k":"c"}]]`:     {"a", "b", "c"},
-		`plain text line`:           {"plain text line"},
-		`{"type": "broken", "text"`: {`{"type": "broken", "text"`},
-		`{"a":"x"} trailing`:        {`{"a":"x"} trailing`},
+	cases := []struct {
+		line        string
+		wantValues  []string
+		wantDecoded string
+	}{
+		{
+			line:        `{"type":"assistant","content":[{"type":"text","text":"first"},{"input":{"command":"second"},"n":3,"ok":true,"none":null}],"text":"third"}`,
+			wantValues:  []string{"assistant", "text", "first", "second", "third"},
+			wantDecoded: "type assistant content type text text first input command second n ok none text third",
+		},
+		{line: `["a",["b",{"k":"c"}]]`, wantValues: []string{"a", "b", "c"}, wantDecoded: "a b k c"},
+		{line: `{"\u0041":"\u0042"}`, wantValues: []string{"B"}, wantDecoded: "A B"},
+		{line: `plain text line`, wantValues: []string{"plain text line"}, wantDecoded: "plain text line"},
+		{line: `{"type": "broken", "text"`, wantValues: []string{`{"type": "broken", "text"`}, wantDecoded: `{"type": "broken", "text"`},
+		{line: `{"a":"x"} trailing`, wantValues: []string{`{"a":"x"} trailing`}, wantDecoded: `{"a":"x"} trailing`},
 	}
-	for line, want := range cases {
-		if got := rawLineTexts(line); !reflect.DeepEqual(got, want) {
-			t.Errorf("rawLineTexts(%q) = %q, want %q", line, got, want)
+	for _, tc := range cases {
+		values, decoded := rawLineTexts(tc.line)
+		if !reflect.DeepEqual(values, tc.wantValues) || decoded != tc.wantDecoded {
+			t.Errorf("rawLineTexts(%q) = %q, %q; want %q, %q", tc.line, values, decoded, tc.wantValues, tc.wantDecoded)
 		}
 	}
 }
