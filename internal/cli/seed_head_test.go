@@ -1328,6 +1328,22 @@ func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 		{name: "repository filter that is not git-lfs", want: asCommitted, configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "filter.lfs.smudge", "my-lfs-wrapper smudge %f")
 		}},
+		{name: "repository filter that names git-lfs as an argument", want: asCommitted, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "cat git-lfs")
+		}},
+		{name: "repository compound filter with a quoted --skip", want: asCommitted, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge -- %f; echo '--skip'")
+		}},
+		// The command line's own GIT_LFS_SKIP_SMUDGE is what git-lfs reads.
+		{name: "repository smudge setting GIT_LFS_SKIP_SMUDGE=1", want: encoded, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "GIT_LFS_SKIP_SMUDGE=1 git-lfs smudge -- %f")
+		}},
+		{name: "repository smudge setting GIT_LFS_SKIP_SMUDGE=0 over the caller's 1", skipEnv: "1", want: content, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "env GIT_LFS_SKIP_SMUDGE=0 git-lfs smudge -- %f")
+		}},
+		{name: "repository smudge with --skip after --", want: content, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge -- --skip")
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := exec.LookPath("git-lfs"); tc.runsGitLFS && err != nil {
@@ -1376,28 +1392,47 @@ func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 	}
 }
 
-func TestSeedHeadRunsGitLFSNamesTheProgram(t *testing.T) {
+func TestSeedHeadGitLFSCommandReadsTheFilterAsShDoes(t *testing.T) {
 	t.Parallel()
-	for command, want := range map[string]bool{
-		"git-lfs filter-process":                                true,
-		"git-lfs smudge --skip -- %f":                           true,
-		"/usr/local/bin/git-lfs smudge -- %f":                   true,
-		`"C:\Program Files\Git LFS\git-lfs.exe" filter-process`: true,
-		"'/opt/git lfs/git-lfs' smudge %f":                      true,
-		"git lfs smudge %f":                                     true,
-		"git\tlfs smudge %f":                                    true,
-		"cat":                                                   false,
-		"git status":                                            false,
-		"git":                                                   false,
-		"my-git-lfs-wrapper smudge %f":                          false,
-		"git-lfs-wrapper smudge %f":                             false,
-		"env LC_ALL=C git-lfs smudge -- %f":                     true,
-		"sh -c 'git-lfs smudge -- %f'":                          true,
-		"cat -- %f":                                             false,
-		"":                                                      false,
+	notGitLFS := []string{
+		"", "cat", "cat -- %f", "git status", "git", "git -c x=y lfs smudge %f",
+		"my-git-lfs-wrapper smudge %f", "git-lfs-wrapper smudge %f",
+		"cat git-lfs", "cat git lfs", "env -i git-lfs smudge %f",
+		"git-lfs smudge %f; echo '--skip'", "git-lfs smudge %f | tee log",
+		"cd /tmp && git-lfs smudge %f", "git-lfs smudge %f > out",
+		"$HOME/bin/git-lfs smudge %f", `"$HOME/bin/git-lfs" smudge %f`,
+		"`which git-lfs` smudge %f", "git-l* smudge %f", "'git-lfs smudge %f",
+		`"git-lfs smudge %f`, `git-lfs smudge %f \`, "git-lfs smudge \\\n%f",
+		`"LC_ALL"=C git-lfs smudge %f`, "sh -c", "sh -c 'cat' git-lfs", "# git-lfs smudge %f",
+	}
+	for _, command := range notGitLFS {
+		if args, assignments, ok := seedHeadGitLFSCommand(command); ok {
+			t.Errorf("seedHeadGitLFSCommand(%q) = %q, %q, true; want not git-lfs", command, args, assignments)
+		}
+	}
+	for _, tc := range []struct{ command, args, assignments string }{
+		{"git-lfs filter-process", "filter-process", ""},
+		{"git-lfs smudge --skip -- %f", "smudge|--skip|--|%f", ""},
+		{"/usr/local/bin/git-lfs smudge -- %f", "smudge|--|%f", ""},
+		{`"C:\Program Files\Git LFS\git-lfs.exe" filter-process`, "filter-process", ""},
+		{"'/opt/git lfs/git-lfs' smudge %f", "smudge|%f", ""},
+		{`/opt/git\ lfs/Git-LFS.EXE smudge %f`, "smudge|%f", ""},
+		{"git lfs smudge %f", "smudge|%f", ""},
+		{"git\tlfs smudge %f", "smudge|%f", ""},
+		{`git-lfs smudge "--skip" %f`, "smudge|--skip|%f", ""},
+		{`git-lfs smudge "a\"b\\c\d" ''`, `smudge|a"b\c\d|`, ""},
+		{"git-lfs smudge -- %f # a note", "smudge|--|%f", ""},
+		{"git-lfs smudge -- %f#1", "smudge|--|%f#1", ""},
+		{"LC_ALL=C git-lfs smudge -- %f", "smudge|--|%f", "LC_ALL=C"},
+		{"env LC_ALL=C git-lfs smudge -- %f", "smudge|--|%f", "LC_ALL=C"},
+		{`/usr/bin/env "GIT_LFS_SKIP_SMUDGE=1" git-lfs filter-process`, "filter-process", "GIT_LFS_SKIP_SMUDGE=1"},
+		{"A=1 env B=2 git lfs smudge %f", "smudge|%f", "A=1|B=2"},
+		{"sh -c 'git-lfs smudge -- %f'", "smudge|--|%f", ""},
+		{"GIT_LFS_SKIP_SMUDGE=0 bash -c 'GIT_LFS_SKIP_SMUDGE=1 git-lfs smudge %f'", "smudge|%f", "GIT_LFS_SKIP_SMUDGE=0|GIT_LFS_SKIP_SMUDGE=1"},
 	} {
-		if got := seedHeadRunsGitLFS(command); got != want {
-			t.Errorf("seedHeadRunsGitLFS(%q) = %v, want %v", command, got, want)
+		args, assignments, ok := seedHeadGitLFSCommand(tc.command)
+		if !ok || strings.Join(args, "|") != tc.args || strings.Join(assignments, "|") != tc.assignments {
+			t.Errorf("seedHeadGitLFSCommand(%q) = %q, %q, %v; want %q, %q, true", tc.command, args, assignments, ok, tc.args, tc.assignments)
 		}
 	}
 }

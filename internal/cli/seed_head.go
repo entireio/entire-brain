@@ -993,51 +993,198 @@ const (
 
 // seedHeadLFSCheckoutMode reads the caller's Git LFS settings. The lfs filter
 // git runs is filter.lfs.process when it is set and filter.lfs.smudge
-// otherwise; with neither, there is none, and one that is not git-lfs
-// (seedHeadRunsGitLFS) counts as none. Git LFS skips the smudge when that
-// filter passes --skip, as `git lfs install --skip-smudge` sets it up, or when
-// GIT_LFS_SKIP_SMUDGE is true in the caller's environment. Seed's own git
-// commands always skip it (seedHeadGitEnv), so only the caller's settings
-// count. Checked against git-lfs 3.4.1, which reads 1, t, true, yes and on in
-// any case as true.
+// otherwise; with neither, there is none, and one that is not a git-lfs
+// command (seedHeadGitLFSCommand) counts as none. Git LFS skips the smudge
+// when that command passes --skip, as `git lfs install --skip-smudge` sets it
+// up, or when GIT_LFS_SKIP_SMUDGE is true in its environment: the caller's,
+// unless the command line sets it. Seed's own git commands always skip it
+// (seedHeadGitEnv), so only the caller's settings count. Checked against
+// git-lfs 3.4.1, which reads 1, t, true, yes and on in any case as true.
 func seedHeadLFSCheckoutMode(ctx context.Context, runner EnvironmentCommandRunner, repoDir string) seedHeadLFSMode {
 	process, smudge := seedHeadCallerLFSFilter(ctx, runner, repoDir)
 	command := process
 	if command == "" {
 		command = smudge
 	}
-	if command == "" || !seedHeadRunsGitLFS(command) {
+	args, assignments, ok := seedHeadGitLFSCommand(command)
+	if !ok {
 		return seedHeadLFSUnfiltered
 	}
-	switch strings.ToLower(os.Getenv("GIT_LFS_SKIP_SMUDGE")) {
+	skipSmudge := os.Getenv("GIT_LFS_SKIP_SMUDGE")
+	for _, assignment := range assignments {
+		if value, found := strings.CutPrefix(assignment, "GIT_LFS_SKIP_SMUDGE="); found {
+			skipSmudge = value
+		}
+	}
+	switch strings.ToLower(skipSmudge) {
 	case "1", "t", "true", "yes", "on":
 		return seedHeadLFSSkips
 	}
-	for _, arg := range strings.Fields(command) {
-		// git runs the command through the shell, so a quoted --skip is one
-		// too.
-		if strings.Trim(arg, `'"`) == "--skip" {
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if arg == "--skip" {
 			return seedHeadLFSSkips
 		}
 	}
 	return seedHeadLFSSmudges
 }
 
-// seedHeadRunsGitLFS reports whether a filter command runs git-lfs: one of its
-// words names the git-lfs program, from any directory, with .exe on Windows,
-// quoted or not, or it runs `git lfs`. That covers the commands
-// `git lfs install` writes and a wrapper such as
-// `env LC_ALL=C git-lfs smudge -- %f`. Seed does not run any other program
-// here, so what the checkout wrote is left for it, as for no filter.
-func seedHeadRunsGitLFS(command string) bool {
-	words := strings.Fields(command)
-	for i, word := range words {
-		name := strings.TrimSuffix(strings.ToLower(path.Base(strings.ReplaceAll(strings.Trim(word, `'"`), `\`, "/"))), ".exe")
-		if name == "git-lfs" || name == "git" && i+1 < len(words) && strings.Trim(words[i+1], `'"`) == "lfs" {
-			return true
+// seedHeadGitLFSCommand reads a filter command as the shell git runs it
+// through does, far enough to tell whether it is one git-lfs command. It
+// returns the arguments git-lfs gets and the NAME=value settings the command
+// line gives its environment, in order. The program counts as git-lfs from
+// any directory, with .exe on Windows, or as `git lfs`, after any
+// assignments, behind `env` with its own, or as the script of `sh -c`. That
+// covers the commands `git lfs install` writes and a wrapper such as
+// `env LC_ALL=C git-lfs smudge -- %f`. Anything else is not modelled and ok
+// is false: another program (one that only names git-lfs as an argument
+// too), a list, pipeline or redirection, or an expansion. Seed runs no other
+// program, so what the checkout wrote is left for it, as for no filter.
+func seedHeadGitLFSCommand(command string) (args, assignments []string, ok bool) {
+	words, ok := seedHeadShellWords(command)
+	if !ok {
+		return nil, nil, false
+	}
+	for len(words) > 0 && seedHeadIsAssignment(words[0].raw) {
+		assignments = append(assignments, words[0].text)
+		words = words[1:]
+	}
+	if len(words) > 0 && seedHeadProgram(words[0].text) == "env" {
+		// env takes NAME=value up to its program; an option is not modelled,
+		// and leaves an option as the program.
+		for words = words[1:]; len(words) > 0 && strings.Contains(words[0].text, "=") && !strings.HasPrefix(words[0].text, "-"); words = words[1:] {
+			assignments = append(assignments, words[0].text)
 		}
 	}
-	return false
+	if len(words) == 0 {
+		return nil, nil, false
+	}
+	var rest []seedHeadShellWord
+	program := seedHeadProgram(words[0].text)
+	switch {
+	case program == "git-lfs":
+		rest = words[1:]
+	case program == "git" && len(words) > 1 && words[1].text == "lfs":
+		rest = words[2:]
+	case (program == "sh" || program == "bash" || program == "dash") && len(words) > 2 && words[1].text == "-c":
+		scriptArgs, scriptAssignments, ok := seedHeadGitLFSCommand(words[2].text)
+		return scriptArgs, append(assignments, scriptAssignments...), ok
+	default:
+		return nil, nil, false
+	}
+	for _, word := range rest {
+		args = append(args, word.text)
+	}
+	return args, assignments, true
+}
+
+// seedHeadProgram names the program a command word runs: its last path
+// element, either separator, lowercased, without .exe.
+func seedHeadProgram(word string) string {
+	return strings.TrimSuffix(strings.ToLower(path.Base(strings.ReplaceAll(word, `\`, "/"))), ".exe")
+}
+
+// seedHeadIsAssignment reports whether a word, as written, is a shell
+// assignment: an unquoted name, then =.
+func seedHeadIsAssignment(raw string) bool {
+	name, _, found := strings.Cut(raw, "=")
+	if !found || name == "" {
+		return false
+	}
+	for i, c := range name {
+		letter := c == '_' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
+		if !letter && (i == 0 || c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// seedHeadShellWord is one word of a filter command: raw as written, text as
+// the program gets it once sh removes the quoting.
+type seedHeadShellWord struct{ raw, text string }
+
+// seedHeadShellWords splits a filter command into words as sh does for one
+// simple command, and stops at a comment. ok is false at anything it does not
+// model: an unquoted operator, redirection, expansion or pattern, a
+// backslash at a line end, or an unclosed quote.
+func seedHeadShellWords(command string) (words []seedHeadShellWord, ok bool) {
+	var text strings.Builder
+	start := -1
+	for i := 0; i < len(command); i++ {
+		c := command[i]
+		if c == ' ' || c == '\t' || c == '#' && start < 0 {
+			if start >= 0 {
+				words = append(words, seedHeadShellWord{raw: command[start:i], text: text.String()})
+				text.Reset()
+				start = -1
+			}
+			if c == '#' {
+				return words, true
+			}
+			continue
+		}
+		if strings.IndexByte("|&;<>()$`*?[\n", c) >= 0 {
+			return nil, false
+		}
+		if start < 0 {
+			start = i
+		}
+		switch c {
+		case '\'':
+			end := strings.IndexByte(command[i+1:], '\'')
+			if end < 0 {
+				return nil, false
+			}
+			text.WriteString(command[i+1 : i+1+end])
+			i += 1 + end
+		case '"':
+			n, closed := seedHeadDoubleQuoted(command[i+1:], &text)
+			if !closed {
+				return nil, false
+			}
+			i += n
+		case '\\':
+			if i+1 == len(command) || command[i+1] == '\n' {
+				return nil, false
+			}
+			i++
+			text.WriteByte(command[i])
+		default:
+			text.WriteByte(c)
+		}
+	}
+	if start >= 0 {
+		words = append(words, seedHeadShellWord{raw: command[start:], text: text.String()})
+	}
+	return words, true
+}
+
+// seedHeadDoubleQuoted reads the inside of a double-quoted string, writes
+// what sh makes of it, and returns how many bytes it took, the closing quote
+// included. A backslash escapes only $, `, ", \ and a newline there. closed
+// is false at an expansion or with no closing quote.
+func seedHeadDoubleQuoted(s string, text *strings.Builder) (n int, closed bool) {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '"':
+			return i + 1, true
+		case '$', '`':
+			return 0, false
+		case '\\':
+			if i+1 < len(s) && strings.IndexByte("$`\"\\\n", s[i+1]) >= 0 {
+				i++
+				if s[i] != '\n' {
+					text.WriteByte(s[i])
+				}
+				continue
+			}
+		}
+		text.WriteByte(s[i])
+	}
+	return 0, false
 }
 
 // seedHeadCallerLFSFilter returns filter.lfs.process and filter.lfs.smudge,
