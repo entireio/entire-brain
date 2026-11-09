@@ -1498,8 +1498,8 @@ type seedHeadSmallFile struct {
 // its pointer text. A pointer whose object is already in the local LFS store is
 // replaced with that object, which is what a working tree with the content
 // fetched holds; one whose object is not stored locally stays the pointer, the
-// same text a working tree without the content shows. Only the default store
-// (<git-common-dir>/lfs) is consulted. An object that is stored but cannot be
+// same text a working tree without the content shows. The store is the one
+// git-lfs reads (seedHeadLFSObjectsDir). An object that is stored but cannot be
 // copied is reported in the seed's warnings rather than passed off as read.
 // The caller's Git LFS settings come first (mode, from
 // seedHeadLFSCheckoutMode): with no lfs filter, or one that is not git-lfs,
@@ -1958,8 +1958,13 @@ func seedHeadLFSFetchFiltered(ctx context.Context, runner EnvironmentCommandRunn
 	return false
 }
 
-// seedHeadLFSObjectsDir is the repository's default Git LFS object store, or ""
-// when the git directory cannot be resolved.
+// seedHeadLFSObjectsDir is the object directory of the repository's Git LFS
+// store, as git-lfs finds it: the directory lfs.storage names, read from the
+// git configuration (git-lfs takes no lfs.storage from .lfsconfig), relative
+// to the git common directory, which holds lfs where the value is unset or
+// empty. It is "" when the git directory cannot be resolved. A path from
+// configuration is safe to read: copyLFSObject takes only a regular file
+// whose size and sha256 match the committed pointer.
 func seedHeadLFSObjectsDir(ctx context.Context, runner EnvironmentCommandRunner, repoDir string) string {
 	common, _, err := runner.RunWithEnv(ctx, repoDir, seedHeadGitEnv(""), "git", "rev-parse", "--git-common-dir")
 	commonDir := strings.TrimSpace(string(common))
@@ -1969,7 +1974,16 @@ func seedHeadLFSObjectsDir(ctx context.Context, runner EnvironmentCommandRunner,
 	if !filepath.IsAbs(commonDir) {
 		commonDir = filepath.Join(repoDir, commonDir)
 	}
-	return filepath.Join(commonDir, "lfs", "objects")
+	storage := "lfs"
+	if out, _, err := runner.RunWithEnv(ctx, repoDir, seedHeadGitEnv(""), "git", "config", "-z", "--get", "lfs.storage"); err == nil {
+		if value := strings.TrimSuffix(string(out), "\x00"); value != "" {
+			storage = value
+		}
+	}
+	if !filepath.IsAbs(storage) {
+		storage = filepath.Join(commonDir, storage)
+	}
+	return filepath.Join(storage, "objects")
 }
 
 // copyLFSObject replaces target with the LFS object, verifying its size and

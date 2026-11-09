@@ -1180,6 +1180,49 @@ func TestDirtySeedResolvesLocalLFSObjects(t *testing.T) {
 	}
 }
 
+// TestDirtySeedReadsLFSObjectsFromTheConfiguredStorage: git-lfs keeps its
+// objects in the directory lfs.storage names, relative to the git common
+// directory, and a clean checkout hydrates documents from there, so seed's
+// checkout reads them there too.
+func TestDirtySeedReadsLFSObjectsFromTheConfiguredStorage(t *testing.T) {
+	isolateSeedHeadTemp(t)
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(global, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	repoDir := seedHeadTestRepo(t)
+	stored := "# manual kept in another LFS store\n"
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		".gitattributes": "docs/manual.md filter=lfs -text\n",
+		"docs/manual.md": lfsPointer(stored),
+	})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointer")
+	useLFSSmudge(t, repoDir)
+	dirtySeedHeadTree(t, repoDir)
+	elsewhere := t.TempDir()
+	for _, tc := range []struct{ storage, store string }{
+		{"alt-lfs", filepath.Join(repoDir, ".git", "alt-lfs")},
+		{elsewhere, elsewhere},
+	} {
+		gitAt(t, repoDir, "config", "lfs.storage", tc.storage)
+		writeLFSObjectIn(t, filepath.Join(tc.store, "objects"), stored, stored)
+		head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+		if err != nil {
+			t.Fatalf("lfs.storage %q: check out HEAD: %v", tc.storage, err)
+		}
+		if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "manual.md")); err != nil || string(got) != stored || len(head.warnings) != 0 {
+			t.Errorf("lfs.storage %q: docs/manual.md = %q, %v (warnings %q); want the stored object %q", tc.storage, got, err, head.warnings, stored)
+		}
+		head.remove()
+		if err := os.RemoveAll(tc.store); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // TestParseLFSPointerReadsWhatGitLFSReads: a filter=lfs file is replaced with
 // its stored object only when git-lfs's smudge would read it as a pointer, so
 // the parser accepts what git-lfs's non-strict decoder accepts. Each case's
@@ -1667,9 +1710,15 @@ func lfsPointer(content string) string {
 // passing different bytes of the same length makes a corrupt object.
 func writeLFSObject(t *testing.T, repoDir, content, stored string) {
 	t.Helper()
+	writeLFSObjectIn(t, filepath.Join(repoDir, ".git", "lfs", "objects"), content, stored)
+}
+
+// writeLFSObjectIn is writeLFSObject for the object directory objects.
+func writeLFSObjectIn(t *testing.T, objects, content, stored string) {
+	t.Helper()
 	sum := sha256.Sum256([]byte(content))
 	oid := hex.EncodeToString(sum[:])
-	writeSeedHeadFiles(t, filepath.Join(repoDir, ".git", "lfs", "objects", oid[0:2], oid[2:4]), map[string]string{oid: stored})
+	writeSeedHeadFiles(t, filepath.Join(objects, oid[0:2], oid[2:4]), map[string]string{oid: stored})
 }
 
 // TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree: git reads a
