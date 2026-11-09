@@ -1,0 +1,13 @@
+<task-notification>
+<task-id>bqc19syu7</task-id>
+<tool-use-id>toolu_01U9iEg1iUjNo4iXEq7tkXZ3</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-juba/ca4ddd01-3e09-4132-9845-c3116a6f95e0/tasks/bqc19syu7.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for CI on the new commit to complete" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+chekc the cursor bugbot and see if thats still an issue?
+
+https://github.com/entireio/entire-brain/pull/615
