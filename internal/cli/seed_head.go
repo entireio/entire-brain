@@ -340,7 +340,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		return fmt.Errorf("create committed HEAD checkout: %w", err)
 	}
 	env["GIT_WORK_TREE"] = emptyWorkTree
-	attrConfig := c.attributesFileConfig(ctx, runner, repoDir, env)
+	attrConfig := c.attributesFileConfig(ctx, runner, repoDir, env, entries)
 	selected := seedHeadSelected(c.paths, opts.maxFiles)
 	// Paths that differ only in case share one file where the filesystem
 	// folds case, and a clean checkout leaves it holding the last of them it
@@ -856,17 +856,24 @@ func seedHeadFilterDrivers(ctx context.Context, runner EnvironmentCommandRunner,
 	return seedHeadDrivers{names: names}
 }
 
+// seedHeadAttributesFileMaxBytes bounds the committed attributes file seed
+// reads (git itself ignores one over 100 MiB).
+const seedHeadAttributesFileMaxBytes = 1 << 20
+
 // attributesFileConfig keeps the user's own attributes file
 // (core.attributesFile) in force for the checkout, as a clean checkout of
 // HEAD has it. git reads a relative value from the top of the work tree,
 // which the checkout points at an empty directory, so such a value is joined
 // to the real one (repoDir) instead, as git joins it, without cleaning. A
-// file there that HEAD tracks is part of the commit and, like .gitattributes,
-// is read as committed: it is checked out into the scratch area and that copy
-// is named (one HEAD stores in Git LFS is settled by lfsAttributesFile). Any
-// other file is read where it is, as git reads it. --path expands ~ and
-// %(prefix); an unset value needs nothing.
-func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string) []string {
+// regular file there that HEAD tracks is part of the commit and, like
+// .gitattributes, is read as committed: its blob is written to the scratch
+// area as it is, with no filter or conversion run (git reads LF and CRLF
+// rules alike), and that copy is named. One HEAD stores in Git LFS is settled
+// by lfsAttributesFile. One that cannot be read from HEAD is left out, with a
+// warning, rather than read with its uncommitted edits. Any other file is
+// read where it is, as git reads it. --path expands ~ and %(prefix); an unset
+// value needs nothing.
+func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, entries map[string]seedHeadEntry) []string {
 	out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "config", "-z", "--path", "--get", "core.attributesFile")
 	if err != nil {
 		return nil // unset, or unreadable, which the checkout reports itself
@@ -885,8 +892,16 @@ func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner Envi
 	if relative {
 		file = root + string(filepath.Separator) + value
 	}
-	if tracked, ok := seedHeadWorkTreePath(root, file); ok && slices.Contains(c.paths, tracked) {
-		if committed, ok := c.checkOutAttributesFile(ctx, runner, repoDir, env, tracked); ok {
+	if tracked, ok := seedHeadWorkTreePath(root, file); ok {
+		if entry, ok := entries[tracked]; ok && entry.regularFile() {
+			committed := filepath.Join(c.tempRoot, "attributes")
+			if err := writeSeedHeadBlob(ctx, runner, repoDir, env, entry, committed); err != nil {
+				c.warnings = append(c.warnings, fmt.Sprintf("the attributes file core.attributesFile names (%s) could not be read from HEAD (%v); its rules were not applied", tracked, err))
+				if os.WriteFile(committed, nil, 0o600) != nil {
+					return nil
+				}
+				return []string{"-c", "core.attributesFile=" + committed}
+			}
 			return []string{"-c", "core.attributesFile=" + c.lfsAttributesFile(tracked, committed, file)}
 		}
 	}
@@ -896,22 +911,30 @@ func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner Envi
 	return []string{"-c", "core.attributesFile=" + file}
 }
 
-// checkOutAttributesFile writes HEAD's copy of path, a tracked attributes
-// file, into the scratch area and returns where. A symlink, or a blob that
-// cannot be written, is left to the work tree's file.
-func (c *seedHeadCheckout) checkOutAttributesFile(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, path string) (string, bool) {
-	dir := filepath.Join(c.tempRoot, "attributes")
-	if err := os.Mkdir(dir, 0o700); err != nil {
-		return "", false
+// writeSeedHeadBlob writes entry's blob to target as it is, up to
+// seedHeadAttributesFileMaxBytes.
+func writeSeedHeadBlob(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, entry seedHeadEntry, target string) error {
+	if entry.missing {
+		return errors.New("this partial clone has not fetched it")
 	}
-	if _, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "checkout-index", "-q", "-f", "--prefix="+filepath.ToSlash(dir)+"/", "--", path); err != nil {
-		return "", false
+	size := entry.size
+	if size < 0 {
+		out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "cat-file", "-s", entry.object)
+		if err != nil {
+			return err
+		}
+		if size, err = strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64); err != nil {
+			return err
+		}
 	}
-	file := filepath.Join(dir, filepath.FromSlash(path))
-	if info, err := os.Lstat(file); err != nil || !info.Mode().IsRegular() {
-		return "", false
+	if size > seedHeadAttributesFileMaxBytes {
+		return fmt.Errorf("it is over %d bytes", seedHeadAttributesFileMaxBytes)
 	}
-	return file, true
+	data, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "cat-file", "blob", entry.object)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(target, data, 0o600)
 }
 
 // lfsAttributesFile settles a tracked attributes file whose HEAD copy
@@ -957,21 +980,45 @@ func seedHeadFileIsLFSObject(path, oid string, size int64) bool {
 }
 
 // seedHeadWorkTreePath returns file's path in the work tree at root, in git's
-// form, when file lies inside it. Past a symlink, ".." leads somewhere a
-// lexical reading does not, so a path with a ".." component never matches.
+// form, when file lies inside it. Its directory is resolved as the OS
+// resolves it, symlinks and ".." included, so cfg/../x through an ordinary
+// directory matches x, and link/../x through a symlink matches whatever
+// link/.. is. A directory missing from the worktree is read lexically,
+// unless the path has a ".." component.
 func seedHeadWorkTreePath(root, file string) (string, bool) {
-	if slices.Contains(strings.Split(filepath.ToSlash(file), "/"), "..") {
+	i := len(file) - 1
+	for i >= 0 && !os.IsPathSeparator(file[i]) {
+		i--
+	}
+	if i < 0 {
 		return "", false
 	}
-	rel, err := filepath.Rel(root, file)
+	dir, base := file[:i], file[i+1:]
+	if base == "" || base == "." || base == ".." {
+		return "", false
+	}
+	if dir == "" || dir == filepath.VolumeName(file) {
+		dir = file[:i+1] // the filesystem root
+	}
+	if realRoot, err := filepath.EvalSymlinks(root); err == nil {
+		if realDir, err := filepath.EvalSymlinks(dir); err == nil {
+			root, dir = realRoot, realDir
+		} else if slices.Contains(strings.Split(filepath.ToSlash(dir), "/"), "..") {
+			return "", false
+		}
+	}
+	rel, err := filepath.Rel(root, dir)
 	if err != nil {
 		return "", false
 	}
 	rel = filepath.ToSlash(rel)
-	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+	switch {
+	case rel == "..", strings.HasPrefix(rel, "../"):
 		return "", false
+	case rel == ".":
+		return base, true
 	}
-	return rel, true
+	return rel + "/" + base, true
 }
 
 // seedHeadGitAbsolutePath reports whether git takes a path as absolute: on

@@ -1558,10 +1558,14 @@ func TestDirtySeedNeverRunsGitLFSInItsCheckout(t *testing.T) {
 	}
 	repoDir := seedHeadTestRepo(t)
 	writeLFSObject(t, repoDir, stored, stored)
+	// The user's attributes file is in LFS too, and read from HEAD without
+	// git-lfs either.
 	writeSeedHeadFiles(t, repoDir, map[string]string{
-		".gitattributes": "docs/manual.md filter=lfs -text\n",
+		".gitattributes": "docs/manual.md filter=lfs -text\ncustom.attrs filter=lfs -text\n",
 		"docs/manual.md": lfsPointer(stored),
+		"custom.attrs":   lfsPointer("docs/other.md text\n"),
 	})
+	writeLFSObject(t, repoDir, "docs/other.md text\n", "docs/other.md text\n")
 	gitAt(t, repoDir, "add", "-A")
 	gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointer")
 	// A stand-in git-lfs that says it ran and passes the pointer through.
@@ -1571,6 +1575,7 @@ func TestDirtySeedNeverRunsGitLFSInItsCheckout(t *testing.T) {
 		t.Fatal(err)
 	}
 	gitAt(t, repoDir, "config", "--global", "filter.lfs.smudge", "GIT_LFS_SKIP_SMUDGE=0 '"+filepath.Join(bin, "git-lfs")+"' smudge -- %f")
+	gitAt(t, repoDir, "config", "--global", "core.attributesFile", "custom.attrs")
 	dirtySeedHeadTree(t, repoDir)
 
 	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
@@ -1684,6 +1689,7 @@ func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
 	}{
 		{name: "committed, edited in the worktree", committed: map[string]string{"custom.attrs": rules}, worktree: noRules, applied: true},
 		{name: "untracked", worktree: rules, applied: true},
+		{name: "committed, over the size bound", committed: map[string]string{"custom.attrs": rules + strings.Repeat("#\n", seedHeadAttributesFileMaxBytes/2)}, worktree: rules, warned: true},
 		{name: "in LFS, its content in the worktree", committed: map[string]string{".gitattributes": "custom.attrs filter=lfs -text\n", "custom.attrs": lfsPointer(rules)}, worktree: rules, applied: true},
 		{name: "in LFS, its pointer in the worktree", committed: map[string]string{".gitattributes": "custom.attrs filter=lfs -text\n", "custom.attrs": lfsPointer(rules)}, worktree: lfsPointer(rules)},
 		{name: "in LFS, edited in the worktree", committed: map[string]string{".gitattributes": "custom.attrs filter=lfs -text\n", "custom.attrs": lfsPointer(rules)}, worktree: rules + "# edited\n", warned: true},
@@ -1744,7 +1750,8 @@ func TestSeedHeadAttributesFileConfigJoinsPathsAsGitDoes(t *testing.T) {
 	root := t.TempDir()
 	sep := string(filepath.Separator)
 	absolute := filepath.Join(t.TempDir(), "attrs")
-	c := &seedHeadCheckout{paths: []string{"custom.attrs"}, tempRoot: t.TempDir()}
+	c := &seedHeadCheckout{tempRoot: t.TempDir()}
+	entries := map[string]seedHeadEntry{"custom.attrs": {mode: "100644", kind: "blob", object: "0123", size: 1}}
 	cases := map[string][]string{
 		"":         nil,
 		absolute:   nil,
@@ -1754,12 +1761,12 @@ func TestSeedHeadAttributesFileConfigJoinsPathsAsGitDoes(t *testing.T) {
 		"./other.attrs":        {"-c", "core.attributesFile=" + root + sep + "./other.attrs"},
 	}
 	for value, want := range cases {
-		got := c.attributesFileConfig(context.Background(), fixedConfigRunner{out: []byte(value + "\x00")}, root, nil)
+		got := c.attributesFileConfig(context.Background(), fixedConfigRunner{out: []byte(value + "\x00")}, root, nil, entries)
 		if !slices.Equal(got, want) {
 			t.Errorf("core.attributesFile %q: config = %q, want %q", value, got, want)
 		}
 	}
-	if got := c.attributesFileConfig(context.Background(), fixedConfigRunner{err: errors.New("exit status 1")}, root, nil); got != nil {
+	if got := c.attributesFileConfig(context.Background(), fixedConfigRunner{err: errors.New("exit status 1")}, root, nil, entries); got != nil {
 		t.Errorf("unset core.attributesFile: config = %q, want none", got)
 	}
 }
@@ -1767,15 +1774,35 @@ func TestSeedHeadAttributesFileConfigJoinsPathsAsGitDoes(t *testing.T) {
 func TestSeedHeadWorkTreePathMatchesOnlyPathsInside(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
+	elsewhere := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "cfg"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(elsewhere, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	sep := string(filepath.Separator)
 	cases := map[string]string{
-		root + sep + "custom.attrs":           "custom.attrs",
-		root + sep + "./custom.attrs":         "custom.attrs",
-		root + sep + "dir" + sep + "x.attrs":  "dir/x.attrs",
-		root + sep + "link/../custom.attrs":   "",
-		root + sep + ".." + sep + "out.attrs": "",
-		root:                                  "",
-		filepath.Join(t.TempDir(), "x.attrs"): "",
+		root + sep + "custom.attrs":                        "custom.attrs",
+		root + sep + "./custom.attrs":                      "custom.attrs",
+		root + sep + "cfg" + sep + "x.attrs":               "cfg/x.attrs",
+		root + sep + "cfg" + sep + ".." + sep + "x.attrs":  "x.attrs",
+		root + sep + "gone" + sep + "x.attrs":              "gone/x.attrs",
+		root + sep + "gone" + sep + ".." + sep + "x.attrs": "",
+		root + sep + ".." + sep + "out.attrs":              "",
+		root:                                               "",
+		filepath.Join(elsewhere, "x.attrs"):                "",
+	}
+	// A symlink to a directory outside: link/.. is elsewhere, not the work
+	// tree, and a symlink to the work tree reaches it.
+	if err := os.Symlink(filepath.Join(elsewhere, "sub"), filepath.Join(root, "link")); err == nil {
+		cases[root+sep+"link"+sep+".."+sep+"custom.attrs"] = ""
+		alias := filepath.Join(elsewhere, "alias")
+		if err := os.Symlink(root, alias); err == nil {
+			cases[alias+sep+"custom.attrs"] = "custom.attrs"
+		}
+	} else if runtime.GOOS != "windows" {
+		t.Fatal(err)
 	}
 	for file, want := range cases {
 		got, ok := seedHeadWorkTreePath(root, file)
