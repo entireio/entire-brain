@@ -1025,7 +1025,7 @@ func seedHeadLFSCheckoutMode(ctx context.Context, runner EnvironmentCommandRunne
 // any directory, with .exe on Windows, or as `git lfs`, after any
 // assignments, behind `env` with its own, or as the script of `sh -c`. That
 // covers the commands `git lfs install` writes and a wrapper such as
-// `env LC_ALL=C git-lfs smudge -- %f`, with stderr sent to a file or not.
+// `env LC_ALL=C git-lfs smudge -- %f`, with stderr sent to /dev/null or not.
 // Anything else is not modelled and ok is false: another program (one that
 // only names git-lfs as an argument too), a list or pipeline, any other
 // redirection, or an expansion. Seed runs no other
@@ -1095,22 +1095,25 @@ func seedHeadIsAssignment(raw string) bool {
 type seedHeadShellWord struct{ raw, text string }
 
 // seedHeadShellWords splits a filter command into words as sh does for one
-// simple command, and stops at a comment. A redirection of stderr or a higher
-// descriptor to a file (2>file, 2>>file) only moves what the program writes
-// there, so it and its target are dropped. ok is false at anything else it
-// does not model: an unquoted operator, another redirection, an expansion or
-// pattern, a backslash at a line end, or an unclosed quote.
+// simple command, and stops at a comment. Sending stderr or a higher
+// descriptor to /dev/null (2>/dev/null, 2>>/dev/null) only drops what the
+// program writes there, and opening /dev/null does not fail, so it and its
+// target are dropped. A file target is not: if the shell cannot open it, the
+// command never runs. ok is false at anything else it does not model: an
+// unquoted operator, another redirection, an expansion or pattern, a
+// backslash at a line end, or an unclosed quote.
 func seedHeadShellWords(command string) (words []seedHeadShellWord, ok bool) {
 	var text strings.Builder
 	start := -1
 	// redirected: the word being read, or the next, is a 2> target.
-	redirected := false
+	redirected, otherTarget := false, false
 	end := func(i int) {
 		if start < 0 {
 			return
 		}
 		if redirected {
 			redirected = false
+			otherTarget = otherTarget || text.String() != "/dev/null"
 		} else {
 			words = append(words, seedHeadShellWord{raw: command[start:i], text: text.String()})
 		}
@@ -1166,8 +1169,8 @@ func seedHeadShellWords(command string) (words []seedHeadShellWord, ok bool) {
 		}
 	}
 	end(len(command))
-	if redirected {
-		// A 2> with no target.
+	if redirected || otherTarget {
+		// A 2> with no target, or one that is not /dev/null.
 		return nil, false
 	}
 	return words, true

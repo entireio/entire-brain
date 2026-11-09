@@ -1350,11 +1350,15 @@ func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 		{name: "repository smudge setting GIT_LFS_SKIP_SMUDGE=0 over the caller's 1", skipEnv: "1", want: content, configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "filter.lfs.smudge", "env GIT_LFS_SKIP_SMUDGE=0 git-lfs smudge -- %f")
 		}},
-		{name: "repository smudge sending stderr to a file", want: content, configure: func(t *testing.T, repoDir string) {
+		{name: "repository smudge sending stderr to /dev/null", want: content, configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge -- %f 2>/dev/null")
 		}},
 		{name: "repository smudge redirecting its output", want: asCommitted, configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge -- %f 2>&1")
+		}},
+		// If the shell cannot open the file, git-lfs never runs.
+		{name: "repository smudge sending stderr to a file", want: asCommitted, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge -- %f 2>/missing/lfs.log")
 		}},
 		{name: "repository smudge with --skip after --", want: content, configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge -- --skip")
@@ -1422,6 +1426,7 @@ func TestSeedHeadGitLFSCommandReadsTheFilterAsShDoes(t *testing.T) {
 		"git-lfs smudge %f 2>&1", "git-lfs smudge %f 2>", "git-lfs smudge %f 2> # log",
 		"git-lfs smudge %f 1>/dev/null", "git-lfs smudge %f 0>x", `git-lfs smudge %f "2">x`,
 		"git-lfs smudge %f +2>x", "git-lfs smudge %f 2>x>y", "git-lfs smudge %f 2>|x",
+		"git-lfs smudge %f 2>/missing/log", "git-lfs smudge %f 2>>lfs.log", "git-lfs smudge %f 2>/dev/null/x",
 	}
 	for _, command := range notGitLFS {
 		if args, assignments, ok := seedHeadGitLFSCommand(command); ok {
@@ -1447,8 +1452,8 @@ func TestSeedHeadGitLFSCommandReadsTheFilterAsShDoes(t *testing.T) {
 		{"A=1 env B=2 git lfs smudge %f", "smudge|%f", "A=1|B=2"},
 		{"sh -c 'git-lfs smudge -- %f'", "smudge|--|%f", ""},
 		{"git-lfs smudge -- %f 2>/dev/null", "smudge|--|%f", ""},
-		{`git-lfs smudge 2>> "/tmp/lfs log" -- %f`, "smudge|--|%f", ""},
-		{"git-lfs filter-process 3>x 2>'y z'", "filter-process", ""},
+		{`git-lfs smudge 2>> "/dev/null" -- %f`, "smudge|--|%f", ""},
+		{"git-lfs filter-process 3>/dev/null 2>'/dev/null'", "filter-process", ""},
 		{"GIT_LFS_SKIP_SMUDGE=0 bash -c 'GIT_LFS_SKIP_SMUDGE=1 git-lfs smudge %f'", "smudge|%f", "GIT_LFS_SKIP_SMUDGE=0|GIT_LFS_SKIP_SMUDGE=1"},
 	} {
 		args, assignments, ok := seedHeadGitLFSCommand(tc.command)
