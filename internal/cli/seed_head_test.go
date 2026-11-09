@@ -1883,102 +1883,74 @@ func TestSeedHeadAttributesFileConfigReadsHEADsLayoutOverADirtySymlink(t *testin
 	}
 }
 
-func TestSeedHeadTreePathWalksHEADsLayout(t *testing.T) {
+// TestSeedHeadTrackedPathReadsPathsAsACleanCheckoutDoes: inside the work
+// tree a path is read through HEAD's layout, where its tracked directories
+// are ordinary ones whatever the worktree made of them; anything else, and
+// anything outside, is resolved by the OS, and a path that comes back in is
+// read through HEAD's layout again.
+func TestSeedHeadTrackedPathReadsPathsAsACleanCheckoutDoes(t *testing.T) {
 	t.Parallel()
+	root := t.TempDir()
+	elsewhere := t.TempDir()
 	file := seedHeadEntry{mode: "100644", kind: "blob", object: "0123", size: 1}
 	entries := map[string]seedHeadEntry{
 		"custom.attrs": file, "cfg/custom.attrs": file, "deep/a/b.attrs": file,
 		"link": {mode: "120000", kind: "blob", object: "4567", size: 3},
 	}
-	type result struct {
-		path    string
-		settled bool
-	}
-	cases := map[string]result{
-		"custom.attrs":                  {"custom.attrs", true},
-		"cfg/custom.attrs":              {"cfg/custom.attrs", true},
-		"./cfg//custom.attrs":           {"cfg/custom.attrs", true},
-		"cfg/../custom.attrs":           {"custom.attrs", true},
-		"deep/a/../../cfg/custom.attrs": {"cfg/custom.attrs", true},
-		"untracked.attrs":               {"", true},
-		"cfg/other.attrs":               {"", true},
-		"cfg":                           {"", true},
-		"cfg/..":                        {"", true},
-		"../custom.attrs":               {"", false}, // the OS decides where it comes back in
-		"gone/../custom.attrs":          {"", false}, // only the worktree has gone
-		"link/../custom.attrs":          {"", false}, // a tracked symlink
-		"custom.attrs/x":                {"", false},
-		// A trailing separator, "." or ".." names a directory.
-		"custom.attrs/":        {"", true},
-		"custom.attrs/.":       {"", true},
-		"cfg/custom.attrs/":    {"", true},
-		"../repo/custom.attrs": {"", false},
-	}
-	for rel, want := range cases {
-		path, settled := seedHeadTreePath(rel, entries)
-		if (result{path, settled}) != want {
-			t.Errorf("seedHeadTreePath(%q) = %q, %v; want %q, %v", rel, path, settled, want.path, want.settled)
+	writeSeedHeadFiles(t, root, map[string]string{"custom.attrs": "# edited\n"})
+	for _, dir := range []string{filepath.Join(root, "untracked"), filepath.Join(elsewhere, "sub")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
 		}
 	}
-}
-
-func TestSeedHeadTrackedPathReadsPathsAsACleanCheckoutDoes(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	sep := string(filepath.Separator)
-	entries := map[string]seedHeadEntry{"custom.attrs": {mode: "100644", kind: "blob", object: "0123", size: 1}}
-	cases := map[string]string{
-		root + sep + "custom.attrs": "custom.attrs",
-		// Out of the work tree and back in through its own name.
-		root + sep + ".." + sep + filepath.Base(root) + sep + "custom.attrs": "custom.attrs",
-		root + sep + "custom.attrs" + sep:                                    "",
-		root + sep + "custom.attrs" + sep + ".":                              "",
-	}
-	for file, want := range cases {
-		got, ok := seedHeadTrackedPath(root, file, entries)
-		if ok != (want != "") || got != want {
-			t.Errorf("seedHeadTrackedPath(%q) = %q, %v; want %q", file, got, ok, want)
+	// The worktree turned the tracked cfg into a symlink to elsewhere/sub, and
+	// out is one too; alias, outside, is a symlink to the work tree.
+	for link, target := range map[string]string{
+		filepath.Join(root, "cfg"):        filepath.Join(elsewhere, "sub"),
+		filepath.Join(root, "out"):        filepath.Join(elsewhere, "sub"),
+		filepath.Join(elsewhere, "alias"): root,
+	} {
+		if err := os.Symlink(target, link); err != nil {
+			if runtime.GOOS == "windows" {
+				t.Skip(err)
+			}
+			t.Fatal(err)
 		}
-	}
-}
-
-func TestSeedHeadWorkTreePathMatchesOnlyPathsInside(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	elsewhere := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "cfg"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(elsewhere, "sub"), 0o700); err != nil {
-		t.Fatal(err)
 	}
 	sep := string(filepath.Separator)
+	in := func(rel string) string { return root + sep + filepath.FromSlash(rel) }
+	back := root + sep + ".." + sep + filepath.Base(root) + sep
+	alias := filepath.Join(elsewhere, "alias") + sep
 	cases := map[string]string{
-		root + sep + "custom.attrs":                        "custom.attrs",
-		root + sep + "./custom.attrs":                      "custom.attrs",
-		root + sep + "cfg" + sep + "x.attrs":               "cfg/x.attrs",
-		root + sep + "cfg" + sep + ".." + sep + "x.attrs":  "x.attrs",
-		root + sep + "gone" + sep + "x.attrs":              "gone/x.attrs",
-		root + sep + "gone" + sep + ".." + sep + "x.attrs": "",
-		root + sep + ".." + sep + "out.attrs":              "",
-		root:                                               "",
-		filepath.Join(elsewhere, "x.attrs"):                "",
+		in("custom.attrs"):                              "custom.attrs",
+		in("./cfg//custom.attrs"):                       "cfg/custom.attrs",
+		in("cfg/custom.attrs"):                          "cfg/custom.attrs", // not elsewhere/sub's
+		in("cfg/../custom.attrs"):                       "custom.attrs",
+		in("deep/a/../../cfg/custom.attrs"):             "cfg/custom.attrs",
+		in("untracked/../custom.attrs"):                 "custom.attrs",
+		in("untracked.attrs"):                           "",
+		in("cfg/other.attrs"):                           "",
+		in("cfg"):                                       "",
+		in("cfg/.."):                                    "",
+		in("custom.attrs/"):                             "",
+		in("custom.attrs/."):                            "",
+		in("cfg/custom.attrs/"):                         "",
+		in("custom.attrs/x"):                            "",
+		in("gone/../custom.attrs"):                      "", // gone is nowhere
+		in("out/../custom.attrs"):                       "", // out/.. is elsewhere
+		in("link/../custom.attrs"):                      "", // a symlink only HEAD has
+		in("../custom.attrs"):                           "",
+		back + "custom.attrs":                           "custom.attrs",
+		back + "cfg" + sep + "custom.attrs":             "cfg/custom.attrs",
+		alias + "custom.attrs":                          "custom.attrs",
+		alias + "cfg" + sep + "custom.attrs":            "cfg/custom.attrs",
+		filepath.Join(elsewhere, "sub", "custom.attrs"): "",
+		root: "",
 	}
-	// A symlink to a directory outside: link/.. is elsewhere, not the work
-	// tree, and a symlink to the work tree reaches it.
-	if err := os.Symlink(filepath.Join(elsewhere, "sub"), filepath.Join(root, "link")); err == nil {
-		cases[root+sep+"link"+sep+".."+sep+"custom.attrs"] = ""
-		alias := filepath.Join(elsewhere, "alias")
-		if err := os.Symlink(root, alias); err == nil {
-			cases[alias+sep+"custom.attrs"] = "custom.attrs"
-		}
-	} else if runtime.GOOS != "windows" {
-		t.Fatal(err)
-	}
-	for file, want := range cases {
-		got, ok := seedHeadWorkTreePath(root, file)
+	for path, want := range cases {
+		got, ok := seedHeadTrackedPath(root, path, entries)
 		if ok != (want != "") || got != want {
-			t.Errorf("seedHeadWorkTreePath(%q) = %q, %v; want %q", file, got, ok, want)
+			t.Errorf("seedHeadTrackedPath(%q) = %q, %v; want %q", path, got, ok, want)
 		}
 	}
 }

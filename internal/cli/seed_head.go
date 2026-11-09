@@ -1027,67 +1027,88 @@ func (c *seedHeadCheckout) lfsAttributesFile(ctx context.Context, runner Environ
 }
 
 // seedHeadTrackedPath returns the path HEAD tracks that file names, in git's
-// form, and whether it names one. A clean checkout of HEAD lays its tracked
-// directories out as ordinary directories, so a file under root is read
-// against that layout first (seedHeadTreePath): a worktree that has turned a
-// tracked directory into a symlink does not move it. Only a path HEAD's
-// layout does not settle, one through a directory HEAD does not track or a
-// symlink it does, or one under another spelling of root, is resolved as the
-// OS resolves it in the work tree (seedHeadWorkTreePath).
+// form, and whether it names one, reading file as a clean checkout of HEAD
+// would resolve it. Inside the work tree that is HEAD's own layout, whose
+// tracked directories are ordinary directories, so a worktree that has turned
+// one into a symlink does not move what it holds, and ".." from one is its
+// parent. A directory HEAD does not track, and anything outside the work tree,
+// is resolved as the OS resolves it (a symlink HEAD tracks is one of those,
+// since HEAD tracks nothing under it), and a path that comes back into the
+// work tree, as ../<root name>/... does, is read through HEAD's layout again.
+// A path that ends in a separator, "." or ".." names a directory, never the
+// file, as git's open of it finds.
 func seedHeadTrackedPath(root, file string, entries map[string]seedHeadEntry) (string, bool) {
-	if rel, ok := strings.CutPrefix(file, root+string(filepath.Separator)); ok {
-		if path, settled := seedHeadTreePath(rel, entries); settled {
-			return path, path != ""
+	realRoot := root
+	if real, err := filepath.EvalSymlinks(root); err == nil {
+		realRoot = real
+	}
+	var inside []string // the position in the work tree, in HEAD's layout
+	outside := ""       // or the position outside it, as a real path
+	rest, in := strings.CutPrefix(file, root+string(filepath.Separator))
+	if !in {
+		volume := filepath.VolumeName(file)
+		rest, outside = file[len(volume):], volume+string(filepath.Separator)
+	}
+	// A last part that is empty, "." or ".." makes a path no entry has.
+	parts := seedHeadPathParts(rest)
+	last := parts[len(parts)-1]
+	// move goes to real, a real path, inside the work tree or outside it.
+	move := func(real string) {
+		rel, err := filepath.Rel(realRoot, real)
+		if rel = filepath.ToSlash(rel); err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+			inside, outside = nil, real
+			return
+		}
+		inside, outside = nil, ""
+		if rel != "." {
+			inside = strings.Split(rel, "/")
 		}
 	}
-	return seedHeadWorkTreePath(root, file)
-}
-
-// seedHeadTreePath walks rel, a path relative to the work tree, through
-// HEAD's tree as a clean checkout lays it out, and returns the tracked
-// ordinary file it ends at ("" for none). A path that ends in a separator,
-// "." or ".." names a directory, which no file is. settled is false where the
-// walk passes through a directory HEAD does not track or a tracked symlink,
-// whose target only the work tree can resolve, or climbs above the work
-// tree, where only the OS can tell whether ../<root name>/... comes back in.
-func seedHeadTreePath(rel string, entries map[string]seedHeadEntry) (path string, settled bool) {
-	var parts []string
-	start := 0
-	for i := 0; i <= len(rel); i++ {
-		if i == len(rel) || os.IsPathSeparator(rel[i]) || rel[i] == '/' {
-			parts = append(parts, rel[start:i])
-			start = i + 1
-		}
-	}
-	if last := parts[len(parts)-1]; last == "" || last == "." || last == ".." {
-		return "", true
-	}
-	var stack []string
-	for i, part := range parts {
-		switch part {
-		case "", ".":
-			continue
-		case "..":
-			if len(stack) == 0 {
-				return "", false
+	for _, part := range parts[:len(parts)-1] {
+		switch {
+		case part == "" || part == ".":
+		case outside != "" && part == "..":
+			move(filepath.Dir(outside))
+		case part == ".." && len(inside) == 0:
+			move(filepath.Dir(realRoot))
+		case part == "..":
+			inside = inside[:len(inside)-1]
+		case outside == "" && seedHeadTreeHasDir(entries, strings.Join(append(slices.Clone(inside), part), "/")):
+			inside = append(inside, part)
+		default:
+			at := outside
+			if at == "" {
+				at = filepath.Join(append([]string{realRoot}, inside...)...)
 			}
-			stack = stack[:len(stack)-1]
-			continue
-		}
-		stack = append(stack, part)
-		if i == len(parts)-1 {
-			break
-		}
-		// HEAD tracks nothing under a symlink or a file, so neither is one.
-		if !seedHeadTreeHasDir(entries, strings.Join(stack, "/")) {
-			return "", false
+			real, err := filepath.EvalSymlinks(filepath.Join(at, part))
+			if err != nil {
+				return "", false // a directory nothing has: git opens no file
+			}
+			move(real)
 		}
 	}
-	path = strings.Join(stack, "/")
+	if outside != "" {
+		return "", false
+	}
+	path := strings.Join(append(inside, last), "/")
 	if entry, ok := entries[path]; ok && entry.ordinaryFile() {
 		return path, true
 	}
-	return "", true
+	return "", false
+}
+
+// seedHeadPathParts splits path at every separator, keeping empty and "."
+// components.
+func seedHeadPathParts(path string) []string {
+	var parts []string
+	start := 0
+	for i := 0; i <= len(path); i++ {
+		if i == len(path) || os.IsPathSeparator(path[i]) || path[i] == '/' {
+			parts = append(parts, path[start:i])
+			start = i + 1
+		}
+	}
+	return parts
 }
 
 // seedHeadTreeHasDir reports whether HEAD tracks anything under dir.
@@ -1099,48 +1120,6 @@ func seedHeadTreeHasDir(entries map[string]seedHeadEntry, dir string) bool {
 		}
 	}
 	return false
-}
-
-// seedHeadWorkTreePath returns file's path in the work tree at root, in git's
-// form, when file lies inside it. Its directory is resolved as the OS
-// resolves it, symlinks and ".." included, so cfg/../x through an ordinary
-// directory matches x, and link/../x through a symlink matches whatever
-// link/.. is. A directory missing from the worktree is read lexically,
-// unless the path has a ".." component.
-func seedHeadWorkTreePath(root, file string) (string, bool) {
-	i := len(file) - 1
-	for i >= 0 && !os.IsPathSeparator(file[i]) {
-		i--
-	}
-	if i < 0 {
-		return "", false
-	}
-	dir, base := file[:i], file[i+1:]
-	if base == "" || base == "." || base == ".." {
-		return "", false
-	}
-	if dir == "" || dir == filepath.VolumeName(file) {
-		dir = file[:i+1] // the filesystem root
-	}
-	if realRoot, err := filepath.EvalSymlinks(root); err == nil {
-		if realDir, err := filepath.EvalSymlinks(dir); err == nil {
-			root, dir = realRoot, realDir
-		} else if slices.Contains(strings.Split(filepath.ToSlash(dir), "/"), "..") {
-			return "", false
-		}
-	}
-	rel, err := filepath.Rel(root, dir)
-	if err != nil {
-		return "", false
-	}
-	rel = filepath.ToSlash(rel)
-	switch {
-	case rel == "..", strings.HasPrefix(rel, "../"):
-		return "", false
-	case rel == ".":
-		return base, true
-	}
-	return rel + "/" + base, true
 }
 
 // seedHeadGitAbsolutePath reports whether git takes a path as absolute: on
