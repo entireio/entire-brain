@@ -136,12 +136,14 @@ func etfTexts(line *transcript.Line) []string {
 
 // toolUse is one tool call a transcript record makes, in the shape every
 // dialect shares: the tool's name, lowercased and trimmed; the call ID; the
-// input as generic JSON; and, for a format line, the inlined result's output.
+// input as generic JSON; and, for a format line, the inlined result's output
+// and status.
 type toolUse struct {
 	name   string
 	id     string
 	input  any
 	output string
+	status string
 }
 
 // etfToolUses returns the tool calls of a format line's tool_use blocks.
@@ -154,6 +156,7 @@ func etfToolUses(line *transcript.Line) []toolUse {
 		use := toolUse{name: normalizeToolName(block.Name), id: block.ID, input: etfJSONValue(block.Input)}
 		if block.Result != nil {
 			use.output = block.Result.Output
+			use.status = block.Result.Status
 		}
 		out = append(out, use)
 	}

@@ -48,7 +48,7 @@ func TestCorpusEpisodeOpsCompactCodexExitTextSkipsItemPathCommands(t *testing.T)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			_, commands, _ := corpusEpisodeOps(compactCodexToolLine(t, c.tool, c.input, c.output))
+			_, commands, _ := corpusEpisodeOps(compactCodexToolLine(t, c.tool, c.input, c.output), "")
 			if got := describeCommands(commands); got != c.want {
 				t.Errorf("commands = %s, want %s", got, c.want)
 			}
@@ -76,7 +76,7 @@ func TestCorpusEpisodeOpsCompactApplyPatchInputShapes(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			_, _, files := corpusEpisodeOps(compactCodexToolLine(t, "apply_patch", input, "Success."))
+			_, _, files := corpusEpisodeOps(compactCodexToolLine(t, "apply_patch", input, "Success."), "")
 			var got []string
 			for _, f := range files {
 				got = append(got, f.action+" "+f.path)
@@ -112,11 +112,11 @@ func TestCorpusEpisodeOpsExitCodeReadFromWrapperHeader(t *testing.T) {
 			}
 			native := `{"type":"response_item","payload":{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"cmd\":\"go test ./...\"}"}}
 {"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":` + string(out) + `}}`
-			if _, commands, _ := corpusEpisodeOps(native); describeCommands(commands) != c.want {
+			if _, commands, _ := corpusEpisodeOps(native, ""); describeCommands(commands) != c.want {
 				t.Errorf("native codex commands = %s, want %s", describeCommands(commands), c.want)
 			}
 			compact := compactCodexToolLine(t, "exec_command", `{"cmd":"go test ./..."}`, c.output)
-			if _, commands, _ := corpusEpisodeOps(compact); describeCommands(commands) != c.want {
+			if _, commands, _ := corpusEpisodeOps(compact, ""); describeCommands(commands) != c.want {
 				t.Errorf("compact codex commands = %s, want %s", describeCommands(commands), c.want)
 			}
 		})

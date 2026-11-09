@@ -14,6 +14,13 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- The pattern corpus now reads current Codex sessions (the cli's item path,
+  in cli 0.13.1 and later). A command that failed is stored as failed, with no
+  exit code since the session records none, and counts in `exit_fails`. A file
+  edit gives a file ref, stored relative to the repository root (taken from the
+  files the session's checkpoint touched) so it links to the file's symbols.
+  The indexer version moves, so the next refresh re-indexes existing
+  sessions (#600).
 - `recall --evidence` no longer returns harness-injected `<system-reminder>`
   text as `role: "user"` evidence. User-role strings and text blocks now go
   through the same wrapper filter as the conversation reader, so reminders,
@@ -25,6 +32,21 @@ All notable changes to `entire-brain` are recorded here. The format follows
   such as a test logging `child process exited with code 1`, is no longer
   stored as the command's exit code or failure. The next corpus build
   re-indexes existing sessions (#607).
+- The history-fragment reader now mines compact v1 transcripts: tool output
+  inlined as `tool_use.result.output` becomes code facts, and a history index,
+  scan cache or short-term overlay built by another extractor revision is
+  rebuilt once on the next refresh instead of being reused. `doctor` reports an
+  index built by a different revision instead of calling it current (#560).
+- Episode tool sequences, the pattern corpus, and `recall --evidence` now read
+  compact v1 transcripts. Compact sessions previously produced episodes with
+  empty tool and command sequences, no corpus tool ops or file refs, and no
+  evidence spans — each compact session was reported as unreadable or
+  unsupported content. The pattern corpus and episode layer rebuild once on
+  the first refresh after upgrading (#564).
+- Compact codex sessions now record `apply_patch` file refs and command exit
+  codes the same way native codex records do. A patch-only turn is no longer
+  classified read-only, and a failing command is no longer stored as a
+  success (#566, #567).
 
 ## [0.5.1] - 2026-11-04
 
