@@ -5054,8 +5054,8 @@ func inspectBrainRawText(brainDir, kind, query string, maxHits int) (brainHistor
 	return inspectBrainRawTextObserved(brainDir, kind, query, maxHits, nil, nil)
 }
 
-// inspectBrainRawTextObserved leaves out the lines in skip before it counts
-// hits toward maxHits.
+// inspectBrainRawTextObserved leaves out a hit on a line whose excerpt in skip
+// already has the query before it counts toward maxHits.
 func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, skip brainBriefShownLines, observation *brainBriefRawScanObservation) (brainHistoryInspectReport, error) {
 	report := brainHistoryInspectReport{Kind: kind, Query: query, BrainPath: brainDir}
 	query = strings.ToLower(strings.TrimSpace(query))
@@ -5115,11 +5115,11 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, skip
 		lineNo := 0
 		for scanner.Scan() {
 			lineNo++
-			if _, ok := skipLines[lineNo]; ok {
-				continue
-			}
 			line := scanner.Text()
 			if !historyTextMatchesQuery(line, query) {
+				continue
+			}
+			if brainBriefLineShowsQuery(skipLines[lineNo], query) {
 				continue
 			}
 			rawMatch := brainTextMatch{
@@ -5249,15 +5249,16 @@ type brainBriefRawHistoryQuery struct {
 	matches    []brainTextMatch
 }
 
-// brainBriefShownLines is a set of Brain-relative paths and line numbers.
-type brainBriefShownLines map[string]map[int]struct{}
+// brainBriefShownLines maps a Brain-relative path and line number to the
+// excerpts the existing matches show for that line.
+type brainBriefShownLines map[string]map[int][]string
 
-// brainBriefShownHistoryLines is the set of lines the existing matches point
-// at. Both raw scans leave those lines out before they count a query's hits:
-// the indexed history already shows them, and a raw hit on the same line is
-// the same evidence as raw JSON. Its excerpt never equals the indexed summary,
-// so the path:line:excerpt dedup keeps both, and a hit that counted toward a
-// query's cap would take a top-up slot from a line the brief does not show.
+// brainBriefShownHistoryLines indexes the existing matches by path and line.
+// Both raw scans use it to leave out a hit the brief already shows before it
+// counts toward a query's cap: a raw hit's excerpt is a window of the raw JSON
+// line and never equals an indexed summary, so the path:line:excerpt dedup
+// keeps both, and the repeat takes a top-up slot from a line the brief does
+// not show.
 func brainBriefShownHistoryLines(existing []brainTextMatch) brainBriefShownLines {
 	if len(existing) == 0 {
 		return nil
@@ -5266,12 +5267,25 @@ func brainBriefShownHistoryLines(existing []brainTextMatch) brainBriefShownLines
 	for _, match := range existing {
 		lines := shown[match.Path]
 		if lines == nil {
-			lines = map[int]struct{}{}
+			lines = map[int][]string{}
 			shown[match.Path] = lines
 		}
-		lines[match.Line] = struct{}{}
+		lines[match.Line] = append(lines[match.Line], match.Excerpt)
 	}
 	return shown
+}
+
+// brainBriefLineShowsQuery reports whether an excerpt the brief already shows
+// for a line contains the query. A line can hold several blocks, and the index
+// keeps one record per fragment with a summary cut at 700 characters, so only
+// an excerpt that has the query makes a raw hit on that line a repeat.
+func brainBriefLineShowsQuery(excerpts []string, query string) bool {
+	for _, excerpt := range excerpts {
+		if historyTextMatchesQuery(excerpt, query) {
+			return true
+		}
+	}
+	return false
 }
 
 // brainBriefRawHistoryMatchesSingleScan evaluates the same prioritized raw
@@ -5280,7 +5294,8 @@ func brainBriefShownHistoryLines(existing []brainTextMatch) brainBriefShownLines
 // for every query is sufficient to replay its exact behavior afterward:
 // query n can request at most limit-len(matches) hits, and the legacy scanner
 // stops before deduplication at precisely that prefix length. Both leave out
-// the lines the existing matches already show before counting.
+// a hit on a line whose existing excerpt already has the query before
+// counting it.
 func brainBriefRawHistoryMatchesSingleScan(brainDir, task string, existing []brainTextMatch, limit int) ([]brainTextMatch, error) {
 	return brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task, existing, limit, nil)
 }
@@ -5401,9 +5416,7 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 		lineNo := 0
 		for scanner.Scan() {
 			lineNo++
-			if _, ok := shownLines[lineNo]; ok {
-				continue
-			}
+			shownExcerpts := shownLines[lineNo]
 			line := scanner.Text()
 			lowerLine := strings.ToLower(line)
 			normalizedLine := ""
@@ -5421,7 +5434,7 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 					}
 					matched = strings.Contains(normalizedLine, query.normalized)
 				}
-				if !matched {
+				if !matched || brainBriefLineShowsQuery(shownExcerpts, query.lower) {
 					continue
 				}
 				match := brainTextMatch{

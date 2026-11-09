@@ -51,7 +51,7 @@ func rawMatchLines(matches []brainTextMatch) []int {
 
 // An indexed record's summary never equals the raw line's excerpt, so the
 // path:line:excerpt key alone let the top-up repeat a line the index already
-// showed, as raw JSON, in a slot another line could have had.
+// showed for the query, as raw JSON, in a slot another line could have had.
 func TestRawHistoryTopUpSkipsLinesTheIndexShows(t *testing.T) {
 	t.Parallel()
 	brainDir, rel := writeRawTopUpFixture(t)
@@ -97,6 +97,38 @@ func TestRawHistoryTopUpDuplicateDoesNotTakeTheLastSlot(t *testing.T) {
 			}
 			if lines := rawMatchLines(got); !reflect.DeepEqual(lines, []int{2}) {
 				t.Fatalf("raw top-up lines = %v, want [2]: %+v", lines, got)
+			}
+		})
+	}
+}
+
+// A line can hold several blocks, and the index keeps one record per
+// fragment. An indexed excerpt for the line that lacks the query (another
+// block, or text past the 700-character summary cut) does not make the raw
+// hit a repeat.
+func TestRawHistoryTopUpKeepsAHitTheLinesExcerptLacks(t *testing.T) {
+	t.Parallel()
+	brainDir := t.TempDir()
+	sessionDir := filepath.Join(brainDir, "sessions", "main")
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	name := "20260716T010203Z_0001.jsonl"
+	line := `{"v":1,"type":"assistant","content":[{"type":"text","text":"narrative the index ranked"},{"type":"tool_use","id":"c1","name":"Bash","input":{"command":"go test -run BETA_IDENTIFIER ./..."}}]}`
+	if err := os.WriteFile(filepath.Join(sessionDir, name), []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rel := "sessions/main/" + name
+	indexed := []brainTextMatch{{Path: rel, Line: 1, Excerpt: "narrative the index ranked"}}
+	for name, matcher := range rawHistoryMatcherImplementations() {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got, err := matcher(brainDir, "BETA_IDENTIFIER", indexed, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 1 || got[0].Path != rel || got[0].Line != 1 {
+				t.Fatalf("raw top-up = %+v, want the BETA_IDENTIFIER hit on %s:1", got, rel)
 			}
 		})
 	}
