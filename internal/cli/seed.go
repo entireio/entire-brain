@@ -116,6 +116,8 @@ type seedScanResult struct {
 	Warnings    []string
 	Fingerprint string
 	// writtenDocs holds the seed/docs paths writeSeedDocs wrote, for the
+	// prune that runs once the new manifest is written.
+	writtenDocs map[string]bool
 }
 
 func newSeedCommand(opts Options) *cobra.Command {
@@ -319,17 +321,23 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 				return errors.New("worktree_changed: worktree content changed during seed refresh")
 			}
 		}
-		// Pruning waits until nothing can refuse the refresh. A refused one
-		// keeps the previous manifest, and with it the previous worktree hash:
-		// had it already removed a document the earlier seed copied, a tree
-		// restored to that state would match the hash, the next refresh would
-		// skip the reseed, and the document would stay missing from search.
-		pruned := len(scan.Warnings)
-		pruneSeedDocs(outputDir, &scan, scan.writtenDocs)
-		seedManifest.Warnings = append(seedManifest.Warnings, scan.Warnings[pruned:]...)
-
 		if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
 			return err
+		}
+		// Pruning waits until the new manifest is written. A refresh that is
+		// refused, or whose manifest write fails, keeps the previous manifest,
+		// and with it the previous worktree hash: had it already removed a
+		// document the earlier seed copied, a tree restored to that state
+		// would match the hash, the next refresh would skip the reseed, and
+		// the document would stay missing from search. A document the prune
+		// could not remove is recorded in a second write of the manifest.
+		pruned := len(scan.Warnings)
+		pruneSeedDocs(outputDir, &scan, scan.writtenDocs)
+		if pruneWarnings := scan.Warnings[pruned:]; len(pruneWarnings) > 0 {
+			seedManifest.Warnings = append(seedManifest.Warnings, pruneWarnings...)
+			if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
+				return err
+			}
 		}
 		if persistentSeed {
 			cursor := seedCursor{

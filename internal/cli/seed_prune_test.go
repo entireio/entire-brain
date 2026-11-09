@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // A reseed used to only ever add to seed/docs: a document that left the
@@ -136,7 +138,7 @@ func TestRefusedWorktreeRefreshKeepsTheDocumentsItWouldPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 	fileIndex := filepath.Join(outputDir, seedDirName, "file-index.json")
-	runner := &seedRestoreRunner{restore: func() bool {
+	runner := &seedStatusHookRunner{hook: func() bool {
 		// This refresh has written its artifacts once the file index no
 		// longer lists the draft. The next git status is the final worktree
 		// check, so the draft comes back just before it.
@@ -149,7 +151,7 @@ func TestRefusedWorktreeRefreshKeepsTheDocumentsItWouldPrune(t *testing.T) {
 	}}
 	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: runner}
 	out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--output", outputDir, "--worktree", "--update", repoDir)
-	if !runner.restored {
+	if !runner.fired {
 		t.Fatalf("the draft was never restored during the refresh: %v\n%s", err, out)
 	}
 	if err == nil || !strings.Contains(err.Error(), "worktree_changed") {
@@ -158,17 +160,74 @@ func TestRefusedWorktreeRefreshKeepsTheDocumentsItWouldPrune(t *testing.T) {
 	assertSeedDoc(t, outputDir, "docs/drafts/draft.md", true)
 }
 
-// seedRestoreRunner runs git for real, calling restore before each git status
-// until it reports that it changed the worktree.
-type seedRestoreRunner struct {
-	ExecRunner
-	restore  func() bool
-	restored bool
+// TestFailedManifestWriteKeepsTheDocumentsItWouldPrune: a refresh whose
+// manifest write fails keeps the previous manifest, like a refused one, so it
+// must keep the documents that manifest describes too.
+func TestFailedManifestWriteKeepsTheDocumentsItWouldPrune(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
+	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/drafts/draft.md": "# Draft\n\nAn untracked zebra pipeline note.\n"})
+	outputDir := filepath.Join(t.TempDir(), "brain")
+	seedPruneRun(t, repoDir, outputDir, "--worktree")
+	assertSeedDoc(t, outputDir, "docs/drafts/draft.md", true)
+
+	if err := os.RemoveAll(filepath.Join(repoDir, "docs")); err != nil {
+		t.Fatal(err)
+	}
+	fileIndex := filepath.Join(outputDir, seedDirName, "file-index.json")
+	runner := &seedStatusHookRunner{hook: func() bool {
+		// Once this refresh has written its artifacts, the next git status
+		// is the final worktree check, the last step before the manifest
+		// write. Breaking the manifest there makes that write fail.
+		data, err := os.ReadFile(fileIndex)
+		if err != nil || strings.Contains(string(data), "draft.md") {
+			return false
+		}
+		writeSeedPruneFiles(t, outputDir, map[string]string{bmanifest.FileName: "{not json"})
+		return true
+	}}
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: runner}
+	out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--output", outputDir, "--worktree", "--update", repoDir)
+	if !runner.fired {
+		t.Fatalf("the manifest was never broken during the refresh: %v\n%s", err, out)
+	}
+	if err == nil {
+		t.Fatalf("refresh succeeded with a broken manifest:\n%s", out)
+	}
+	assertSeedDoc(t, outputDir, "docs/drafts/draft.md", true)
 }
 
-func (r *seedRestoreRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-	if !r.restored && name == "git" && len(args) > 0 && args[0] == "status" {
-		r.restored = r.restore()
+// TestPruneWarningsReachTheManifest: the prune runs after the manifest write,
+// so what it could not remove is recorded by a second write.
+func TestPruneWarningsReachTheManifest(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
+	outputDir := filepath.Join(t.TempDir(), "brain")
+	seedPruneRun(t, repoDir, outputDir)
+	outside := filepath.Join(t.TempDir(), "secret.md")
+	writeSeedPruneFiles(t, filepath.Dir(outside), map[string]string{"secret.md": "outside\n"})
+	if err := os.Symlink(outside, filepath.Join(outputDir, seedDirName, seedDocsDirName, "link.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	seedPruneRun(t, repoDir, outputDir, "--update")
+	manifest, err := bmanifest.Load(outputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Sources == nil || manifest.Sources.Seed == nil || !strings.Contains(strings.Join(manifest.Sources.Seed.Warnings, "\n"), "seed/docs/link.md") {
+		t.Errorf("the symlink the prune left is not in the manifest: %+v", manifest.Sources)
+	}
+}
+
+// seedStatusHookRunner runs git for real, calling hook before each git status
+// until it reports that it acted.
+type seedStatusHookRunner struct {
+	ExecRunner
+	hook  func() bool
+	fired bool
+}
+
+func (r *seedStatusHookRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	if !r.fired && name == "git" && len(args) > 0 && args[0] == "status" {
+		r.fired = r.hook()
 	}
 	return r.ExecRunner.Run(ctx, dir, name, args...)
 }
