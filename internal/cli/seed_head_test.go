@@ -1504,6 +1504,8 @@ func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 		// runsGitLFS: seed's own checkout runs the filter, which needs git-lfs.
 		runsGitLFS bool
 		want       int
+		// warns: git-lfs refuses the command, which seed says.
+		warns bool
 	}{
 		{name: "GIT_LFS_SKIP_SMUDGE=1", skipEnv: "1", configure: useLFSSmudge, want: encoded},
 		{name: "GIT_LFS_SKIP_SMUDGE=Yes", skipEnv: "Yes", configure: useLFSSmudge, want: encoded},
@@ -1603,6 +1605,23 @@ func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 		{name: "repository smudge with --skip after --", want: content, configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge -- --skip")
 		}},
+		// git-lfs reads --skip's value with strconv.ParseBool, and the last
+		// one wins (seedHeadLFSSkipFlag).
+		{name: "repository smudge --skip=true", want: encoded, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge --skip=true -- %f")
+		}},
+		{name: "repository smudge --skip=false", want: content, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge --skip=false -- %f")
+		}},
+		{name: "repository smudge --skip then --skip=false", want: content, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge --skip --skip=false -- %f")
+		}},
+		{name: "repository filter-process -s", want: encoded, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.process", "git-lfs filter-process -s")
+		}},
+		{name: "repository smudge with a --skip value git-lfs refuses", want: asCommitted, warns: true, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge --skip=yes -- %f")
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := exec.LookPath("git-lfs"); tc.runsGitLFS && err != nil {
@@ -1644,10 +1663,53 @@ func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 			if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "manual.md")); err != nil || string(got) != want {
 				t.Errorf("docs/manual.md = %q, %v; want %q", got, err, want)
 			}
-			if len(head.warnings) > 0 {
-				t.Errorf("warnings = %q, want none", head.warnings)
+			if warned := len(head.warnings) > 0; warned != tc.warns {
+				t.Errorf("warnings = %q, want them %v", head.warnings, tc.warns)
 			}
 		})
+	}
+}
+
+// TestSeedHeadLFSSkipFlagParsesAsGitLFSDoes: each case's outcome is what
+// git-lfs 3.4.1 does with those arguments: skips the smudge, smudges, or
+// does neither, exiting with an error (or, for -h and --help, printing its
+// help).
+func TestSeedHeadLFSSkipFlagParsesAsGitLFSDoes(t *testing.T) {
+	t.Parallel()
+	const (
+		smudges = iota
+		skips
+		refused
+	)
+	for _, tc := range []struct {
+		args string
+		want int
+	}{
+		{"smudge", smudges}, {"smudge -- %f", smudges}, {"smudge %f", smudges}, {"filter-process", smudges},
+		{"smudge --skip", skips}, {"smudge --skip -- %f", skips}, {"filter-process --skip", skips},
+		{"smudge --skip=true", skips}, {"smudge --skip=1", skips}, {"smudge --skip=t", skips}, {"smudge --skip=TRUE", skips}, {"smudge --skip=True", skips},
+		{"smudge --skip=false", smudges}, {"smudge --skip=0", smudges}, {"smudge --skip=F", smudges},
+		{"smudge --skip=yes", refused}, {"smudge --skip=on", refused}, {"smudge --skip=", refused},
+		{"smudge -s", skips}, {"smudge -s=true", skips}, {"smudge -s=false", smudges}, {"filter-process -s", skips},
+		{"smudge -ss", skips}, {"smudge -ss=false", smudges}, {"smudge -s=", refused},
+		{"smudge --skip --skip=false", smudges}, {"smudge --skip=false --skip", skips}, {"smudge -s=false -s", skips},
+		// false is the path argument here, not --skip's value.
+		{"smudge --skip false", skips},
+		{"smudge %f --skip", skips}, {"smudge -- --skip", smudges}, {"smudge -", smudges},
+		{"smudge -sv", refused}, {"smudge --sk", refused}, {"smudge -h", refused}, {"smudge --help", refused}, {"filter-process -x", refused},
+		{"--skip smudge", refused}, {"", refused},
+	} {
+		skip, ok := seedHeadLFSSkipFlag(strings.Fields(tc.args))
+		got := smudges
+		switch {
+		case !ok:
+			got = refused
+		case skip:
+			got = skips
+		}
+		if got != tc.want {
+			t.Errorf("git-lfs %s: outcome %d, want %d (0 smudges, 1 skips, 2 refused)", tc.args, got, tc.want)
+		}
 	}
 }
 

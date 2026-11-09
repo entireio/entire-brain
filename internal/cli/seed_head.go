@@ -397,6 +397,9 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		}
 		mode := seedHeadLFSCommandMode(command)
 		lfsModes[filter] = mode
+		if mode == seedHeadLFSRefused {
+			c.warnings = append(c.warnings, fmt.Sprintf("filter %q runs git-lfs with arguments it rejects or answers with its help, so a clean checkout does not write its files' content; seed kept the pointer text", filter))
+		}
 		if mode != seedHeadLFSUnfiltered {
 			drivers.leaveOut(filter)
 			leftOut = append(leftOut, filter)
@@ -1226,7 +1229,7 @@ func (c *seedHeadCheckout) settleAttributesFile(ctx context.Context, runner Envi
 	switch {
 	case lfsMode == seedHeadLFSSmudges:
 		c.lfsAttributesFile(ctx, runner, repoDir, named, committed, worktree)
-	case specifiedAttr(attr.encoding),
+	case specifiedAttr(attr.encoding), lfsMode == seedHeadLFSRefused,
 		lfsMode == seedHeadLFSUnfiltered && drivers.runs(attr.filter):
 		c.warnings = append(c.warnings, fmt.Sprintf("%s has a filter or working-tree-encoding, which seed does not run for it; seed read the rules in its committed bytes", named))
 	}
@@ -1651,7 +1654,7 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 		}
 	}()
 	for _, file := range files {
-		if file.mode == seedHeadLFSUnfiltered {
+		if file.mode == seedHeadLFSUnfiltered || file.mode == seedHeadLFSRefused {
 			continue
 		}
 		target := filepath.Join(c.dir, filepath.FromSlash(file.path))
@@ -1730,21 +1733,30 @@ const (
 	// seedHeadLFSSmudges: git-lfs replaces the pointer with its object,
 	// where it can get it.
 	seedHeadLFSSmudges
+	// seedHeadLFSRefused: git-lfs does not smudge with the command's
+	// arguments. It exits with an error, so git writes the pointer as
+	// committed or, where the filter is required, fails the checkout; for -h
+	// it writes its help instead. Seed keeps the pointer, and says so.
+	seedHeadLFSRefused
 )
 
 // seedHeadLFSCommandMode is what a filter's command, the one the caller's git
 // runs (seedHeadDrivers.lfsCommand), does with an LFS pointer on checkout. A
 // command that is not git-lfs (seedHeadGitLFSCommand), or none, leaves it
-// unfiltered. Git LFS skips the smudge when the command passes --skip, as
-// `git lfs install --skip-smudge` sets it up, or when GIT_LFS_SKIP_SMUDGE is
-// true in its environment: the caller's, unless the command line sets it.
-// Seed's own git commands always skip it (seedHeadGitEnv), so only the
-// caller's settings count. Checked against git-lfs 3.4.1, which reads 1, t,
-// true, yes and on in any case as true.
+// unfiltered. Git LFS skips the smudge when its --skip flag is true
+// (seedHeadLFSSkipFlag), as `git lfs install --skip-smudge` sets it up, or
+// when GIT_LFS_SKIP_SMUDGE is true in its environment: the caller's, unless
+// the command line sets it. Seed's own git commands always skip it
+// (seedHeadGitEnv), so only the caller's settings count. Checked against
+// git-lfs 3.4.1, which reads 1, t, true, yes and on in any case as true there.
 func seedHeadLFSCommandMode(command string) seedHeadLFSMode {
 	args, assignments, ok := seedHeadGitLFSCommand(command)
 	if !ok {
 		return seedHeadLFSUnfiltered
+	}
+	skip, ok := seedHeadLFSSkipFlag(args)
+	if !ok {
+		return seedHeadLFSRefused
 	}
 	skipSmudge := os.Getenv("GIT_LFS_SKIP_SMUDGE")
 	for _, assignment := range assignments {
@@ -1756,15 +1768,63 @@ func seedHeadLFSCommandMode(command string) seedHeadLFSMode {
 	case "1", "t", "true", "yes", "on":
 		return seedHeadLFSSkips
 	}
-	for _, arg := range args {
+	if skip {
+		return seedHeadLFSSkips
+	}
+	return seedHeadLFSSmudges
+}
+
+// seedHeadLFSSkipFlag reads the --skip flag from the arguments git-lfs gets,
+// its subcommand first, as git-lfs's flag parser does (checked against
+// git-lfs 3.4.1): anywhere after the subcommand and before "--", as --skip or
+// -s, in a cluster of shorthands (-ss), or with a value after "=" that
+// strconv.ParseBool reads, the parser git-lfs uses. The last one wins. ok is
+// false where git-lfs refuses the arguments: no subcommand, a flag before it,
+// another flag (--skip is the only one smudge and filter-process take), or a
+// value ParseBool rejects. So is -h or --help, for which git-lfs prints its
+// help instead.
+func seedHeadLFSSkipFlag(args []string) (skip, ok bool) {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return false, false
+	}
+	value := func(text string) bool {
+		v, err := strconv.ParseBool(text)
+		skip, ok = v, err == nil
+		return ok
+	}
+	for _, arg := range args[1:] {
 		if arg == "--" {
 			break
 		}
-		if arg == "--skip" {
-			return seedHeadLFSSkips
+		if !strings.HasPrefix(arg, "-") || arg == "-" {
+			continue
+		}
+		if long, isLong := strings.CutPrefix(arg, "--"); isLong {
+			name, text, hasValue := strings.Cut(long, "=")
+			switch {
+			case name != "skip":
+				return false, false
+			case !hasValue:
+				skip = true
+			case !value(text):
+				return false, false
+			}
+			continue
+		}
+		for rest := arg[1:]; rest != ""; rest = rest[1:] {
+			if rest[0] != 's' {
+				return false, false
+			}
+			if text, hasValue := strings.CutPrefix(rest[1:], "="); hasValue {
+				if !value(text) {
+					return false, false
+				}
+				break
+			}
+			skip = true
 		}
 	}
-	return seedHeadLFSSmudges
+	return skip, true
 }
 
 // seedHeadGitLFSCommand reads a filter command as the shell git runs it
