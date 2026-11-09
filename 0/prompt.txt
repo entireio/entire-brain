@@ -1,0 +1,25 @@
+this si merged: https://github.com/entireio/entire-brain/pull/609
+
+whats next here
+
+---
+
+giev me the link for 612
+
+---
+
+reviwe this and give me the latest state: https://github.com/entireio/entire-brain/pull/612
+
+---
+
+<task-notification>
+<task-id>b97uxlhxu</task-id>
+<tool-use-id>toolu_01X8P4TeYuMQAcYEEUoR2Tig</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-moscow/a0f1c961-109f-408f-b76a-f4b403e072a5/tasks/b97uxlhxu.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full test suite on merged PR 612 tree" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+yes and then let's get it in to a point where it's ready to merge and then merge it

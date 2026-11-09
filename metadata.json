@@ -1,0 +1,48 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M6Z6039SR6XFCPZZM76A5DPK",
+  "strategy": "manual-commit",
+  "branch": "pr-612-work",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/pattern_corpus_codex_items_test.go",
+    "internal/cli/pattern_corpus_enrich.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 40,
+    "cache_creation_tokens": 212183,
+    "cache_read_tokens": 3789970,
+    "output_tokens": 11058,
+    "api_call_count": 20,
+    "subagent_tokens": {
+      "input_tokens": 28,
+      "cache_creation_tokens": 113323,
+      "cache_read_tokens": 1121441,
+      "output_tokens": 25558,
+      "api_call_count": 14
+    }
+  },
+  "redaction": {
+    "replacements": 21,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 3,
+      "key_context": 18,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
