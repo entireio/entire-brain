@@ -253,11 +253,15 @@ type brainBriefReport struct {
 	// in the worktree (fact id -> departed locus tokens) — the "re-verify
 	// before trusting" signal (Phase 2 item 4).
 	FactsLocusDrift map[string][]string `json:"facts_locus_drift,omitempty"`
-	ActionChecklist []brainBriefAction  `json:"action_checklist,omitempty"`
-	LikelyEditFiles []string            `json:"likely_edit_files,omitempty"`
-	LikelyTestFiles []string            `json:"likely_test_files,omitempty"`
-	LikelyFiles     []string            `json:"likely_files,omitempty"`
-	Patterns        []patternView       `json:"patterns,omitempty"`
+	// Precedent points each surfaced fact back at its source sessions by
+	// expanding the fact's provenance anchors — a lookup over records already
+	// in hand, never a second search (COR-2307).
+	Precedent       []brainBriefPrecedent `json:"precedent,omitempty"`
+	ActionChecklist []brainBriefAction    `json:"action_checklist,omitempty"`
+	LikelyEditFiles []string              `json:"likely_edit_files,omitempty"`
+	LikelyTestFiles []string              `json:"likely_test_files,omitempty"`
+	LikelyFiles     []string              `json:"likely_files,omitempty"`
+	Patterns        []patternView         `json:"patterns,omitempty"`
 	// Consolidations are corpus-backed dossiers (v2) relevant to the task:
 	// trigger + workflow + verification + failure modes, anchored. Task-gated
 	// and capped — an unrelated task carries none.
@@ -340,6 +344,7 @@ type brainBriefJSONReport struct {
 	Facts           []brainBriefJSONFact        `json:"facts,omitempty"`
 	GlobalFactIDs   []string                    `json:"global_fact_ids,omitempty"`
 	FactsLocusDrift map[string][]string         `json:"facts_locus_drift,omitempty"`
+	Precedent       []brainBriefPrecedent       `json:"precedent,omitempty"`
 	History         brainBriefHistory           `json:"history"`
 	Conversation    []brainBriefConversationHit `json:"conversation,omitempty"`
 	LikelyEditFiles []string                    `json:"likely_edit_files,omitempty"`
@@ -409,6 +414,21 @@ type brainBriefJSONFact struct {
 
 type brainBriefHistory struct {
 	Matches []brainTextMatch `json:"matches,omitempty"`
+}
+
+// brainBriefPrecedent answers "where did this knowledge come from" for one
+// ranked fact, so an agent can open the source session for detail.
+type brainBriefPrecedent struct {
+	FactID  string                      `json:"fact_id"`
+	Sources []brainBriefPrecedentSource `json:"sources"`
+}
+
+type brainBriefPrecedentSource struct {
+	SessionID    string `json:"session_id,omitempty"`
+	Commit       string `json:"commit,omitempty"`
+	CheckpointID string `json:"checkpoint_id,omitempty"`
+	Transcript   string `json:"transcript,omitempty"`
+	Line         int    `json:"line,omitempty"`
 }
 
 type brainShowReport struct {
@@ -1760,6 +1780,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			factsRankStarted := profile.start()
 			report.Facts = rankFacts(facts, task, brainBriefFactsCount(briefOpts.limit), false)
 			report.GlobalFactIDs = factscmd.SortedGlobalFactIDs(report.Facts, briefGlobalIDs)
+			report.Precedent = brainBriefPrecedents(status.Brain.Path, report.Facts)
 			if profile != nil {
 				profile.finishStage(&profile.Facts.Rank, factsRankStarted, len(facts), len(report.Facts), 0)
 			}
@@ -1972,6 +1993,25 @@ func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutpu
 		fmt.Fprintf(cmd.OutOrStdout(), "memory [%s]%s %s\n", strings.Join(fact.Paths, ","), marker, fact.Text)
 		if gone := report.FactsLocusDrift[fact.ID]; len(gone) > 0 {
 			fmt.Fprintf(cmd.OutOrStdout(), "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
+		}
+	}
+	for _, precedent := range report.Precedent {
+		for _, src := range precedent.Sources {
+			if src.Transcript != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "precedent %s %s:%d\n", precedent.FactID, src.Transcript, src.Line)
+				continue
+			}
+			refs := make([]string, 0, 3)
+			if src.SessionID != "" {
+				refs = append(refs, "session="+src.SessionID)
+			}
+			if src.Commit != "" {
+				refs = append(refs, "commit="+src.Commit)
+			}
+			if src.CheckpointID != "" {
+				refs = append(refs, "checkpoint="+src.CheckpointID)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "precedent %s %s\n", precedent.FactID, strings.Join(refs, " "))
 		}
 	}
 	for _, item := range report.ActionChecklist {
@@ -2698,6 +2738,7 @@ func brainBriefJSONProjection(report brainBriefReport) brainBriefJSONReport {
 		History:         report.History,
 		Conversation:    report.Conversation,
 		FactsLocusDrift: report.FactsLocusDrift,
+		Precedent:       report.Precedent,
 		GlobalFactIDs:   report.GlobalFactIDs,
 		ActionChecklist: report.ActionChecklist,
 		LikelyEditFiles: report.LikelyEditFiles,
@@ -2764,6 +2805,67 @@ func brainBriefFactsCount(limit int) int {
 		return brainBriefFactsLimit
 	}
 	return limit
+}
+
+// brainBriefPrecedents expands the ranked facts' provenance anchors into
+// source pointers. It is a lookup over records the brief already holds; no
+// search or index is involved (COR-2307). Anchors whose transcript is missing
+// from the brain degrade to session/commit references, never errors.
+func brainBriefPrecedents(brainDir string, facts []factRecord) []brainBriefPrecedent {
+	var out []brainBriefPrecedent
+	for _, fact := range facts {
+		if sources := precedentSources(brainDir, fact.Provenance); len(sources) > 0 {
+			out = append(out, brainBriefPrecedent{FactID: fact.ID, Sources: sources})
+		}
+	}
+	return out
+}
+
+func precedentSources(brainDir string, anchors []factAnchor) []brainBriefPrecedentSource {
+	type sourceKey struct{ session, commit, checkpoint string }
+	transcriptCovered := map[sourceKey]bool{}
+	for _, a := range anchors {
+		if precedentTranscriptExists(brainDir, a.Transcript) {
+			transcriptCovered[sourceKey{a.SessionID, a.Commit, a.CheckpointID}] = true
+		}
+	}
+	seen := map[brainBriefPrecedentSource]struct{}{}
+	var out []brainBriefPrecedentSource
+	for _, a := range anchors {
+		src := brainBriefPrecedentSource{SessionID: a.SessionID, Commit: a.Commit, CheckpointID: a.CheckpointID}
+		if precedentTranscriptExists(brainDir, a.Transcript) {
+			src.Transcript = a.Transcript
+			src.Line = a.Line
+		} else if transcriptCovered[sourceKey{a.SessionID, a.Commit, a.CheckpointID}] {
+			// A transcript-bearing anchor already points at this source; a
+			// bare duplicate of it adds no information.
+			continue
+		}
+		if src == (brainBriefPrecedentSource{}) {
+			continue
+		}
+		if _, dup := seen[src]; dup {
+			continue
+		}
+		seen[src] = struct{}{}
+		out = append(out, src)
+	}
+	return out
+}
+
+// precedentTranscriptExists treats the anchor's transcript as a brain-relative
+// path. Synced facts can carry arbitrary anchor strings, so a path that would
+// escape the brain directory is treated as absent rather than resolved.
+func precedentTranscriptExists(brainDir, transcript string) bool {
+	if brainDir == "" || transcript == "" || filepath.IsAbs(transcript) {
+		return false
+	}
+	clean := filepath.Clean(filepath.FromSlash(transcript))
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(brainDir, clean))
+	return err == nil && !info.IsDir()
 }
 
 func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task string) ([]string, []string, []string) {
