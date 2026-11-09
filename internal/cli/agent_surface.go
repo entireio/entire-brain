@@ -5328,7 +5328,9 @@ func (s *brainBriefShownHistory) repeats(match brainTextMatch, line, query strin
 // is_error, a pi toolResult's isError). A JSON line it reads nothing from can
 // hold evidence the brief does not show: a document-form message, which
 // historyDocumentRecords indexes with only its tool parts' code facts, or a
-// shape the extractor does not know.
+// shape the extractor does not know. The extractor also skips some tool shapes
+// (a "tool" block, a tool_calls list), so the line's own structure is checked
+// for a tool first.
 func rawLineIsIndexedText(line string) bool {
 	text := strings.TrimSpace(line)
 	if !json.Valid([]byte(text)) {
@@ -5338,6 +5340,10 @@ func rawLineIsIndexedText(line string) bool {
 	if !ok {
 		return false
 	}
+	var value any
+	if json.Unmarshal([]byte(text), &value) != nil || jsonHasToolShape(value) {
+		return false
+	}
 	fragments := extractHistoryJSONFragments(record)
 	for _, fragment := range fragments {
 		if strings.HasPrefix(fragment.Source, "tool_call") || fragment.Source == "tool_result_fact" {
@@ -5345,6 +5351,39 @@ func rawLineIsIndexedText(line string) bool {
 		}
 	}
 	return len(fragments) > 0
+}
+
+// jsonHasToolShape reports whether a decoded JSON value holds anything shaped
+// like a tool call or result: an object key that names a tool (tool,
+// tool_use_id, tool_calls, toolCallId, ...), or a type or role that names a
+// tool or a function call (tool_use, tool, tool_result, toolResult,
+// function_call, function_call_output, custom_tool_call). It is deliberately
+// broad: a match only keeps a raw hit, as main does.
+func jsonHasToolShape(value any) bool {
+	switch v := value.(type) {
+	case map[string]any:
+		for key, child := range v {
+			if strings.Contains(strings.ToLower(key), "tool") {
+				return true
+			}
+			if key == "type" || key == "role" {
+				name := strings.ToLower(jsonString(child))
+				if strings.Contains(name, "tool") || strings.Contains(name, "function_call") {
+					return true
+				}
+			}
+			if jsonHasToolShape(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if jsonHasToolShape(child) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // historyMentionCount counts a query's mentions in a text the two ways

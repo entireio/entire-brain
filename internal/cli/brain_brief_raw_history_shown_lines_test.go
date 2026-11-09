@@ -350,6 +350,14 @@ func TestRawHistoryTopUpKeepsAToolResultsStatus(t *testing.T) {
 	}
 }
 
+// A "tool" block is a tool call to nativeToolUses, but the history extractor
+// reads no fragment from it, so the line's only record is its text.
+func TestRawHistoryTopUpKeepsAToolBlockTheExtractorSkips(t *testing.T) {
+	t.Parallel()
+	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"},{"type":"tool","tool":"bash","input":{"command":"go test ./..."}}]}}`
+	assertRawTopUpKeepsFullyIndexedLine(t, line, "go test ./...")
+}
+
 // A document-form transcript is indexed by historyDocumentRecords, not the
 // JSONL extractor, and its records keep a tool part's output only as code
 // facts. A message object written on one line is still one JSON value to the
@@ -438,13 +446,15 @@ func assertRawTopUpKeepsFullyIndexedLine(t *testing.T, line, wantIn string) {
 func TestRawLineIsIndexedTextReadsOnlyTextRecords(t *testing.T) {
 	t.Parallel()
 	cases := map[string]bool{
-		`ALPHA_IDENTIFIER discussed in a plain text line`:                                                          true,
-		`{"type":"assistant","message":{"content":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"}]}}`:     true,
-		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}`:  false,
-		`{"type":"user","message":{"content":[{"type":"tool_result","content":"func ALPHA_IDENTIFIER() error"}]}}`: false,
-		`{"info":{"role":"assistant"},"parts":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"}]}`:          false,
-		`{"unknown":"Decision: ALPHA_IDENTIFIER = 1"}`:                                                             false,
-		`{"type":"assistant","message":{"content":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"}]}},`:    true,
+		`ALPHA_IDENTIFIER discussed in a plain text line`:                                                                                    true,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"}]}}`:                               true,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}`:                            false,
+		`{"type":"user","message":{"content":[{"type":"tool_result","content":"func ALPHA_IDENTIFIER() error"}]}}`:                           false,
+		`{"info":{"role":"assistant"},"parts":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"}]}`:                                    false,
+		`{"unknown":"Decision: ALPHA_IDENTIFIER = 1"}`:                                                                                       false,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"},{"type":"tool","tool":"bash"}]}}`: false,
+		`{"type":"assistant","message":{"content":"Decision: ALPHA_IDENTIFIER = 1","tool_calls":[{"type":"function"}]}}`:                     false,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"}]}},`:                              true,
 	}
 	for line, want := range cases {
 		if got := rawLineIsIndexedText(line); got != want {
