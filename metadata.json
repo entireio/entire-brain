@@ -1,0 +1,62 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M6Z8TYE00FFCAG6C8YR6F01Q",
+  "strategy": "manual-commit",
+  "branch": "pr-613-local",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "CHANGELOG.md",
+    "docs/pattern_v2.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_brief_history_merge_test.go",
+    "internal/cli/brief_output_regression_test.go",
+    "internal/cli/episodes_test.go",
+    "internal/cli/pattern_corpus.go",
+    "internal/cli/pattern_corpus_codex_items_test.go",
+    "internal/cli/pattern_corpus_compact_exit_test.go",
+    "internal/cli/pattern_corpus_compact_hardening_test.go",
+    "internal/cli/pattern_corpus_enrich.go",
+    "internal/cli/pattern_corpus_enrich_test.go",
+    "internal/cli/patterns/runs.go",
+    "internal/cli/recall_evidence_source.go",
+    "internal/cli/transcript_record.go",
+    "tools/mutationcheck/cases.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 102,
+    "cache_creation_tokens": 64195,
+    "cache_read_tokens": 12206178,
+    "output_tokens": 28210,
+    "api_call_count": 51,
+    "subagent_tokens": {
+      "input_tokens": 64,
+      "cache_creation_tokens": 146883,
+      "cache_read_tokens": 3096050,
+      "output_tokens": 41454,
+      "api_call_count": 32
+    }
+  },
+  "redaction": {
+    "replacements": 25,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 3,
+      "key_context": 22,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
