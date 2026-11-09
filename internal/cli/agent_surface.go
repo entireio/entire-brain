@@ -5312,7 +5312,8 @@ func (s *brainBriefShownHistory) repeats(match brainTextMatch, line, query strin
 
 // historyMentionCount counts a query's mentions in a text the two ways
 // historyTextMatchesQuery matches them: as written, case-folded, and
-// normalized.
+// normalized. Overlapping mentions each count, so a mention that shares
+// characters with a shown one still adds to the line's count.
 type historyMentionCount struct{ literal, normalized int }
 
 func (c historyMentionCount) add(other historyMentionCount) historyMentionCount {
@@ -5324,11 +5325,24 @@ func countHistoryMentions(text, query string) historyMentionCount {
 	if query == "" {
 		return historyMentionCount{}
 	}
-	count := historyMentionCount{literal: strings.Count(strings.ToLower(text), query)}
+	count := historyMentionCount{literal: countOverlapping(strings.ToLower(text), query)}
 	if normalized := normalizeHistorySearchText(query); normalized != "" {
-		count.normalized = strings.Count(normalizeHistorySearchText(text), normalized)
+		count.normalized = countOverlapping(normalizeHistorySearchText(text), normalized)
 	}
 	return count
+}
+
+func countOverlapping(text, sub string) int {
+	count := 0
+	for {
+		at := strings.Index(text, sub)
+		if at < 0 {
+			return count
+		}
+		count++
+		_, width := utf8.DecodeRuneInString(text[at:])
+		text = text[at+width:]
+	}
 }
 
 // rawLineTexts returns the string values of a JSON line in order, or the

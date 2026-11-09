@@ -160,6 +160,7 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 		name     string
 		blocks   []string
 		shown    []string
+		query    string // ALPHA_IDENTIFIER when empty
 		wantKept bool
 		wantIn   string // text the kept hit's excerpt must show, when set
 	}{
@@ -210,6 +211,16 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 			wantKept: true,
 		},
 		{
+			// Normalized, the line reads "... text test test test failed":
+			// the key's mention overlaps the shown value's.
+			name:     "a key that overlaps a shown mention",
+			blocks:   []string{`{"type":"text","text":"test_test","test":"failed"}`},
+			shown:    []string{"test_test"},
+			query:    "test_test",
+			wantKept: true,
+			wantIn:   "failed",
+		},
+		{
 			name:     "every block with the query is shown",
 			blocks:   []string{textBlock("ALPHA_IDENTIFIER was discussed"), textBlock("ALPHA_IDENTIFIER failed with exit 1")},
 			shown:    []string{"ALPHA_IDENTIFIER was discussed", "ALPHA_IDENTIFIER failed with exit 1"},
@@ -247,15 +258,19 @@ func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
 			for _, excerpt := range tc.shown {
 				indexed = append(indexed, brainTextMatch{Path: rel, Line: 1, Excerpt: excerpt})
 			}
+			query := tc.query
+			if query == "" {
+				query = "ALPHA_IDENTIFIER"
+			}
 			for impl, matcher := range rawHistoryMatcherImplementations() {
-				got, err := matcher(brainDir, "ALPHA_IDENTIFIER", indexed, 4)
+				got, err := matcher(brainDir, query, indexed, 4)
 				if err != nil {
 					t.Fatal(err)
 				}
 				if kept := len(got) == 1 && got[0].Line == 1; kept != tc.wantKept || len(got) > 1 {
 					t.Fatalf("%s: raw top-up = %+v, want kept=%v", impl, got, tc.wantKept)
 				}
-				if tc.wantKept && got[0].Excerpt != historyRawLineExcerpt(line, "ALPHA_IDENTIFIER") {
+				if tc.wantKept && got[0].Excerpt != historyRawLineExcerpt(line, query) {
 					t.Fatalf("%s: kept excerpt %q is not the raw line's excerpt", impl, got[0].Excerpt)
 				}
 				if tc.wantKept && !strings.Contains(got[0].Excerpt, tc.wantIn) {
@@ -338,5 +353,15 @@ func TestRawLineTextsReadsStringValuesInOrder(t *testing.T) {
 		if got := rawLineTexts(line); !reflect.DeepEqual(got, want) {
 			t.Errorf("rawLineTexts(%q) = %q, want %q", line, got, want)
 		}
+	}
+}
+
+func TestCountHistoryMentionsCountsOverlaps(t *testing.T) {
+	t.Parallel()
+	if got := countHistoryMentions("test_test_test failed", "test_test"); got != (historyMentionCount{literal: 2, normalized: 2}) {
+		t.Fatalf("countHistoryMentions = %+v, want 2 literal and 2 normalized", got)
+	}
+	if got := countHistoryMentions("ALPHA / IDENTIFIER", "ALPHA_IDENTIFIER"); got != (historyMentionCount{literal: 0, normalized: 1}) {
+		t.Fatalf("countHistoryMentions = %+v, want 1 normalized", got)
 	}
 }
