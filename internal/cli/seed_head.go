@@ -960,25 +960,21 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 }
 
 // seedHeadLFSFetchFiltered reports whether Git LFS is set to smudge only some
-// paths: lfs.fetchinclude or lfs.fetchexclude in the git configuration, or in
-// the .lfsconfig of commit, which is what a clean checkout of it has.
+// paths: lfs.fetchinclude or lfs.fetchexclude holds a pattern. Git LFS reads
+// the .lfsconfig of the checked-out commit and then the git configuration, and
+// the last value of a key wins, so a key the git configuration sets (to
+// nothing, too) overrides the commit's and only the last value counts.
 func seedHeadLFSFetchFiltered(ctx context.Context, runner EnvironmentCommandRunner, repoDir, commit string) bool {
-	const keys = `^lfs\.fetch(in|ex)clude$`
 	env := seedHeadGitEnv("")
-	for _, args := range [][]string{
-		{"config", "--get-regexp", keys},
-		{"config", "--blob", commit + ":.lfsconfig", "--get-regexp", keys},
-	} {
-		out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...)
+	for _, key := range []string{"lfs.fetchinclude", "lfs.fetchexclude"} {
+		value, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "config", "--get", key)
 		if err != nil {
-			continue
+			value, _, err = runner.RunWithEnv(ctx, repoDir, env, "git", "config", "--blob", commit+":.lfsconfig", "--get", key)
 		}
-		// Each line is the key, a space and the value: a comma-separated
-		// pattern list, which Git LFS ignores when it holds no pattern.
-		for _, line := range strings.Split(string(out), "\n") {
-			if _, value, ok := strings.Cut(line, " "); ok && strings.Trim(value, " ,\t\r") != "" {
-				return true
-			}
+		// The value is a comma-separated pattern list, which Git LFS ignores
+		// when it holds no pattern.
+		if err == nil && strings.Trim(string(value), " ,\t\r\n") != "" {
+			return true
 		}
 	}
 	return false

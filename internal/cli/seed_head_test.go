@@ -1174,6 +1174,15 @@ func TestDirtySeedKeepsLFSPointersWhenFetchFiltersAreSet(t *testing.T) {
 		{name: "no pattern", configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "lfs.fetchexclude", " , ")
 		}},
+		// Git LFS takes the last value of a key, and the git configuration
+		// comes after the commit's .lfsconfig (checked against git-lfs 3.4.1).
+		{name: "configuration emptying the committed .lfsconfig", lfsconfig: "[lfs]\n\tfetchinclude = assets/**\n", configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "lfs.fetchinclude", "")
+		}},
+		{name: "local configuration emptying the global one", configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "--global", "lfs.fetchexclude", "docs/other.md")
+			gitAt(t, repoDir, "config", "lfs.fetchexclude", "")
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			isolateSeedHeadTemp(t)
