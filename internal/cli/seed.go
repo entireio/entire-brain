@@ -330,10 +330,14 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		// document the earlier seed copied, a tree restored to that state
 		// would match the hash, the next refresh would skip the reseed, and
 		// the document would stay missing from search. A document the prune
-		// could not remove is recorded in a second write of the manifest.
+		// could not remove is reported by writing seed/risks.md and the
+		// manifest again.
 		pruned := len(scan.Warnings)
 		pruneSeedDocs(outputDir, &scan, scan.writtenDocs)
 		if pruneWarnings := scan.Warnings[pruned:]; len(pruneWarnings) > 0 {
+			if err := writeSeedRisks(outputDir, &scan); err != nil {
+				return err
+			}
 			seedManifest.Warnings = append(seedManifest.Warnings, pruneWarnings...)
 			if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
 				return err
@@ -893,13 +897,18 @@ func writeSeedArtifacts(outputDir string, scan *seedScanResult) error {
 	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "conventions.md")), []byte(renderSeedConventions(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "risks.md")), []byte(renderSeedRisks(*scan)), 0o600); err != nil {
+	if err := writeSeedRisks(outputDir, scan); err != nil {
 		return err
 	}
 	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")), []byte(renderSeedHistoryGaps(*scan)), 0o600); err != nil {
 		return err
 	}
 	return nil
+}
+
+// writeSeedRisks writes seed/risks.md, which lists the scan's warnings.
+func writeSeedRisks(outputDir string, scan *seedScanResult) error {
+	return brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "risks.md")), []byte(renderSeedRisks(*scan)), 0o600)
 }
 
 // dropSeedDocument records that a selected document did not make it into the

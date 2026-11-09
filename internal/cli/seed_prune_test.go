@@ -196,9 +196,10 @@ func TestFailedManifestWriteKeepsTheDocumentsItWouldPrune(t *testing.T) {
 	assertSeedDoc(t, outputDir, "docs/drafts/draft.md", true)
 }
 
-// TestPruneWarningsReachTheManifest: the prune runs after the manifest write,
-// so what it could not remove is recorded by a second write.
-func TestPruneWarningsReachTheManifest(t *testing.T) {
+// TestPruneWarningsReachTheManifestAndRisks: the prune runs after the
+// manifest and seed/risks.md are written, so what it could not remove is
+// recorded by writing both again.
+func TestPruneWarningsReachTheManifestAndRisks(t *testing.T) {
 	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
 	outputDir := filepath.Join(t.TempDir(), "brain")
 	seedPruneRun(t, repoDir, outputDir)
@@ -214,6 +215,10 @@ func TestPruneWarningsReachTheManifest(t *testing.T) {
 	}
 	if manifest.Sources == nil || manifest.Sources.Seed == nil || !strings.Contains(strings.Join(manifest.Sources.Seed.Warnings, "\n"), "seed/docs/link.md") {
 		t.Errorf("the symlink the prune left is not in the manifest: %+v", manifest.Sources)
+	}
+	risks, err := os.ReadFile(filepath.Join(outputDir, seedDirName, "risks.md"))
+	if err != nil || !strings.Contains(string(risks), "seed/docs/link.md") {
+		t.Errorf("the symlink the prune left is not in seed/risks.md: %v\n%s", err, risks)
 	}
 }
 
