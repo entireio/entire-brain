@@ -201,22 +201,39 @@ func TestFailedManifestWriteKeepsTheDocumentsItWouldPrune(t *testing.T) {
 
 // TestReadmeFailureAfterTheManifestLeavesThePrunePending: the README is
 // written after the manifest, so a refresh whose README write fails has
-// already saved a manifest that counts as current, without pruning. The
-// pending marker stays, so the old copy is not left behind for good, and the
-// next refresh that gets through prunes it and clears the marker.
+// already saved a manifest that counts as current, without pruning. In the
+// brain store the pending marker stays, so the old copy is not left behind
+// for good, and the next refresh that gets through prunes it and clears the
+// marker.
 func TestReadmeFailureAfterTheManifestLeavesThePrunePending(t *testing.T) {
 	repoDir := seedPruneRepo(t, map[string]string{
 		"README.md":   "# readme\n",
 		"docs/old.md": "# Old guide\n",
 	})
-	outputDir := filepath.Join(t.TempDir(), "brain")
-	seedPruneRun(t, repoDir, outputDir)
-	if seedPrunePending(outputDir) {
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: ExecRunner{}}
+	storage, err := repoStoragePaths(context.Background(), opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brainDir := storage.BrainDir
+	seed := func() error {
+		t.Helper()
+		out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", repoDir)
+		if err != nil {
+			t.Logf("seed: %v\n%s", err, out)
+		}
+		return err
+	}
+	if err := seed(); err != nil {
+		t.Fatal(err)
+	}
+	assertSeedDoc(t, brainDir, "docs/old.md", true)
+	if seedPrunePending(brainDir) {
 		t.Fatal("a seed that finished left its prune marked pending")
 	}
 	gitAt(t, repoDir, "rm", "-q", "docs/old.md")
 	gitAt(t, repoDir, "commit", "-q", "-m", "drop old doc")
-	readme := filepath.Join(outputDir, exportReadmeFileName)
+	readme := filepath.Join(brainDir, exportReadmeFileName)
 	if err := os.Remove(readme); err != nil {
 		t.Fatal(err)
 	}
@@ -224,27 +241,28 @@ func TestReadmeFailureAfterTheManifestLeavesThePrunePending(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: ExecRunner{}}
-	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--output", outputDir, "--update", repoDir); err == nil {
-		t.Fatalf("refresh succeeded with a README it cannot write:\n%s", out)
+	if err := seed(); err == nil {
+		t.Fatal("refresh succeeded with a README it cannot write")
 	}
-	manifest, err := bmanifest.Load(outputDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if head := strings.TrimSpace(string(clibase.GitOutput(context.Background(), ExecRunner{}, repoDir, "rev-parse", "HEAD"))); manifest.Sources == nil || manifest.Sources.Seed == nil || manifest.Sources.Seed.Commit != head {
 		t.Fatalf("the manifest was not saved before the README failed: %+v", manifest.Sources)
 	}
-	if !seedPrunePending(outputDir) {
+	if !seedPrunePending(brainDir) {
 		t.Error("the prune that did not run is not marked pending")
 	}
 
 	if err := os.Remove(readme); err != nil {
 		t.Fatal(err)
 	}
-	seedPruneRun(t, repoDir, outputDir, "--update")
-	assertSeedDoc(t, outputDir, "docs/old.md", false)
-	if seedPrunePending(outputDir) {
+	if err := seed(); err != nil {
+		t.Fatal(err)
+	}
+	assertSeedDoc(t, brainDir, "docs/old.md", false)
+	if seedPrunePending(brainDir) {
 		t.Error("the prune is still marked pending after a refresh finished it")
 	}
 }
@@ -318,11 +336,19 @@ func (r *seedStatusHookRunner) Run(ctx context.Context, dir, name string, args .
 // checks a fresh or --force seed makes, so it can seed into the repository
 // itself. Its own files under seed/docs are not this seed's to prune.
 func TestUpdateIntoTheRepositoryKeepsItsOwnSeedDocs(t *testing.T) {
-	repoDir := seedPruneRepo(t, map[string]string{"seed/docs/README.md": "# tracked\n"})
+	repoDir := seedPruneRepo(t, map[string]string{
+		"seed/docs/README.md": "# tracked\n",
+		seedPrunePendingPath:  "a tracked file that only shares the marker's name\n",
+	})
 	seedPruneRun(t, repoDir, repoDir, "--update")
 	got, err := os.ReadFile(filepath.Join(repoDir, "seed", "docs", "README.md"))
 	if err != nil || string(got) != "# tracked\n" {
 		t.Errorf("the repository's own seed/docs/README.md = %q, %v; want it untouched", got, err)
+	}
+	// The pending marker is the brain store's alone.
+	got, err = os.ReadFile(filepath.Join(repoDir, filepath.FromSlash(seedPrunePendingPath)))
+	if err != nil || string(got) != "a tracked file that only shares the marker's name\n" {
+		t.Errorf("the repository's own %s = %q, %v; want it untouched", seedPrunePendingPath, got, err)
 	}
 }
 

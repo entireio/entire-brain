@@ -36,8 +36,8 @@ const (
 	defaultAgentMaxOutput   = 200000
 )
 
-// seedPrunePendingPath marks a seed whose manifest may be written while the
-// prune of old seed/docs files has not finished (runSeed).
+// seedPrunePendingPath marks a brain-store seed whose manifest may be written
+// while the prune of old seed/docs files has not finished (runSeed).
 const (
 	seedPrunePendingPath = "seed/prune-pending"
 	seedPrunePendingText = "A seed refresh may have written its manifest without finishing the removal of old seed/docs files. The next refresh reseeds while this file is here.\n"
@@ -339,9 +339,14 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		// leaves old documents behind a manifest that counts as current. The
 		// pending marker covers that: it is written before the manifest and
 		// removed last, and while it is there refresh reseeds
-		// (seedPrunePending).
-		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, seedPrunePendingPath, []byte(seedPrunePendingText), 0o600); err != nil {
-			return err
+		// (seedPrunePending). Only the brain store gets one. Refresh skips a
+		// current seed only there, and an explicit --output, which --update
+		// can point at the repository itself, may hold a file of that name
+		// that is not this seed's to replace or delete.
+		if persistentSeed {
+			if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, seedPrunePendingPath, []byte(seedPrunePendingText), 0o600); err != nil {
+				return err
+			}
 		}
 		if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
 			return err
@@ -359,10 +364,10 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 				return err
 			}
 		}
-		if err := brainstore.RemoveBrainRelativeFile(outputDir, seedPrunePendingPath); err != nil {
-			return err
-		}
 		if persistentSeed {
+			if err := brainstore.RemoveBrainRelativeFile(outputDir, seedPrunePendingPath); err != nil {
+				return err
+			}
 			cursor := seedCursor{
 				SchemaVersion:                  1,
 				UpdatedAt:                      seedManifest.GeneratedAt,
