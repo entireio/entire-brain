@@ -1489,6 +1489,75 @@ func TestSeedHeadFoldsCaseMatchesTheFilesystem(t *testing.T) {
 	}
 }
 
+// TestSeedRepoFoldsCaseLooksAnEntryUpUnderAnotherCase: the repository's case
+// rule comes from looking an entry it already has up under another case, so
+// nothing is written there. A second name for the same file is what a
+// case-insensitive filesystem shows, and two files are what a case-sensitive
+// one keeps.
+func TestSeedRepoFoldsCaseLooksAnEntryUpUnderAnotherCase(t *testing.T) {
+	t.Parallel()
+	skipWhereCaseFolds(t)
+	dirWith := func(files ...string) string {
+		dir := t.TempDir()
+		for _, name := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	check := func(name, dir string, wantFolds, wantOK bool) {
+		t.Helper()
+		before, _ := os.ReadDir(dir)
+		if folds, ok := seedRepoFoldsCase(dir); folds != wantFolds || ok != wantOK {
+			t.Errorf("%s: seedRepoFoldsCase = %v, %v; want %v, %v", name, folds, ok, wantFolds, wantOK)
+		}
+		if after, _ := os.ReadDir(dir); len(after) != len(before) {
+			t.Errorf("%s: the probe changed the directory: %v -> %v", name, before, after)
+		}
+	}
+	check("one spelling", dirWith("Readme"), false, true)
+	check("two files", dirWith("Readme", "rEADME"), false, true)
+	check("nothing cased", dirWith("123"), false, false)
+	check("missing directory", filepath.Join(t.TempDir(), "missing"), false, false)
+	folding := dirWith("Readme")
+	if err := os.Link(filepath.Join(folding, "Readme"), filepath.Join(folding, "rEADME")); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	check("one file under two spellings", folding, true, true)
+}
+
+// TestSeedHeadCaseMismatchRefusesWhatTheRulesReadDifferently: a temporary
+// filesystem that treats case unlike the repository's reads a selected path
+// that differs only in case from another committed path, including one past
+// --max-files, differently from a clean checkout, so the checkout is refused.
+// Paths with no such twin read the same either way.
+func TestSeedHeadCaseMismatchRefusesWhatTheRulesReadDifferently(t *testing.T) {
+	t.Parallel()
+	paths := []string{"README.md", "docs/Guide.md", "docs/guide.md", "src/main.go"}
+	for _, tc := range []struct {
+		name            string
+		repo, temp      bool
+		selected        []string
+		wantRefusalPath string
+	}{
+		{name: "both case-sensitive", selected: paths},
+		{name: "both fold case", repo: true, temp: true, selected: paths},
+		{name: "case-sensitive repository, folding temporary directory", temp: true, selected: paths, wantRefusalPath: "docs/Guide.md"},
+		{name: "folding repository, case-sensitive temporary directory", repo: true, selected: paths, wantRefusalPath: "docs/Guide.md"},
+		{name: "twin past --max-files", temp: true, selected: paths[:2], wantRefusalPath: "docs/Guide.md"},
+		{name: "no selected path has a twin", temp: true, selected: paths[:1]},
+	} {
+		err := seedHeadCaseMismatch(tc.repo, tc.temp, tc.selected, paths)
+		switch {
+		case tc.wantRefusalPath == "" && err != nil:
+			t.Errorf("%s: refused: %v", tc.name, err)
+		case tc.wantRefusalPath != "" && (err == nil || !strings.Contains(err.Error(), tc.wantRefusalPath)):
+			t.Errorf("%s: err = %v; want a refusal naming %s", tc.name, err, tc.wantRefusalPath)
+		}
+	}
+}
+
 // TestSeedHeadCaseAliasesReadTheFileACleanCheckoutLeaves: on a
 // case-insensitive filesystem a clean checkout writes every path in tree
 // order, so paths that differ only in case read the content of the last one

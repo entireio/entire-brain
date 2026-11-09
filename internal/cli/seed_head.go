@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -16,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
@@ -118,7 +120,9 @@ type seedHeadCheckout struct {
 	// to report.
 	warnings []string
 	// foldsCase is whether dir's filesystem treats names that differ only in
-	// case as one file (seedHeadFoldsCase).
+	// case as one file (seedHeadFoldsCase). Where the repository's filesystem
+	// does otherwise and that would change what the scan reads, there is no
+	// checkout (seedHeadCaseMismatch).
 	foldsCase bool
 	// readers lists, for a path checked out on behalf of its case aliases,
 	// every selected path whose scan reads its file (readersOf). It is empty
@@ -205,7 +209,14 @@ func checkoutSeedHead(ctx context.Context, runner CommandRunner, repoDir string,
 	if err != nil {
 		return nil, fmt.Errorf("create committed HEAD checkout: %w", err)
 	}
-	checkout := &seedHeadCheckout{commit: commit, dir: filepath.Join(tempRoot, "tree"), paths: paths, unread: map[string]int64{}, foldsCase: seedHeadFoldsCase(tempRoot), tempRoot: tempRoot}
+	foldsCase := seedHeadFoldsCase(tempRoot)
+	if repoFolds, ok := seedRepoFoldsCase(repoDir); ok {
+		if err := seedHeadCaseMismatch(repoFolds, foldsCase, seedHeadSelected(paths, opts.maxFiles), paths); err != nil {
+			_ = os.RemoveAll(tempRoot)
+			return nil, err
+		}
+	}
+	checkout := &seedHeadCheckout{commit: commit, dir: filepath.Join(tempRoot, "tree"), paths: paths, unread: map[string]int64{}, foldsCase: foldsCase, tempRoot: tempRoot}
 	if err := checkout.populate(ctx, envRunner, repoDir, entries, opts); err != nil {
 		checkout.remove()
 		return nil, err
@@ -329,10 +340,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		return fmt.Errorf("create committed HEAD checkout: %w", err)
 	}
 	env["GIT_WORK_TREE"] = emptyWorkTree
-	selected := c.paths
-	if opts.maxFiles > 0 && len(selected) > opts.maxFiles {
-		selected = selected[:opts.maxFiles]
-	}
+	selected := seedHeadSelected(c.paths, opts.maxFiles)
 	// Paths that differ only in case share one file where the filesystem
 	// folds case, and a clean checkout leaves it holding the last of them it
 	// writes. Only that path is checked out, and its aliases are read through
@@ -498,6 +506,81 @@ func seedHeadFoldsCase(dir string) bool {
 	defer os.Remove(probe)
 	_, err := os.Lstat(filepath.Join(dir, "CASE-PROBE"))
 	return err == nil
+}
+
+// seedRepoFoldsCase reports whether the filesystem holding repoDir treats
+// names that differ only in case as one file, which is what decides how a
+// clean checkout there stores them. It looks one of repoDir's entries up under
+// another case and writes nothing; ok is false when no entry could tell.
+func seedRepoFoldsCase(repoDir string) (folds, ok bool) {
+	entries, err := os.ReadDir(repoDir)
+	if err != nil {
+		return false, false
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		other := seedSwapCase(name)
+		if other == name {
+			continue
+		}
+		have, err := os.Lstat(filepath.Join(repoDir, name))
+		if err != nil {
+			continue
+		}
+		got, err := os.Lstat(filepath.Join(repoDir, other))
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, true
+		}
+		if err != nil {
+			continue
+		}
+		return os.SameFile(have, got), true
+	}
+	return false, false
+}
+
+// seedSwapCase swaps the case of every cased letter in name.
+func seedSwapCase(name string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsUpper(r) {
+			return unicode.ToLower(r)
+		}
+		return unicode.ToUpper(r)
+	}, name)
+}
+
+// seedHeadCaseMismatch is why a checkout on a temporary filesystem that folds
+// case (tempFolds) unlike the repository's (repoFolds) cannot read selected the
+// way a clean checkout of the repository does, or nil. It matters only for a
+// selected path that differs only in case from another path of the commit: one
+// filesystem keeps the two as separate files and the other as one, so the
+// checkout would read other bytes for it than a clean checkout does.
+func seedHeadCaseMismatch(repoFolds, tempFolds bool, selected, paths []string) error {
+	if repoFolds == tempFolds {
+		return nil
+	}
+	spellings := map[string]int{}
+	for _, path := range paths {
+		spellings[strings.ToLower(path)]++
+	}
+	for _, path := range selected {
+		if spellings[strings.ToLower(path)] > 1 {
+			repoRule, tempRule := "separate files", "one file"
+			if repoFolds {
+				repoRule, tempRule = tempRule, repoRule
+			}
+			return fmt.Errorf("%s differs only in case from another committed path; the repository's filesystem stores such paths as %s and the temporary directory's (%s) as %s, so a checkout there would not read them as a clean checkout does (point TMPDIR, or TMP on Windows, at a filesystem that treats case like the repository's)", path, repoRule, os.TempDir(), tempRule)
+		}
+	}
+	return nil
+}
+
+// seedHeadSelected is the paths the scan reads: the first maxFiles of paths.
+func seedHeadSelected(paths []string, maxFiles int) []string {
+	if maxFiles > 0 && len(paths) > maxFiles {
+		return paths[:maxFiles]
+	}
+	return paths
 }
 
 // seedHeadCaseAliases maps each path that shares its file with another on a
