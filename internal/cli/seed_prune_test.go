@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -204,8 +205,20 @@ func TestFailedManifestWriteKeepsTheDocumentsItWouldPrune(t *testing.T) {
 // already saved a manifest that counts as current, without pruning. In the
 // brain store the pending marker stays, so the old copy is not left behind
 // for good, and the next refresh that gets through prunes it and clears the
-// marker.
+// marker. That holds as well when an explicit --update --output names the
+// brain store under another spelling: the ordinary refresh after it reads the
+// same directory.
 func TestReadmeFailureAfterTheManifestLeavesThePrunePending(t *testing.T) {
+	t.Run("brain store", func(t *testing.T) {
+		readmeFailureLeavesThePrunePending(t, false)
+	})
+	t.Run("explicit output naming the brain store", func(t *testing.T) {
+		readmeFailureLeavesThePrunePending(t, true)
+	})
+}
+
+func readmeFailureLeavesThePrunePending(t *testing.T, explicit bool) {
+	t.Helper()
 	repoDir := seedPruneRepo(t, map[string]string{
 		"README.md":   "# readme\n",
 		"docs/old.md": "# Old guide\n",
@@ -216,13 +229,29 @@ func TestReadmeFailureAfterTheManifestLeavesThePrunePending(t *testing.T) {
 		t.Fatal(err)
 	}
 	brainDir := storage.BrainDir
-	seed := func() error {
+	ordinary := []string{"refresh", "seed", "--agent", "none"}
+	args := ordinary
+	if explicit {
+		if err := os.MkdirAll(brainDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		alias := filepath.Join(t.TempDir(), "alias")
+		if err := os.Symlink(filepath.Dir(brainDir), alias); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		args = append(slices.Clone(ordinary), "--update", "--output", filepath.Join(alias, filepath.Base(brainDir)))
+	}
+	seedWith := func(argv []string) error {
 		t.Helper()
-		out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", repoDir)
+		out, err := execute(t, NewRootCommand(opts), append(slices.Clone(argv), repoDir)...)
 		if err != nil {
 			t.Logf("seed: %v\n%s", err, out)
 		}
 		return err
+	}
+	seed := func() error {
+		t.Helper()
+		return seedWith(args)
 	}
 	if err := seed(); err != nil {
 		t.Fatal(err)
@@ -258,7 +287,7 @@ func TestReadmeFailureAfterTheManifestLeavesThePrunePending(t *testing.T) {
 	if err := os.Remove(readme); err != nil {
 		t.Fatal(err)
 	}
-	if err := seed(); err != nil {
+	if err := seedWith(ordinary); err != nil {
 		t.Fatal(err)
 	}
 	assertSeedDoc(t, brainDir, "docs/old.md", false)

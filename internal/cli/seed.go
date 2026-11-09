@@ -246,6 +246,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if err != nil {
 		return err
 	}
+	inBrainStore := persistentSeed || seedOutputIsBrainStore(outputDir, storage.BrainDir)
 	worktreeHash := ""
 	if seedOpts.worktree {
 		worktreeHash, err = worktreeFingerprint(ctx, opts.Runner, repoDir)
@@ -339,11 +340,12 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		// leaves old documents behind a manifest that counts as current. The
 		// pending marker covers that: it is written before the manifest and
 		// removed last, and while it is there refresh reseeds
-		// (seedPrunePending). Only the brain store gets one. Refresh skips a
-		// current seed only there, and an explicit --output, which --update
-		// can point at the repository itself, may hold a file of that name
-		// that is not this seed's to replace or delete.
-		if persistentSeed {
+		// (seedPrunePending). Only the brain store gets one, including when an
+		// explicit --output names it. Refresh skips a current seed only there,
+		// and any other --output, which --update can point at the repository
+		// itself, may hold a file of that name that is not this seed's to
+		// replace or delete.
+		if inBrainStore {
 			if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, seedPrunePendingPath, []byte(seedPrunePendingText), 0o600); err != nil {
 				return err
 			}
@@ -364,10 +366,12 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 				return err
 			}
 		}
-		if persistentSeed {
+		if inBrainStore {
 			if err := brainstore.RemoveBrainRelativeFile(outputDir, seedPrunePendingPath); err != nil {
 				return err
 			}
+		}
+		if persistentSeed {
 			cursor := seedCursor{
 				SchemaVersion:                  1,
 				UpdatedAt:                      seedManifest.GeneratedAt,
@@ -936,6 +940,18 @@ func writeSeedArtifacts(outputDir string, scan *seedScanResult) error {
 func seedPrunePending(brainDir string) bool {
 	_, err := os.Lstat(filepath.Join(brainDir, filepath.FromSlash(seedPrunePendingPath)))
 	return err == nil
+}
+
+// seedOutputIsBrainStore reports whether an explicit --output is the
+// repository's brain store, judged by filesystem identity rather than by how
+// the path is spelled.
+func seedOutputIsBrainStore(outputDir, brainDir string) bool {
+	output, err := os.Stat(outputDir)
+	if err != nil {
+		return false
+	}
+	brain, err := os.Stat(brainDir)
+	return err == nil && os.SameFile(output, brain)
 }
 
 // writeSeedRisks writes seed/risks.md, which lists the scan's warnings.
