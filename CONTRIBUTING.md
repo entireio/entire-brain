@@ -62,8 +62,9 @@ Be explicit about what you did *not* verify. A pull request that names its gaps 
 | TUI | `charmbracelet/bubbletea`, `bubbles`, `lipgloss` |
 | Agent interface | Model Context Protocol over stdio (JSON-RPC 2.0, `Content-Length` framing) |
 
-`go.mod` targets Go 1.27 and selects toolchain 1.27.2; `mise.toml` pins Go
-1.27.2 and ShellCheck for local development. See the
+`go.mod` targets Go 1.27.3, the version the `github.com/entireio/cli`
+dependency requires; `mise.toml` pins Go 1.27.3 and ShellCheck for local
+development. See the
 [development reference](docs/reference.md#development) for broader checks,
 including the aggregate `check` task and build variants. The full release gate
 is separate from the normal lint/test loop.

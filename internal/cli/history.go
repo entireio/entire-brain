@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/entireio/cli/transcript"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
@@ -1865,9 +1866,8 @@ func scanHistoryFileReader(ctx context.Context, f io.ReadSeeker, rel, ext string
 		var fragments []historyFragment
 		parsedOK := false
 		if strings.HasPrefix(text, "{") {
-			var obj map[string]any
-			if json.Unmarshal([]byte(text), &obj) == nil {
-				fragments = extractHistoryJSONFragments(obj)
+			if record, ok := decodeTranscriptRecord(text); ok {
+				fragments = extractHistoryJSONFragments(record)
 				parsedOK = true
 			}
 		}
@@ -1921,9 +1921,8 @@ func scanHistoryLines(ctx context.Context, rel, ext string, reader io.Reader) ([
 		var fragments []historyFragment
 		parsedOK := false
 		if strings.HasPrefix(text, "{") {
-			var obj map[string]any
-			if json.Unmarshal([]byte(text), &obj) == nil {
-				fragments = extractHistoryJSONFragments(obj)
+			if record, ok := decodeTranscriptRecord(text); ok {
+				fragments = extractHistoryJSONFragments(record)
 				parsedOK = true
 			}
 		}
@@ -2034,19 +2033,29 @@ func historyDocumentRecords(rel string, messages []documentMessage) []historyRec
 // questions as queries). The v3 noise concern remains addressed the way it
 // always was: both rankers exclude kind=request from general ranking; the
 // records exist for trajectory surfaces, not retrieval.
-func extractHistoryJSONFragments(obj map[string]any) []historyFragment {
-	fragments := extractHistoryRecordFragments(obj)
-	// transcriptUserText handles all four transcript dialects (codex
-	// response_item/event_msg, Claude user, pi message); wrapper injections
-	// (environment context, caveats) are filtered with the same predicate
-	// every other request consumer uses.
-	if text := strings.TrimSpace(transcriptUserText(obj)); text != "" && !isWrapperRequest(text) {
+func extractHistoryJSONFragments(record transcriptRecord) []historyFragment {
+	fragments := extractHistoryRecordFragments(record)
+	// transcriptUserText handles every transcript dialect (codex
+	// response_item/event_msg, Claude user, pi message, the Entire Transcript
+	// Format); wrapper injections (environment context, caveats) are filtered
+	// with the same predicate every other request consumer uses.
+	if text := strings.TrimSpace(transcriptUserText(record)); text != "" && !isWrapperRequest(text) {
 		fragments = append(fragments, historyFragment{Text: text, Source: "user_prompt"})
 	}
 	return fragments
 }
 
-func extractHistoryRecordFragments(obj map[string]any) []historyFragment {
+func extractHistoryRecordFragments(record transcriptRecord) []historyFragment {
+	if record.etf != nil {
+		// A format user line carries only the request (read above), with no
+		// tool_result blocks: its tool results are inlined into the
+		// assistant's tool_use blocks.
+		if !record.etfIs(transcript.TypeAssistant) {
+			return nil
+		}
+		return extractETFFragments(record.etf, "assistant_message")
+	}
+	obj := record.obj
 	recordType := jsonString(obj["type"])
 	payload := jsonMap(obj["payload"])
 	switch recordType {
@@ -2149,23 +2158,37 @@ func extractClaudeToolResultFragments(obj map[string]any) []historyFragment {
 }
 
 func extractClaudeMessageFragments(obj map[string]any, role string) []historyFragment {
-	return extractContentFragments(transcriptRecordContent(obj), role+"_message")
+	return extractContentFragments(jsonMap(obj["message"])["content"], role+"_message")
 }
 
-// transcriptRecordContent returns the content of a "user" or "assistant"
-// record in either dialect that uses those record types. The claude-code
-// native dialect nests the turn under "message"; the Entire Transcript Format
-// v1 (the compact transcript.jsonl the default export reads, written for
-// every agent including codex and pi) puts the content blocks at the RECORD's
-// top level with no wrapper. Reading only the nested one indexed every compact
-// session to nothing. A "message" that is null or an empty object counts as
-// absent, so the record's top-level content is read, matching what the
-// history and conversation readers did before this helper existed.
-func transcriptRecordContent(obj map[string]any) any {
-	if message := jsonMap(obj["message"]); len(message) > 0 {
-		return message["content"]
+// extractETFFragments returns the fragments of a format line's blocks, as
+// extractContentFragments does for a native message's: text is narrative, a
+// tool call is indexed with its input, and the tool's output, which the format
+// inlines into the tool_use block, is mined for code facts.
+func extractETFFragments(line *transcript.Line, source string) []historyFragment {
+	var fragments []historyFragment
+	for _, block := range line.Blocks {
+		switch block.Type {
+		case transcript.BlockToolUse:
+			fragments = append(fragments, toolCallFragments(block.Name, etfJSONValue(block.Input))...)
+			if block.Result != nil {
+				fragments = append(fragments, extractToolResultFacts(block.Result.Output)...)
+			}
+		default:
+			if block.Text != "" {
+				fragments = append(fragments, historyFragment{Text: block.Text, Source: source})
+			}
+		}
 	}
-	return obj["content"]
+	return fragments
+}
+
+// toolCallFragments indexes one tool call: its name and input, and any code
+// facts in them.
+func toolCallFragments(name string, input any) []historyFragment {
+	text := strings.TrimSpace(name + " " + compactJSONValue(input))
+	fragments := []historyFragment{{Text: text, Source: historyToolCallSource(name)}}
+	return append(fragments, extractToolResultFacts(text)...)
 }
 
 func extractContentFragments(content any, source string) []historyFragment {
@@ -2185,12 +2208,9 @@ func extractContentFragments(content any, source string) []historyFragment {
 			blockType := jsonString(block["type"])
 			switch blockType {
 			case "tool_use":
-				name := jsonString(block["name"])
-				text := strings.TrimSpace(name + " " + compactJSONValue(block["input"]))
-				fragments = append(fragments, historyFragment{Text: text, Source: historyToolCallSource(name)})
-				fragments = append(fragments, extractToolResultFacts(text)...)
-				// The compact v1 dialect inlines the tool's output into the
-				// tool_use block instead of a separate tool_result record.
+				fragments = append(fragments, toolCallFragments(jsonString(block["name"]), block["input"])...)
+				// A wrapped turn can inline its tool's output into the tool_use
+				// block, as the format does, instead of a tool_result block.
 				fragments = append(fragments, extractToolResultFacts(jsonString(jsonMap(block["result"])["output"]))...)
 			case "tool_result":
 				fragments = append(fragments, extractToolResultFacts(firstNonEmptyString(block["content"], block["text"]))...)

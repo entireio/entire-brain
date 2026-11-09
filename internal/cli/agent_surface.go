@@ -26,6 +26,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	factscmd "github.com/entireio/entire-brain/internal/cli/command/facts"
+	"github.com/entireio/entire-brain/internal/cli/entities"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
@@ -1702,11 +1703,18 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			if profile != nil {
 				rawProfile = &profile.History.RawFallback
 			}
-			rawMatches, rawErr := rawHistoryMatcher(status.Brain.Path, task, nil, briefOpts.limit, rawProfile)
-			if rawErr != nil {
-				report.Warnings = append(report.Warnings, "raw history fallback unavailable: "+rawErr.Error())
+			// Ranked index results fill the budget first; the raw scan is a
+			// fallback that only tops up the remaining slots and is skipped
+			// when the index already filled them.
+			var rawMatches []brainTextMatch
+			if remaining := briefOpts.limit - len(indexedMatches); remaining > 0 {
+				var rawErr error
+				rawMatches, rawErr = rawHistoryMatcher(status.Brain.Path, task, indexedMatches, remaining, rawProfile)
+				if rawErr != nil {
+					report.Warnings = append(report.Warnings, "raw history fallback unavailable: "+rawErr.Error())
+				}
 			}
-			report.History.Matches = mergeBrainBriefHistoryMatches(briefOpts.limit, rawMatches, indexedMatches)
+			report.History.Matches = mergeBrainBriefHistoryMatches(briefOpts.limit, indexedMatches, rawMatches)
 		}
 	} else if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Sessions != nil {
 		report.Warnings = append(report.Warnings, "history index missing; run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"`")
@@ -5030,6 +5038,8 @@ func brainRawScanSkipsDerived(relSlash string) bool {
 		"patterns",                  // corpus, runs, derived pattern outputs
 		seedDirName,                 // synthesized seed
 		semstore.DirName,            // symbol graph snapshots and stores
+		docstore.DirName,            // doc index built from repository docs
+		entities.DirName,            // entity index built from git history
 		"export",                    // export cursor state
 		brainstore.BrainLockDirName, // lock leaves
 	} {

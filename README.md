@@ -72,7 +72,7 @@ falls back to code, docs and Git history.
 <details>
 <summary>Building from source</summary>
 
-Needs Go 1.27+, Git 2.36+, the Entire CLI on `PATH`, and a C compiler for
+Needs Go 1.27.3+, Git 2.36+, the Entire CLI on `PATH`, and a C compiler for
 Graph's tree-sitter bindings.
 
 ```sh

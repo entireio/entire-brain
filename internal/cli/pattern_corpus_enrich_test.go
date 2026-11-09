@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ func TestCorpusEpisodeOpsCodex(t *testing.T) {
 {"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"FAIL\nexited with code 1"}}
 {"type":"response_item","payload":{"type":"custom_tool_call","call_id":"c2","name":"apply_patch","input":"*** Begin Patch\n*** Update File: internal/x.go\n+foo"}}
 {"type":"response_item","payload":{"type":"function_call_output","call_id":"c3","output":"run: go build ./..."}}`
-	tools, commands, files := corpusEpisodeOps(work)
+	tools, commands, files := corpusEpisodeOps(work, "")
 	if len(commands) != 1 || commands[0].head != "go test" {
 		t.Fatalf("commands = %+v, want only [go test] (output not parsed as command)", commands)
 	}
@@ -37,7 +38,7 @@ func TestCorpusEpisodeOpsCodex(t *testing.T) {
 
 func TestCorpusEpisodeOpsClaude(t *testing.T) {
 	work := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"bash","input":{"command":"gofmt -w ."}},{"type":"tool_use","id":"t2","name":"edit","input":{"file_path":"a.go"}}]}}`
-	tools, commands, files := corpusEpisodeOps(work)
+	tools, commands, files := corpusEpisodeOps(work, "")
 	if len(commands) != 1 || commands[0].head != "gofmt" {
 		t.Errorf("commands = %+v, want [gofmt]", commands)
 	}
@@ -135,5 +136,199 @@ func TestCorpusEnrichmentIntegration(t *testing.T) {
 	}
 	if strings.Contains(blob, "ghp_SECRETTOKEN0123456789abcdef") {
 		t.Errorf("corpus leaked a secret in raw_redacted: %s", blob)
+	}
+}
+
+// Compact v1 transcripts keep an assistant turn's content at the record's top
+// level. Uses the fixtures from compact_transcript_ops_fixtures_test.go.
+func TestCorpusEpisodeOpsCompactTranscript(t *testing.T) {
+	cases := []struct {
+		name, fixture string
+		tools         []string
+		commands      []string
+		files         []string
+	}{
+		{"claude-code", compactOpsClaudeTranscript, []string{"bash"}, []string{"go test"}, nil},
+		{"codex", compactOpsCodexTranscript, []string{"exec_command", "apply_patch"}, []string{"grep"}, []string{"edit internal/cli/export.go"}},
+		{"pi", compactOpsPiTranscript, []string{"read"}, nil, []string{"read retry.go"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tools, commands, files := corpusEpisodeOps(c.fixture, "")
+			var gotTools, gotCommands, gotFiles []string
+			for _, x := range tools {
+				gotTools = append(gotTools, x.name)
+			}
+			for _, x := range commands {
+				gotCommands = append(gotCommands, x.head)
+			}
+			for _, x := range files {
+				gotFiles = append(gotFiles, x.action+" "+x.path)
+			}
+			if strings.Join(gotTools, ",") != strings.Join(c.tools, ",") {
+				t.Errorf("tools = %v, want %v", gotTools, c.tools)
+			}
+			if strings.Join(gotCommands, ",") != strings.Join(c.commands, ",") {
+				t.Errorf("commands = %v, want %v", gotCommands, c.commands)
+			}
+			if strings.Join(gotFiles, ",") != strings.Join(c.files, ",") {
+				t.Errorf("files = %v, want %v", gotFiles, c.files)
+			}
+		})
+	}
+}
+
+// A compact codex apply_patch has no path field: the cli converter wraps the
+// custom_tool_call patch text as {"input": <patch>}. It must give the same file
+// refs as the native custom_tool_call does.
+func TestCorpusEpisodeOpsCompactApplyPatchMatchesNative(t *testing.T) {
+	patch, err := json.Marshal("*** Begin Patch\n*** Add File: docs/new.md\n+x\n*** Update File: internal/cli/export.go\n@@\n-a\n+b\n*** Delete File: old.go\n*** End Patch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := func(work string) string {
+		t.Helper()
+		_, _, files := corpusEpisodeOps(work, "")
+		var got []string
+		for _, f := range files {
+			got = append(got, f.action+" "+f.path)
+		}
+		return strings.Join(got, ",")
+	}
+	const want = "add docs/new.md,edit internal/cli/export.go,delete old.go"
+	native := `{"type":"response_item","payload":{"type":"custom_tool_call","call_id":"c2","name":"apply_patch","input":` + string(patch) + `}}`
+	if got := refs(native); got != want {
+		t.Fatalf("native codex files = %q, want %q", got, want)
+	}
+	compact := `{"v":1,"agent":"codex","type":"assistant","ts":"t","content":[{"type":"tool_use","id":"c2","name":"apply_patch","input":{"input":` + string(patch) + `},"result":{"output":"Success.","status":"success"}}]}`
+	if got := refs(compact); got != want {
+		t.Errorf("compact codex files = %q, want %q (same as native)", got, want)
+	}
+	// An explicit path still wins over the patch text, as before.
+	withPath := `{"v":1,"agent":"codex","type":"assistant","ts":"t","content":[{"type":"tool_use","id":"c3","name":"apply_patch","input":{"path":"a.go","input":` + string(patch) + `}}]}`
+	if got := refs(withPath); got != "edit a.go" {
+		t.Errorf("apply_patch with a path: files = %q, want %q", got, "edit a.go")
+	}
+}
+
+// Through the corpus build: the patch-only compact codex turn is a write, not
+// read_only. A corpus indexed by IndexerVersion 10 stored no file refs for it,
+// and the transcript bytes do not change on upgrade, so only a version bump
+// makes the next build re-index it instead of skipping it as unchanged.
+func TestPatternCorpusCompactApplyPatchShapesWrite(t *testing.T) {
+	now := time.Now()
+	brainDir := writeEpisodeFixture(t, now, "gh/acme/cli", []sessionFixture{{id: "s1", branch: "main", agent: "codex", relPath: "sessions/main/s1.jsonl", transcript: compactOpsCodexTranscript}})
+	query := func(q string) string {
+		t.Helper()
+		db := openCorpus(t, brainDir)
+		defer db.Close()
+		rows, err := db.Query(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var got []string
+		for rows.Next() {
+			var s string
+			if err := rows.Scan(&s); err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, s)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return strings.Join(got, ",")
+	}
+	const (
+		shapesQ    = `SELECT e.turn_ord || ':' || s.shape FROM episodes e JOIN episode_shapes s ON s.episode_id = e.id ORDER BY e.turn_ord`
+		filesQ     = `SELECT e.turn_ord || ':' || f.action || ' ' || f.path FROM episode_files f JOIN episodes e ON e.id = f.episode_id ORDER BY e.turn_ord, f.path`
+		wantShapes = "0:shell,1:write"
+		wantFiles  = "1:edit internal/cli/export.go"
+	)
+	if err := buildPatternCorpus(brainDir, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := query(shapesQ); got != wantShapes {
+		t.Fatalf("shapes = %q, want %q", got, wantShapes)
+	}
+	if got := query(filesQ); got != wantFiles {
+		t.Fatalf("episode_files = %q, want %q", got, wantFiles)
+	}
+
+	db := openCorpus(t, brainDir)
+	for _, stmt := range []string{`UPDATE indexed_sessions SET parser_version=10`, `UPDATE meta SET value='10' WHERE key='pattern_indexer_version'`, `DELETE FROM episode_files`} {
+		if _, err := db.Exec(stmt); err != nil {
+			db.Close()
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	if err := buildPatternCorpus(brainDir, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := query(filesQ); got != wantFiles {
+		t.Fatalf("version 10 corpus kept its missing file refs after rebuild: episode_files = %q, want %q", got, wantFiles)
+	}
+	if got := query(shapesQ); got != wantShapes {
+		t.Fatalf("version 10 corpus kept its shapes after rebuild: shapes = %q, want %q", got, wantShapes)
+	}
+}
+
+// End to end through the corpus build, plus the upgrade path: a corpus indexed
+// by IndexerVersion 9 recorded no tool operations for compact sessions, and
+// the transcript bytes do not change on upgrade, so only a version bump makes
+// the next build re-index them instead of skipping them as unchanged.
+func TestPatternCorpusReindexesCompactTranscriptToolOps(t *testing.T) {
+	now := time.Now()
+	brainDir := writeEpisodeFixture(t, now, "gh/acme/cli", []sessionFixture{{id: "s1", branch: "main", agent: "codex", relPath: "sessions/main/s1.jsonl", transcript: compactOpsCodexTranscript}})
+	ops := func() string {
+		t.Helper()
+		db := openCorpus(t, brainDir)
+		defer db.Close()
+		var got []string
+		for _, q := range []string{
+			`SELECT t.tool_type || COALESCE(':' || t.tool_name, '') FROM episode_tools t JOIN episodes e ON e.id = t.episode_id ORDER BY e.turn_ord, t.ord`,
+			`SELECT c.head FROM episode_commands c JOIN episodes e ON e.id = c.episode_id ORDER BY e.turn_ord, c.ord`,
+		} {
+			rows, err := db.Query(q)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for rows.Next() {
+				var s string
+				if err := rows.Scan(&s); err != nil {
+					t.Fatal(err)
+				}
+				got = append(got, s)
+			}
+			if err := rows.Err(); err != nil {
+				t.Fatal(err)
+			}
+			rows.Close()
+		}
+		return strings.Join(got, ",")
+	}
+	const want = "exec_command,apply_patch,grep"
+	if err := buildPatternCorpus(brainDir, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := ops(); got != want {
+		t.Fatalf("corpus ops = %q, want %q", got, want)
+	}
+
+	db := openCorpus(t, brainDir)
+	for _, stmt := range []string{`UPDATE indexed_sessions SET parser_version=9`, `UPDATE meta SET value='9' WHERE key='pattern_indexer_version'`, `DELETE FROM episode_tools`, `DELETE FROM episode_commands`} {
+		if _, err := db.Exec(stmt); err != nil {
+			db.Close()
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	if err := buildPatternCorpus(brainDir, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := ops(); got != want {
+		t.Fatalf("version 9 corpus kept its empty tool ops after rebuild: ops = %q, want %q", got, want)
 	}
 }

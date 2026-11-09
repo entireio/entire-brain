@@ -274,7 +274,9 @@ func TestBriefOutputRawHistoryFailureIsPublicWarning(t *testing.T) {
 	matcher := func(string, string, []brainTextMatch, int, *brainBriefProfileRawHistory) ([]brainTextMatch, error) {
 		return nil, errors.New("synthetic raw history failure")
 	}
-	err := runBrainBriefWithRawHistoryMatcher(context.Background(), cmd, fixture.opts, brainBriefOptions{limit: 3, json: true}, "ValidateToken", matcher)
+	// The limit must exceed the indexed match count: a filled budget skips
+	// the raw fallback, and this test needs the fallback to run and fail.
+	err := runBrainBriefWithRawHistoryMatcher(context.Background(), cmd, fixture.opts, brainBriefOptions{limit: 50, json: true}, "ValidateToken", matcher)
 	if err != nil {
 		t.Fatalf("raw history fallback should degrade: %v", err)
 	}
