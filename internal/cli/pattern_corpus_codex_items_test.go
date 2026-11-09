@@ -209,6 +209,12 @@ func TestCodexFileChangeRootAndRefsAgree(t *testing.T) {
 		{"a native assistant message's FileChange is an edit and votes",
 			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"f1","name":"FileChange","input":{"changes":[{"path":"/w/r/main.go","kind":"update"}]}}]}}` + "\n",
 			"/w/r", `["edit main.go"]`},
+		{"a tool name with a JSON escape is an edit and votes",
+			`{"v":1,"agent":"codex","type":"assistant","ts":"t","id":"f1","content":[{"id":"f1","input":{"changes":[{"path":"/w/r/main.go","kind":"update"}]},"name":"File\u0043hange","type":"tool_use"}]}` + "\n",
+			"/w/r", `["edit main.go"]`},
+		{"a tool name that only lowercases to filechange is an edit and votes",
+			`{"v":1,"agent":"codex","type":"assistant","ts":"t","id":"f1","content":[{"id":"f1","input":{"changes":[{"path":"/w/r/main.go","kind":"update"}]},"name":"F\u0130leChange","type":"tool_use"}]}` + "\n",
+			"/w/r", `["edit main.go"]`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

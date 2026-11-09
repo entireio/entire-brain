@@ -222,9 +222,19 @@ func patchInputText(input any) string {
 // carries it (lowercased).
 const fileChangeToolName = "filechange"
 
-// fileChangeNamePattern finds a line that may hold a FileChange, in any case,
-// before it is decoded.
+// fileChangeNamePattern finds a FileChange tool name spelled out in any case.
 var fileChangeNamePattern = regexp.MustCompile(`(?i)filechange`)
+
+// mayHoldFileChange reports whether undecoded JSON text can hold a FileChange
+// tool name once it is decoded and lowercased as toolUse names are
+// (normalizeToolName). JSON writes a letter as itself or as a \u escape, and
+// the only other rune strings.ToLower turns into one of the name's letters is
+// U+0130, which it lowers to "i". So text with neither holds the name only
+// where fileChangeNamePattern finds it, and that text is all a reader may skip
+// before decoding without missing a FileChange the episode ops would read.
+func mayHoldFileChange(text string) bool {
+	return fileChangeNamePattern.MatchString(text) || strings.Contains(text, `\u`) || strings.ContainsRune(text, '\u0130')
+}
 
 // fileChangeRefs reads the file refs of a compact codex FileChange, the tool
 // the cli's item path (a current Codex rollout) writes for an edit:
@@ -308,7 +318,7 @@ func repoRelativePath(p, repoRoot string) string {
 // it stores must not depend on which checkout, subdirectory or symlinked
 // spelling happened to build it first.
 func codexSessionRoot(transcript string, filesTouched []string) string {
-	if len(filesTouched) == 0 || !fileChangeNamePattern.MatchString(transcript) {
+	if len(filesTouched) == 0 || !mayHoldFileChange(transcript) {
 		return ""
 	}
 	touched := map[string]bool{}
@@ -356,7 +366,7 @@ func codexFileChangePaths(transcript string) (paths []string, resolved bool) {
 	var out []string
 	resolved = true
 	for _, line := range strings.Split(transcript, "\n") {
-		if !fileChangeNamePattern.MatchString(line) {
+		if !mayHoldFileChange(line) {
 			continue
 		}
 		record, ok := decodeTranscriptRecord(line)
