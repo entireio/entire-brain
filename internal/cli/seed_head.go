@@ -1025,9 +1025,10 @@ func seedHeadLFSCheckoutMode(ctx context.Context, runner EnvironmentCommandRunne
 // any directory, with .exe on Windows, or as `git lfs`, after any
 // assignments, behind `env` with its own, or as the script of `sh -c`. That
 // covers the commands `git lfs install` writes and a wrapper such as
-// `env LC_ALL=C git-lfs smudge -- %f`. Anything else is not modelled and ok
-// is false: another program (one that only names git-lfs as an argument
-// too), a list, pipeline or redirection, or an expansion. Seed runs no other
+// `env LC_ALL=C git-lfs smudge -- %f`, with stderr sent to a file or not.
+// Anything else is not modelled and ok is false: another program (one that
+// only names git-lfs as an argument too), a list or pipeline, any other
+// redirection, or an expansion. Seed runs no other
 // program, so what the checkout wrote is left for it, as for no filter.
 func seedHeadGitLFSCommand(command string) (args, assignments []string, ok bool) {
 	words, ok := seedHeadShellWords(command)
@@ -1094,22 +1095,43 @@ func seedHeadIsAssignment(raw string) bool {
 type seedHeadShellWord struct{ raw, text string }
 
 // seedHeadShellWords splits a filter command into words as sh does for one
-// simple command, and stops at a comment. ok is false at anything it does not
-// model: an unquoted operator, redirection, expansion or pattern, a
-// backslash at a line end, or an unclosed quote.
+// simple command, and stops at a comment. A redirection of stderr or a higher
+// descriptor to a file (2>file, 2>>file) only moves what the program writes
+// there, so it and its target are dropped. ok is false at anything else it
+// does not model: an unquoted operator, another redirection, an expansion or
+// pattern, a backslash at a line end, or an unclosed quote.
 func seedHeadShellWords(command string) (words []seedHeadShellWord, ok bool) {
 	var text strings.Builder
 	start := -1
+	// redirected: the word being read, or the next, is a 2> target.
+	redirected := false
+	end := func(i int) {
+		if start < 0 {
+			return
+		}
+		if redirected {
+			redirected = false
+		} else {
+			words = append(words, seedHeadShellWord{raw: command[start:i], text: text.String()})
+		}
+		text.Reset()
+		start = -1
+	}
 	for i := 0; i < len(command); i++ {
 		c := command[i]
 		if c == ' ' || c == '\t' || c == '#' && start < 0 {
-			if start >= 0 {
-				words = append(words, seedHeadShellWord{raw: command[start:i], text: text.String()})
-				text.Reset()
-				start = -1
-			}
+			end(i)
 			if c == '#' {
-				return words, true
+				break
+			}
+			continue
+		}
+		if c == '>' && !redirected && start >= 0 && seedHeadStderrFD(command[start:i]) {
+			text.Reset()
+			start = -1
+			redirected = true
+			if i+1 < len(command) && command[i+1] == '>' {
+				i++
 			}
 			continue
 		}
@@ -1121,12 +1143,12 @@ func seedHeadShellWords(command string) (words []seedHeadShellWord, ok bool) {
 		}
 		switch c {
 		case '\'':
-			end := strings.IndexByte(command[i+1:], '\'')
-			if end < 0 {
+			closing := strings.IndexByte(command[i+1:], '\'')
+			if closing < 0 {
 				return nil, false
 			}
-			text.WriteString(command[i+1 : i+1+end])
-			i += 1 + end
+			text.WriteString(command[i+1 : i+1+closing])
+			i += 1 + closing
 		case '"':
 			n, closed := seedHeadDoubleQuoted(command[i+1:], &text)
 			if !closed {
@@ -1143,10 +1165,19 @@ func seedHeadShellWords(command string) (words []seedHeadShellWord, ok bool) {
 			text.WriteByte(c)
 		}
 	}
-	if start >= 0 {
-		words = append(words, seedHeadShellWord{raw: command[start:], text: text.String()})
+	end(len(command))
+	if redirected {
+		// A 2> with no target.
+		return nil, false
 	}
 	return words, true
+}
+
+// seedHeadStderrFD reports whether a word written right before > names a
+// descriptor above stdout: unquoted digits, 2 or more.
+func seedHeadStderrFD(raw string) bool {
+	fd, err := strconv.Atoi(raw)
+	return err == nil && fd >= 2 && strings.Trim(raw, "0123456789") == ""
 }
 
 // seedHeadDoubleQuoted reads the inside of a double-quoted string, writes
