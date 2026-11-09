@@ -561,7 +561,7 @@ func seedRepoFoldsCase(repoDir string) (folds, ok bool) {
 func seedFoldsCaseAmong(names []string, lstat func(name string) (fs.FileInfo, error)) (folds, ok bool) {
 	spellings := make(map[string]bool, len(names))
 	for _, name := range names {
-		key := strings.ToLower(name)
+		key := seedFoldCase(name)
 		if spellings[key] {
 			return false, true
 		}
@@ -588,6 +588,20 @@ func seedFoldsCaseAmong(names []string, lstat func(name string) (fs.FileInfo, er
 	return false, false
 }
 
+// seedFoldCase is the key under which names that differ only in case match:
+// each letter becomes the least of its Unicode simple case folding orbit, so
+// K, k and the Kelvin sign match while the dotted I (İ) and i stay apart, as
+// case-insensitive filesystems keep them. strings.ToLower would merge those.
+func seedFoldCase(name string) string {
+	return strings.Map(func(r rune) rune {
+		least := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			least = min(least, f)
+		}
+		return least
+	}, name)
+}
+
 // seedSwapCase swaps the case of every cased letter in name.
 func seedSwapCase(name string) string {
 	return strings.Map(func(r rune) rune {
@@ -610,10 +624,10 @@ func seedHeadCaseMismatch(repoFolds, tempFolds bool, selected, paths []string) e
 	}
 	spellings := map[string]int{}
 	for _, path := range paths {
-		spellings[strings.ToLower(path)]++
+		spellings[seedFoldCase(path)]++
 	}
 	for _, path := range selected {
-		if spellings[strings.ToLower(path)] > 1 {
+		if spellings[seedFoldCase(path)] > 1 {
 			repoRule, tempRule := "separate files", "one file"
 			if repoFolds {
 				repoRule, tempRule = tempRule, repoRule
@@ -643,7 +657,7 @@ func seedHeadSelected(paths []string, maxFiles int) []string {
 func seedHeadCaseAliases(paths []string, entries map[string]seedHeadEntry) map[string]string {
 	groups := map[string][]string{}
 	for _, path := range paths {
-		folded := strings.ToLower(path)
+		folded := seedFoldCase(path)
 		groups[folded] = append(groups[folded], path)
 	}
 	aliases := map[string]string{}
@@ -1113,8 +1127,8 @@ const (
 type seedHeadTree struct {
 	entries map[string]seedHeadEntry
 	folds   bool
-	files   map[string]string // lower-cased path: the path whose content is there
-	dirs    map[string]bool   // lower-cased directories
+	files   map[string]string // folded path (seedFoldCase): the path whose content is there
+	dirs    map[string]bool   // folded directories
 }
 
 func newSeedHeadTree(entries map[string]seedHeadEntry, folds bool) seedHeadTree {
@@ -1124,7 +1138,7 @@ func newSeedHeadTree(entries map[string]seedHeadEntry, folds bool) seedHeadTree 
 	}
 	tree.files, tree.dirs = map[string]string{}, map[string]bool{}
 	for _, path := range slices.Sorted(maps.Keys(entries)) {
-		key := strings.ToLower(path)
+		key := seedFoldCase(path)
 		if owner, ok := tree.files[key]; !ok || entries[owner].missing || !entries[path].missing {
 			tree.files[key] = path
 		}
@@ -1139,7 +1153,7 @@ func newSeedHeadTree(entries map[string]seedHeadEntry, folds bool) seedHeadTree 
 // entry.
 func (t seedHeadTree) lookup(path string) (string, seedHeadEntry, bool) {
 	if t.folds {
-		if owner, ok := t.files[strings.ToLower(path)]; ok {
+		if owner, ok := t.files[seedFoldCase(path)]; ok {
 			path = owner
 		}
 	}
@@ -1150,7 +1164,7 @@ func (t seedHeadTree) lookup(path string) (string, seedHeadEntry, bool) {
 // hasDir reports whether HEAD tracks anything under dir.
 func (t seedHeadTree) hasDir(dir string) bool {
 	if t.folds {
-		return t.dirs[strings.ToLower(dir)]
+		return t.dirs[seedFoldCase(dir)]
 	}
 	return seedHeadTreeHasDir(t.entries, dir)
 }

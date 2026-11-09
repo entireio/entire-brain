@@ -2087,6 +2087,7 @@ func TestSeedHeadTrackedPathReadsCaseFoldedNames(t *testing.T) {
 	file := seedHeadEntry{mode: "100644", kind: "blob", object: "0123", size: 1}
 	entries := map[string]seedHeadEntry{
 		"rules.attrs": file, "A.attrs": file, "a.attrs": file, "B.attrs": file, "Cfg/x.attrs": file,
+		"i.attrs": file, "\u0130.attrs": file,
 		"b.attrs":     {mode: "100644", kind: "blob", object: "4567", size: 1, missing: true},
 		"alias.attrs": {mode: seedHeadSymlinkMode, kind: "blob", object: "89ab", size: 11},
 	}
@@ -2097,6 +2098,7 @@ func TestSeedHeadTrackedPathReadsCaseFoldedNames(t *testing.T) {
 		true: {
 			in("RULES.attrs"): "rules.attrs", in("A.attrs"): "a.attrs", in("a.attrs"): "a.attrs",
 			in("b.attrs"): "B.attrs", in("cfg/X.attrs"): "Cfg/x.attrs", in("alias.attrs"): "rules.attrs",
+			in("I.attrs"): "i.attrs", in("\u0130.attrs"): "\u0130.attrs", // the dotted I is no i
 		},
 		false: {in("A.attrs"): "A.attrs", in("b.attrs"): "b.attrs", in("RULES.attrs"): "", in("cfg/X.attrs"): ""},
 	} {
@@ -2107,6 +2109,23 @@ func TestSeedHeadTrackedPathReadsCaseFoldedNames(t *testing.T) {
 				t.Errorf("folds %v: seedHeadTrackedPath(%q) = %q, %v, %v; want %q", folds, path, got, kind, err, want)
 			}
 		}
+	}
+}
+
+// TestSeedFoldCaseMatchesNamesAsCaseInsensitiveFilesystemsDo: names match
+// under Unicode simple case folding, not strings.ToLower, which would take the
+// dotted I for an i.
+func TestSeedFoldCaseMatchesNamesAsCaseInsensitiveFilesystemsDo(t *testing.T) {
+	t.Parallel()
+	for _, same := range [][]string{{"README.md", "readme.md", "ReadMe.MD"}, {"K", "k", "\u212a"}, {"\u03a3", "\u03c3", "\u03c2"}} {
+		for _, name := range same[1:] {
+			if seedFoldCase(name) != seedFoldCase(same[0]) {
+				t.Errorf("seedFoldCase(%q) = %q, want %q's %q", name, seedFoldCase(name), same[0], seedFoldCase(same[0]))
+			}
+		}
+	}
+	if seedFoldCase("\u0130.attrs") == seedFoldCase("i.attrs") {
+		t.Errorf("seedFoldCase matches the dotted I with i")
 	}
 }
 
