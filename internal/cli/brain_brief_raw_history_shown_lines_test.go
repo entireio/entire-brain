@@ -134,6 +134,78 @@ func TestRawHistoryTopUpKeepsAHitTheLinesExcerptLacks(t *testing.T) {
 	}
 }
 
+// The raw hit is a repeat only when every fragment of its line that has the
+// query is shown with the query in its summary. Sharing the query with one
+// shown fragment is not enough.
+func TestRawHistoryTopUpComparesTheLinesFragments(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("padding words before the term ", 30) + "ALPHA_IDENTIFIER past the cut"
+	if len(cleanHistorySummary(long)) <= 700 || strings.Contains(historyFragmentSummary(long), "ALPHA_IDENTIFIER") {
+		t.Fatalf("fixture text must put ALPHA_IDENTIFIER past the 700-character summary cut")
+	}
+	textBlock := func(text string) string { return `{"type":"text","text":"` + text + `"}` }
+	cases := []struct {
+		name     string
+		blocks   []string
+		shown    []string
+		wantKept bool
+	}{
+		{
+			name:     "another block has the query too",
+			blocks:   []string{textBlock("ALPHA_IDENTIFIER was discussed"), textBlock("ALPHA_IDENTIFIER failed with exit 1")},
+			shown:    []string{"ALPHA_IDENTIFIER was discussed"},
+			wantKept: true,
+		},
+		{
+			name:     "every block with the query is shown",
+			blocks:   []string{textBlock("ALPHA_IDENTIFIER was discussed"), textBlock("ALPHA_IDENTIFIER failed with exit 1")},
+			shown:    []string{"ALPHA_IDENTIFIER was discussed", "ALPHA_IDENTIFIER failed with exit 1"},
+			wantKept: false,
+		},
+		{
+			name:     "only the shown block has the query",
+			blocks:   []string{textBlock("ALPHA_IDENTIFIER was discussed"), textBlock("unrelated narrative")},
+			shown:    []string{"ALPHA_IDENTIFIER was discussed"},
+			wantKept: false,
+		},
+		{
+			name:     "the query is past the summary cut",
+			blocks:   []string{textBlock(long)},
+			shown:    []string{historyFragmentSummary(long)},
+			wantKept: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			brainDir := t.TempDir()
+			sessionDir := filepath.Join(brainDir, "sessions", "main")
+			if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			name := "20260716T010203Z_0001.jsonl"
+			line := `{"v":1,"type":"assistant","content":[` + strings.Join(tc.blocks, ",") + `]}`
+			if err := os.WriteFile(filepath.Join(sessionDir, name), []byte(line+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			rel := "sessions/main/" + name
+			var indexed []brainTextMatch
+			for _, excerpt := range tc.shown {
+				indexed = append(indexed, brainTextMatch{Path: rel, Line: 1, Excerpt: excerpt})
+			}
+			for impl, matcher := range rawHistoryMatcherImplementations() {
+				got, err := matcher(brainDir, "ALPHA_IDENTIFIER", indexed, 4)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if kept := len(got) == 1 && got[0].Line == 1; kept != tc.wantKept || len(got) > 1 {
+					t.Fatalf("%s: raw top-up = %+v, want kept=%v", impl, got, tc.wantKept)
+				}
+			}
+		})
+	}
+}
+
 func TestBrainBriefRawTopUpDoesNotRepeatIndexedLines(t *testing.T) {
 	fixture := newBrainBriefOutputFixture(t)
 	report := runBrainBriefHistoryMerge(t, fixture.opts, 6, brainBriefRawHistoryMatchesObserved)

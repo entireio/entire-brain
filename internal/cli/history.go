@@ -1885,7 +1885,7 @@ func scanHistoryFileReader(ctx context.Context, f io.ReadSeeker, rel, ext string
 					Kind:    kind,
 					Path:    rel,
 					Line:    lineNumber,
-					Summary: clibase.TruncateString(cleanHistorySummary(fragment.Text), 700),
+					Summary: historyFragmentSummary(fragment.Text),
 					Terms:   historyTerms(fragment.Text),
 				})
 			}
@@ -1940,7 +1940,7 @@ func scanHistoryLines(ctx context.Context, rel, ext string, reader io.Reader) ([
 					Kind:    kind,
 					Path:    rel,
 					Line:    lineNumber,
-					Summary: clibase.TruncateString(cleanHistorySummary(fragment.Text), 700),
+					Summary: historyFragmentSummary(fragment.Text),
 					Terms:   historyTerms(fragment.Text),
 				})
 			}
@@ -1992,7 +1992,7 @@ func historyDocumentRecords(rel string, messages []documentMessage) []historyRec
 				Kind:    kind,
 				Path:    rel,
 				Line:    line,
-				Summary: clibase.TruncateString(cleanHistorySummary(fragment.Text), 700),
+				Summary: historyFragmentSummary(fragment.Text),
 				Terms:   historyTerms(fragment.Text),
 			})
 		}
@@ -2450,6 +2450,12 @@ func cleanHistorySummary(text string) string {
 	text = strings.ReplaceAll(text, "\\n", " ")
 	text = strings.Join(strings.Fields(text), " ")
 	return text
+}
+
+// historyFragmentSummary is the summary a history record stores for a
+// fragment's text: cleaned, and cut at 700 characters.
+func historyFragmentSummary(text string) string {
+	return clibase.TruncateString(cleanHistorySummary(text), 700)
 }
 
 // historyTermCandidates is generic domain vocabulary only. The former tail of
