@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -8,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/spf13/cobra"
 )
 
 // A reseed used to only ever add to seed/docs: a document that left the
@@ -194,6 +197,80 @@ func TestFailedManifestWriteKeepsTheDocumentsItWouldPrune(t *testing.T) {
 		t.Fatalf("refresh succeeded with a broken manifest:\n%s", out)
 	}
 	assertSeedDoc(t, outputDir, "docs/drafts/draft.md", true)
+}
+
+// TestReadmeFailureAfterTheManifestLeavesThePrunePending: the README is
+// written after the manifest, so a refresh whose README write fails has
+// already saved a manifest that counts as current, without pruning. The
+// pending marker stays, so the old copy is not left behind for good, and the
+// next refresh that gets through prunes it and clears the marker.
+func TestReadmeFailureAfterTheManifestLeavesThePrunePending(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{
+		"README.md":   "# readme\n",
+		"docs/old.md": "# Old guide\n",
+	})
+	outputDir := filepath.Join(t.TempDir(), "brain")
+	seedPruneRun(t, repoDir, outputDir)
+	if seedPrunePending(outputDir) {
+		t.Fatal("a seed that finished left its prune marked pending")
+	}
+	gitAt(t, repoDir, "rm", "-q", "docs/old.md")
+	gitAt(t, repoDir, "commit", "-q", "-m", "drop old doc")
+	readme := filepath.Join(outputDir, exportReadmeFileName)
+	if err := os.Remove(readme); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(readme, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: ExecRunner{}}
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--output", outputDir, "--update", repoDir); err == nil {
+		t.Fatalf("refresh succeeded with a README it cannot write:\n%s", out)
+	}
+	manifest, err := bmanifest.Load(outputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head := strings.TrimSpace(string(clibase.GitOutput(context.Background(), ExecRunner{}, repoDir, "rev-parse", "HEAD"))); manifest.Sources == nil || manifest.Sources.Seed == nil || manifest.Sources.Seed.Commit != head {
+		t.Fatalf("the manifest was not saved before the README failed: %+v", manifest.Sources)
+	}
+	if !seedPrunePending(outputDir) {
+		t.Error("the prune that did not run is not marked pending")
+	}
+
+	if err := os.Remove(readme); err != nil {
+		t.Fatal(err)
+	}
+	seedPruneRun(t, repoDir, outputDir, "--update")
+	assertSeedDoc(t, outputDir, "docs/old.md", false)
+	if seedPrunePending(outputDir) {
+		t.Error("the prune is still marked pending after a refresh finished it")
+	}
+}
+
+// TestRefreshReseedsWhileAPruneIsPending: a current manifest is no reason to
+// skip the seed while its prune is marked pending.
+func TestRefreshReseedsWhileAPruneIsPending(t *testing.T) {
+	opts, brainDir := refreshFailureFixture(t)
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(seedPrunePendingPath)), []byte(seedPrunePendingText), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	if err := runRefresh(context.Background(), cmd, opts, refreshCommandOptions{
+		outputDir: defaultExportDir, checkpointLimit: defaultCheckpointLimit,
+		entireBinary: "entire-test", graphBinary: "entire", scope: exportScopeAll,
+		skipSessions: true,
+		seed:         seedCommandOptions{agent: "none", agentTimeoutAction: "keep-quick", format: "markdown+json", maxFileBytes: defaultSeedMaxFileBytes, maxFiles: defaultSeedMaxFiles},
+	}); err != nil {
+		t.Fatalf("refresh: %v\n%s", err, out.String())
+	}
+	if seedPrunePending(brainDir) {
+		t.Errorf("refresh skipped the seed although its prune was marked pending:\n%s", out.String())
+	}
 }
 
 // TestPruneWarningsReachTheManifestAndRisks: the prune runs after the

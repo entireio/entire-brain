@@ -36,6 +36,13 @@ const (
 	defaultAgentMaxOutput   = 200000
 )
 
+// seedPrunePendingPath marks a seed whose manifest may be written while the
+// prune of old seed/docs files has not finished (runSeed).
+const (
+	seedPrunePendingPath = "seed/prune-pending"
+	seedPrunePendingText = "A seed refresh may have written its manifest without finishing the removal of old seed/docs files. The next refresh reseeds while this file is here.\n"
+)
+
 type seedCommandOptions struct {
 	outputDir          string
 	outputExplicit     bool
@@ -321,27 +328,39 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 				return errors.New("worktree_changed: worktree content changed during seed refresh")
 			}
 		}
-		if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
-			return err
-		}
 		// Pruning waits until the new manifest is written. A refresh that is
 		// refused, or whose manifest write fails, keeps the previous manifest,
 		// and with it the previous worktree hash: had it already removed a
 		// document the earlier seed copied, a tree restored to that state
 		// would match the hash, the next refresh would skip the reseed, and
-		// the document would stay missing from search. A document the prune
-		// could not remove is reported by writing seed/risks.md and the
-		// manifest again.
+		// the document would stay missing from search. The other way round,
+		// a refresh that stops once the manifest is saved (the README write
+		// after it can fail too) and before the prune and its report finish
+		// leaves old documents behind a manifest that counts as current. The
+		// pending marker covers that: it is written before the manifest and
+		// removed last, and while it is there refresh reseeds
+		// (seedPrunePending).
+		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, seedPrunePendingPath, []byte(seedPrunePendingText), 0o600); err != nil {
+			return err
+		}
+		if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
+			return err
+		}
+		// A document the prune could not remove is reported by writing the
+		// manifest and seed/risks.md again.
 		pruned := len(scan.Warnings)
 		pruneSeedDocs(outputDir, &scan, scan.writtenDocs)
 		if pruneWarnings := scan.Warnings[pruned:]; len(pruneWarnings) > 0 {
-			if err := writeSeedRisks(outputDir, &scan); err != nil {
-				return err
-			}
 			seedManifest.Warnings = append(seedManifest.Warnings, pruneWarnings...)
 			if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
 				return err
 			}
+			if err := writeSeedRisks(outputDir, &scan); err != nil {
+				return err
+			}
+		}
+		if err := brainstore.RemoveBrainRelativeFile(outputDir, seedPrunePendingPath); err != nil {
+			return err
 		}
 		if persistentSeed {
 			cursor := seedCursor{
@@ -904,6 +923,14 @@ func writeSeedArtifacts(outputDir string, scan *seedScanResult) error {
 		return err
 	}
 	return nil
+}
+
+// seedPrunePending reports whether the seed in brainDir may have stopped
+// between its manifest write and the end of its prune (runSeed), so that the
+// manifest counting as current is no reason to skip a reseed.
+func seedPrunePending(brainDir string) bool {
+	_, err := os.Lstat(filepath.Join(brainDir, filepath.FromSlash(seedPrunePendingPath)))
+	return err == nil
 }
 
 // writeSeedRisks writes seed/risks.md, which lists the scan's warnings.
