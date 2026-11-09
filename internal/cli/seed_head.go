@@ -961,6 +961,13 @@ func (c *seedHeadCheckout) lfsAttributesFile(ctx context.Context, runner Environ
 		c.warnings = append(c.warnings, fmt.Sprintf("the attributes file core.attributesFile names (%s) is stored in Git LFS and %s; seed read the rules in its committed pointer text", path, why))
 	}
 	switch {
+	case size == 0:
+		// git-lfs writes the empty object without reading the store, as in
+		// settleLFSPointers.
+		if os.WriteFile(committed, nil, 0o600) != nil {
+			keep("seed could not write its empty object")
+		}
+		return
 	case extended:
 		keep("its pointer names an LFS extension, which seed does not run")
 		return

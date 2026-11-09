@@ -1701,6 +1701,7 @@ func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
 		{name: "in LFS, its pointer in the worktree", committed: inLFS, worktree: lfsPointer(rules)},
 		{name: "in LFS, edited in the worktree", committed: inLFS, worktree: rules + "# edited\n", warned: true},
 		{name: "in LFS, smudge skipped", committed: inLFS, worktree: rules, stored: true, skipSmudge: true},
+		{name: "in LFS, empty", committed: map[string]string{".gitattributes": "custom.attrs filter=lfs -text\n", "custom.attrs": lfsPointer("")}, worktree: rules},
 		{name: "pointer text not marked filter=lfs", committed: map[string]string{"custom.attrs": lfsPointer(rules)}, worktree: rules, stored: true},
 	}
 	for _, tc := range cases {
