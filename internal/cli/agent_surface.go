@@ -5358,12 +5358,13 @@ func rawLineIsIndexedText(line string) bool {
 // tool_use_id, tool_calls, toolCallId, ...), or a type or role that names a
 // tool or a function call (tool_use, tool, tool_result, toolResult,
 // function_call, function_call_output, custom_tool_call). It is deliberately
-// broad: a match only keeps a raw hit, as main does.
+// broad: a match only keeps a raw hit, as main does. A tool key whose value is
+// empty (null, false, "", [] or {}) holds no tool, so it does not count.
 func jsonHasToolShape(value any) bool {
 	switch v := value.(type) {
 	case map[string]any:
 		for key, child := range v {
-			if strings.Contains(strings.ToLower(key), "tool") {
+			if strings.Contains(strings.ToLower(key), "tool") && !jsonValueIsEmpty(child) {
 				return true
 			}
 			if key == "type" || key == "role" {
@@ -5384,6 +5385,25 @@ func jsonHasToolShape(value any) bool {
 		}
 	}
 	return false
+}
+
+// jsonValueIsEmpty reports whether a decoded JSON value holds nothing: null,
+// false, a blank string, or an empty array or object.
+func jsonValueIsEmpty(value any) bool {
+	switch v := value.(type) {
+	case nil:
+		return true
+	case bool:
+		return !v
+	case string:
+		return strings.TrimSpace(v) == ""
+	case []any:
+		return len(v) == 0
+	case map[string]any:
+		return len(v) == 0
+	default:
+		return false
+	}
 }
 
 // historyMentionCount counts a query's mentions in a text the two ways

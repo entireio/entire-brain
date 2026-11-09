@@ -454,6 +454,8 @@ func TestRawLineIsIndexedTextReadsOnlyTextRecords(t *testing.T) {
 		`{"unknown":"Decision: ALPHA_IDENTIFIER = 1"}`:                                                                                       false,
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"},{"type":"tool","tool":"bash"}]}}`: false,
 		`{"type":"assistant","message":{"content":"Decision: ALPHA_IDENTIFIER = 1","tool_calls":[{"type":"function"}]}}`:                     false,
+		`{"type":"assistant","message":{"content":"Decision: ALPHA_IDENTIFIER = 1","tool_calls":[]}}`:                                        true,
+		`{"type":"assistant","message":{"content":"Decision: ALPHA_IDENTIFIER = 1","tool_calls":null,"tool_use_id":""}}`:                     true,
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"}]}},`:                              true,
 	}
 	for line, want := range cases {
