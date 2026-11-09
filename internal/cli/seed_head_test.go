@@ -1666,53 +1666,112 @@ func writeLFSObject(t *testing.T, repoDir, content, stored string) {
 // relative core.attributesFile from the top of the work tree, so the empty
 // work tree the checkout runs in must not hide it. Here it marks an LFS
 // document, which a clean checkout hydrates from the local store, and a doc
-// checked out with CRLF line ends, which only checkout-index applies.
+// checked out with CRLF line ends, which only checkout-index applies. A file
+// HEAD tracks is read as committed, like .gitattributes, so edits to it in
+// the worktree do not count; one it does not track is read where it is.
 func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
-	stored := "# manual kept in LFS\n"
-	isolateSeedHeadTemp(t)
-	global := filepath.Join(t.TempDir(), "gitconfig")
-	if err := os.WriteFile(global, []byte("[core]\n\tattributesFile = custom.attrs\n"), 0o600); err != nil {
-		t.Fatal(err)
+	rules := "docs/manual.md filter=lfs -text\ndocs/crlf.md text eol=crlf\n"
+	for _, tracked := range []bool{true, false} {
+		t.Run(fmt.Sprintf("tracked=%v", tracked), func(t *testing.T) {
+			stored := "# manual kept in LFS\n"
+			isolateSeedHeadTemp(t)
+			global := filepath.Join(t.TempDir(), "gitconfig")
+			if err := os.WriteFile(global, []byte("[core]\n\tattributesFile = custom.attrs\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("GIT_CONFIG_GLOBAL", global)
+			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+			t.Setenv("GIT_LFS_SKIP_SMUDGE", "")
+			for _, key := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} {
+				t.Setenv(key, "")
+				if err := os.Unsetenv(key); err != nil {
+					t.Fatal(err)
+				}
+			}
+			repoDir := seedHeadTestRepo(t)
+			writeLFSObject(t, repoDir, stored, stored)
+			files := map[string]string{"docs/manual.md": lfsPointer(stored), "docs/crlf.md": "one\ntwo\n"}
+			if tracked {
+				files["custom.attrs"] = rules
+			}
+			writeSeedHeadFiles(t, repoDir, files)
+			gitAt(t, repoDir, "add", "-A")
+			gitAt(t, repoDir, "commit", "-q", "-m", "files marked by the user's attributes file")
+			// The worktree's copy drops both rules where HEAD tracks it.
+			worktreeRules := rules
+			if tracked {
+				worktreeRules = "docs/manual.md -text\ndocs/crlf.md -text\n"
+			}
+			writeSeedHeadFiles(t, repoDir, map[string]string{"custom.attrs": worktreeRules})
+			useLFSSmudge(t, repoDir)
+			check := exec.Command("git", "check-attr", "eol", "--", "docs/crlf.md")
+			check.Dir = repoDir
+			if got, err := check.Output(); err != nil || strings.Contains(string(got), "eol: crlf") == tracked {
+				t.Fatalf("git reads the worktree's attributes file as %q, %v", got, err)
+			}
+			dirtySeedHeadTree(t, repoDir)
+
+			head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+			if err != nil {
+				t.Fatalf("check out HEAD: %v", err)
+			}
+			defer head.remove()
+			if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "manual.md")); err != nil || string(got) != stored {
+				t.Errorf("docs/manual.md = %q, %v; want the stored object %q", got, err, stored)
+			}
+			if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "crlf.md")); err != nil || string(got) != "one\r\ntwo\r\n" {
+				t.Errorf("docs/crlf.md = %q, %v; want CRLF line ends", got, err)
+			}
+			if len(head.warnings) > 0 {
+				t.Errorf("warnings = %q, want none", head.warnings)
+			}
+		})
 	}
-	t.Setenv("GIT_CONFIG_GLOBAL", global)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	t.Setenv("GIT_LFS_SKIP_SMUDGE", "")
-	for _, key := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} {
-		t.Setenv(key, "")
-		if err := os.Unsetenv(key); err != nil {
-			t.Fatal(err)
+}
+
+func TestSeedHeadAttributesFileConfigJoinsPathsAsGitDoes(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	sep := string(filepath.Separator)
+	absolute := filepath.Join(t.TempDir(), "attrs")
+	c := &seedHeadCheckout{paths: []string{"custom.attrs"}, tempRoot: t.TempDir()}
+	cases := map[string][]string{
+		"":         nil,
+		absolute:   nil,
+		"my.attrs": {"-c", "core.attributesFile=" + root + sep + "my.attrs"},
+		// Neither is cleaned: past a symlink, link/.. is not the work tree.
+		"link/../custom.attrs": {"-c", "core.attributesFile=" + root + sep + "link/../custom.attrs"},
+		"./other.attrs":        {"-c", "core.attributesFile=" + root + sep + "./other.attrs"},
+	}
+	for value, want := range cases {
+		got := c.attributesFileConfig(context.Background(), fixedConfigRunner{out: []byte(value + "\x00")}, root, nil)
+		if !slices.Equal(got, want) {
+			t.Errorf("core.attributesFile %q: config = %q, want %q", value, got, want)
 		}
 	}
-	repoDir := seedHeadTestRepo(t)
-	writeLFSObject(t, repoDir, stored, stored)
-	writeSeedHeadFiles(t, repoDir, map[string]string{
-		"custom.attrs":   "docs/manual.md filter=lfs -text\ndocs/crlf.md text eol=crlf\n",
-		"docs/manual.md": lfsPointer(stored),
-		"docs/crlf.md":   "one\ntwo\n",
-	})
-	gitAt(t, repoDir, "add", "-A")
-	gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointer marked by the user's attributes file")
-	useLFSSmudge(t, repoDir)
-	check := exec.Command("git", "check-attr", "filter", "--", "docs/manual.md")
-	check.Dir = repoDir
-	if got, err := check.Output(); err != nil || !strings.Contains(string(got), "filter: lfs") {
-		t.Fatalf("git does not read the relative attributes file: %q, %v", got, err)
+	if got := c.attributesFileConfig(context.Background(), fixedConfigRunner{err: errors.New("exit status 1")}, root, nil); got != nil {
+		t.Errorf("unset core.attributesFile: config = %q, want none", got)
 	}
-	dirtySeedHeadTree(t, repoDir)
+}
 
-	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
-	if err != nil {
-		t.Fatalf("check out HEAD: %v", err)
+func TestSeedHeadWorkTreePathMatchesOnlyPathsInside(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	sep := string(filepath.Separator)
+	cases := map[string]string{
+		root + sep + "custom.attrs":           "custom.attrs",
+		root + sep + "./custom.attrs":         "custom.attrs",
+		root + sep + "dir" + sep + "x.attrs":  "dir/x.attrs",
+		root + sep + "link/../custom.attrs":   "",
+		root + sep + ".." + sep + "out.attrs": "",
+		root:                                  "",
+		filepath.Join(t.TempDir(), "x.attrs"): "",
 	}
-	defer head.remove()
-	if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "manual.md")); err != nil || string(got) != stored {
-		t.Errorf("docs/manual.md = %q, %v; want the stored object %q", got, err, stored)
-	}
-	if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "crlf.md")); err != nil || string(got) != "one\r\ntwo\r\n" {
-		t.Errorf("docs/crlf.md = %q, %v; want CRLF line ends", got, err)
-	}
-	if len(head.warnings) > 0 {
-		t.Errorf("warnings = %q, want none", head.warnings)
+	for file, want := range cases {
+		got, ok := seedHeadWorkTreePath(root, file)
+		if ok != (want != "") || got != want {
+			t.Errorf("seedHeadWorkTreePath(%q) = %q, %v; want %q", file, got, ok, want)
+		}
 	}
 }
 

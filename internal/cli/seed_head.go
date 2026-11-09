@@ -330,15 +330,16 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	// re-encoded committed docs into what the scan rejects as binary.
 	// Pointing GIT_WORK_TREE at an empty directory leaves the scratch index,
 	// the commit's tree, as the only source (info/attributes and the user's
-	// own attributes file apply as they do to a clean checkout). This works
-	// on every supported git, unlike --attr-source (2.40+). Files are written
-	// through --prefix, never into this directory.
-	attrConfig := seedHeadAttributesFileConfig(ctx, runner, repoDir, env)
+	// own attributes file apply as they do to a clean checkout, see
+	// attributesFileConfig). This works on every supported git, unlike
+	// --attr-source (2.40+). Files are written through --prefix, never into
+	// this directory.
 	emptyWorkTree := filepath.Join(c.tempRoot, "no-worktree")
 	if err := os.Mkdir(emptyWorkTree, 0o700); err != nil {
 		return fmt.Errorf("create committed HEAD checkout: %w", err)
 	}
 	env["GIT_WORK_TREE"] = emptyWorkTree
+	attrConfig := c.attributesFileConfig(ctx, runner, repoDir, env)
 	selected := seedHeadSelected(c.paths, opts.maxFiles)
 	// Paths that differ only in case share one file where the filesystem
 	// folds case, and a clean checkout leaves it holding the last of them it
@@ -854,26 +855,79 @@ func seedHeadFilterDrivers(ctx context.Context, runner EnvironmentCommandRunner,
 	return seedHeadDrivers{names: names}
 }
 
-// seedHeadAttributesFileConfig keeps the user's own attributes file where a
-// clean checkout finds it. git reads a relative core.attributesFile from the
-// top of the work tree, which the checkout points at an empty directory, so
-// such a value is passed as the absolute path it names in the real work tree
-// (repoDir), read from there as git reads it. An absolute value, ~ and
-// %(prefix) (expanded by --path), or none at all need nothing.
-func seedHeadAttributesFileConfig(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string) []string {
+// attributesFileConfig keeps the user's own attributes file
+// (core.attributesFile) in force for the checkout, as a clean checkout of
+// HEAD has it. git reads a relative value from the top of the work tree,
+// which the checkout points at an empty directory, so such a value is joined
+// to the real one (repoDir) instead, as git joins it, without cleaning. A
+// file there that HEAD tracks is part of the commit and, like .gitattributes,
+// is read as committed: it is checked out into the scratch area and that copy
+// is named. Any other file is read where it is, as git reads it. --path
+// expands ~ and %(prefix); an unset value needs nothing.
+func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string) []string {
 	out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "config", "-z", "--path", "--get", "core.attributesFile")
 	if err != nil {
 		return nil // unset, or unreadable, which the checkout reports itself
 	}
 	value := strings.TrimSuffix(string(out), "\x00")
-	if value == "" || seedHeadGitAbsolutePath(value) {
+	if value == "" {
 		return nil
 	}
-	abs, err := filepath.Abs(filepath.Join(repoDir, value))
+	root := repoDir
+	if !filepath.IsAbs(root) {
+		if root, err = filepath.Abs(root); err != nil {
+			return nil
+		}
+	}
+	file, relative := value, !seedHeadGitAbsolutePath(value)
+	if relative {
+		file = root + string(filepath.Separator) + value
+	}
+	if tracked, ok := seedHeadWorkTreePath(root, file); ok && slices.Contains(c.paths, tracked) {
+		if committed, ok := c.checkOutAttributesFile(ctx, runner, repoDir, env, tracked); ok {
+			return []string{"-c", "core.attributesFile=" + committed}
+		}
+	}
+	if !relative {
+		return nil
+	}
+	return []string{"-c", "core.attributesFile=" + file}
+}
+
+// checkOutAttributesFile writes HEAD's copy of path, a tracked attributes
+// file, into the scratch area and returns where. A symlink, or a blob that
+// cannot be written, is left to the work tree's file.
+func (c *seedHeadCheckout) checkOutAttributesFile(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, path string) (string, bool) {
+	dir := filepath.Join(c.tempRoot, "attributes")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		return "", false
+	}
+	if _, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "checkout-index", "-q", "-f", "--prefix="+filepath.ToSlash(dir)+"/", "--", path); err != nil {
+		return "", false
+	}
+	file := filepath.Join(dir, filepath.FromSlash(path))
+	if info, err := os.Lstat(file); err != nil || !info.Mode().IsRegular() {
+		return "", false
+	}
+	return file, true
+}
+
+// seedHeadWorkTreePath returns file's path in the work tree at root, in git's
+// form, when file lies inside it. Past a symlink, ".." leads somewhere a
+// lexical reading does not, so a path with a ".." component never matches.
+func seedHeadWorkTreePath(root, file string) (string, bool) {
+	if slices.Contains(strings.Split(filepath.ToSlash(file), "/"), "..") {
+		return "", false
+	}
+	rel, err := filepath.Rel(root, file)
 	if err != nil {
-		return nil
+		return "", false
 	}
-	return []string{"-c", "core.attributesFile=" + abs}
+	rel = filepath.ToSlash(rel)
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", false
+	}
+	return rel, true
 }
 
 // seedHeadGitAbsolutePath reports whether git takes a path as absolute: on
@@ -884,7 +938,7 @@ func seedHeadGitAbsolutePath(value string) bool {
 
 // attributes reads the filter, working-tree-encoding and ident attributes of
 // paths from the commit: --cached reads .gitattributes from the scratch index
-// only. config carries seedHeadAttributesFileConfig.
+// only. config carries attributesFileConfig.
 func (c *seedHeadCheckout) attributes(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, config, paths []string) (map[string]seedHeadAttrs, error) {
 	attrs := make(map[string]seedHeadAttrs, len(paths))
 	for _, batch := range chunkPathsByBytes(paths, seedHeadCheckoutArgBytes) {
