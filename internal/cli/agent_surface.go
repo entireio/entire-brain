@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -5278,20 +5279,22 @@ func newBrainBriefShownHistory(existing []brainTextMatch) *brainBriefShownHistor
 }
 
 // review reports what a raw hit adds to what the brief already shows. repeat
-// is true when it adds nothing: it equals an existing match, or every
-// occurrence of the query in its line's history fragments is inside a summary
-// the brief shows. Otherwise a non-empty excerpt is a window around the first
-// occurrence the brief does not show, which replaces the raw line's excerpt.
+// is true when it adds nothing: it equals an existing match, or every text of
+// its line that has the query is inside an excerpt the brief shows for that
+// line. Otherwise a non-empty excerpt is a window around the first such text's
+// first mention the brief does not show, which replaces the raw line's excerpt.
 //
 // A raw hit's excerpt is a window of the raw JSON line and never equals an
 // indexed summary, so the path:line:excerpt dedup alone kept such repeats, and
-// each took a top-up slot from a line the brief does not show. A line can hold
-// several blocks, and the index keeps one record per fragment with its summary
-// cut at 700 characters, so a fragment that is not shown, or has the query
-// past its summary's cut, keeps the hit. The raw line's excerpt centers on its
-// first occurrence, which can be the shown one, so the kept hit shows the
-// unshown occurrence instead. A line whose fragments do not have the query at
-// all keeps the hit and its excerpt: it shows text the index does not hold.
+// each took a top-up slot from a line the brief does not show. The check reads
+// the line's own string values rather than the history fragments the index
+// keeps: a line can hold several blocks, the index keeps only code facts from
+// a tool's output, and it cuts each summary at 700 characters. So a block that
+// is not shown, tool output the index left out, or a mention past a summary's
+// cut keeps the hit, and the raw line's excerpt, which centers on its first
+// mention, is replaced by one that shows the unshown text. A line with no
+// string value that has the query keeps the hit and its excerpt. When in doubt
+// the hit is kept, as it was before the check.
 func (s *brainBriefShownHistory) review(match brainTextMatch, line, query string) (repeat bool, excerpt string) {
 	if s == nil {
 		return false, ""
@@ -5304,44 +5307,96 @@ func (s *brainBriefShownHistory) review(match brainTextMatch, line, query string
 		return false, ""
 	}
 	shown := false
-	for _, fragment := range rawLineHistoryFragments(line) {
-		text := strings.TrimSpace(fragment.Text)
-		if text == "" || !historyTextMatchesQuery(text, query) {
+	for _, text := range rawLineTexts(line) {
+		if !historyTextMatchesQuery(text, query) {
 			continue
 		}
 		cleaned := cleanHistorySummary(text)
-		from := 0
-		if summary := historyFragmentSummary(text); slices.Contains(excerpts, summary) {
-			if summary == cleaned {
-				shown = true
-				continue
-			}
-			// The summary is cleaned[:cut] and "...". Look from one query
-			// length before the cut, so an occurrence across it is unshown.
-			from = max(0, len(strings.TrimSuffix(summary, "..."))-len(query))
-			for from > 0 && !utf8.RuneStart(cleaned[from]) {
-				from--
-			}
-			if !historyTextMatchesQuery(cleaned[from:], query) {
-				shown = true
-				continue
-			}
+		from, ok := shownTextFrom(cleaned, query, excerpts)
+		if ok {
+			shown = true
+			continue
 		}
 		return false, historyExcerptWindow(cleaned, query, from)
 	}
 	return shown, ""
 }
 
-// rawLineHistoryFragments is what the history indexer reads from one line: a
-// transcript record's fragments, or the line itself as text.
-func rawLineHistoryFragments(line string) []historyFragment {
+// shownTextFrom reports whether excerpts show every mention of query in
+// cleaned, one of a line's texts. An excerpt shows the text when it contains
+// it as written, or as a tool call's JSON input writes it. When an excerpt is
+// the text cut short at the summary limit, from is where the text's unshown
+// mentions can start: one query length before the cut, so a mention across
+// the cut is unshown.
+func shownTextFrom(cleaned, query string, excerpts []string) (from int, shown bool) {
+	encoded := cleaned
+	if data, err := json.Marshal(cleaned); err == nil {
+		encoded = cleanHistorySummary(string(data[1 : len(data)-1]))
+	}
+	for _, excerpt := range excerpts {
+		if strings.Contains(excerpt, cleaned) || strings.Contains(excerpt, encoded) {
+			return 0, true
+		}
+		cut := strings.TrimSuffix(excerpt, "...")
+		if len(cut) == len(excerpt) || !strings.HasPrefix(cleaned, cut) {
+			continue
+		}
+		at := max(0, len(cut)-len(query))
+		for at > 0 && !utf8.RuneStart(cleaned[at]) {
+			at--
+		}
+		if !historyTextMatchesQuery(cleaned[at:], query) {
+			return 0, true
+		}
+		from = max(from, at)
+	}
+	return from, false
+}
+
+// rawLineTexts returns the string values of a JSON line in order, or the
+// line itself when it is not JSON.
+func rawLineTexts(line string) []string {
 	text := strings.TrimSpace(line)
-	if strings.HasPrefix(text, "{") {
-		if record, ok := decodeTranscriptRecord(text); ok {
-			return extractHistoryJSONFragments(record)
+	if !strings.HasPrefix(text, "{") && !strings.HasPrefix(text, "[") {
+		return []string{text}
+	}
+	type level struct{ object, key bool }
+	var (
+		texts []string
+		stack []level
+	)
+	valueDone := func() {
+		if n := len(stack); n > 0 && stack[n-1].object {
+			stack[n-1].key = true
 		}
 	}
-	return []historyFragment{{Text: text, Source: "text"}}
+	decoder := json.NewDecoder(strings.NewReader(text))
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF && len(stack) == 0 {
+			return texts
+		}
+		if err != nil {
+			return []string{text}
+		}
+		if delim, ok := token.(json.Delim); ok {
+			if delim == '{' || delim == '[' {
+				stack = append(stack, level{object: delim == '{', key: delim == '{'})
+			} else if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+				valueDone()
+			}
+			continue
+		}
+		if n := len(stack); n > 0 && stack[n-1].key {
+			stack[n-1].key = false
+			continue
+		}
+		if value, ok := token.(string); ok && strings.TrimSpace(value) != "" {
+			texts = append(texts, value)
+		}
+		valueDone()
+	}
 }
 
 // brainBriefRawHistoryMatchesSingleScan evaluates the same prioritized raw

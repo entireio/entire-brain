@@ -248,3 +248,61 @@ func TestBrainBriefRawTopUpDoesNotRepeatIndexedLines(t *testing.T) {
 		seen[location] = true
 	}
 }
+
+// The index keeps only code facts from a tool's output, so a line can mention
+// the query in text no history record holds. Showing every record of the line
+// does not show that text, and the kept hit's excerpt shows it.
+func TestRawHistoryTopUpKeepsToolOutputTheIndexLeavesOut(t *testing.T) {
+	t.Parallel()
+	brainDir := t.TempDir()
+	sessionDir := filepath.Join(brainDir, "sessions", "main")
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	name := "20260716T010203Z_0001.jsonl"
+	line := `{"v":1,"type":"assistant","content":[{"type":"tool_use","id":"c1","name":"Bash","input":{"command":"grep \"ALPHA_IDENTIFIER\" -n"},"result":{"output":"ALPHA_IDENTIFIER stopped halfway and never answered","status":"error"}}]}`
+	if err := os.WriteFile(filepath.Join(sessionDir, name), []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record, ok := decodeTranscriptRecord(line)
+	if !ok {
+		t.Fatal("fixture line does not decode as a transcript record")
+	}
+	rel := "sessions/main/" + name
+	var indexed []brainTextMatch
+	for _, fragment := range extractHistoryJSONFragments(record) {
+		summary := historyFragmentSummary(fragment.Text)
+		if strings.Contains(summary, "halfway") {
+			t.Fatalf("fixture output must not be indexed, got fragment %q", summary)
+		}
+		indexed = append(indexed, brainTextMatch{Path: rel, Line: 1, Excerpt: summary})
+	}
+	if len(indexed) == 0 {
+		t.Fatal("fixture line has no indexed fragments")
+	}
+	for impl, matcher := range rawHistoryMatcherImplementations() {
+		got, err := matcher(brainDir, "ALPHA_IDENTIFIER", indexed, 4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].Line != 1 || !strings.Contains(got[0].Excerpt, "stopped halfway") {
+			t.Fatalf("%s: raw top-up = %+v, want the line kept with its tool output", impl, got)
+		}
+	}
+}
+
+func TestRawLineTextsReadsStringValuesInOrder(t *testing.T) {
+	t.Parallel()
+	cases := map[string][]string{
+		`{"type":"assistant","content":[{"type":"text","text":"first"},{"input":{"command":"second"},"n":3,"ok":true,"none":null}],"text":"third"}`: {"assistant", "text", "first", "second", "third"},
+		`["a",["b",{"k":"c"}]]`:     {"a", "b", "c"},
+		`plain text line`:           {"plain text line"},
+		`{"type": "broken", "text"`: {`{"type": "broken", "text"`},
+		`{"a":"x"} trailing`:        {`{"a":"x"} trailing`},
+	}
+	for line, want := range cases {
+		if got := rawLineTexts(line); !reflect.DeepEqual(got, want) {
+			t.Errorf("rawLineTexts(%q) = %q, want %q", line, got, want)
+		}
+	}
+}
