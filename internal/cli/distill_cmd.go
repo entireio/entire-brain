@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/cli/transcript"
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
@@ -1884,13 +1885,13 @@ func preprocessTranscriptForDistill(content string) string {
 			lines[i] = ""
 			continue
 		}
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(line), &obj); err != nil {
+		record, ok := decodeTranscriptRecord(line)
+		if !ok {
 			continue // not JSONL; leave the line as-is
 		}
 		// Collapse the kept text onto a single line so one record stays one line
 		// and the line numbering (provenance) is preserved.
-		lines[i] = strings.Join(strings.Fields(distillConversationText(obj)), " ")
+		lines[i] = strings.Join(strings.Fields(distillConversationText(record)), " ")
 	}
 	return strings.Join(lines, "\n")
 }
@@ -2063,7 +2064,20 @@ func parseDocumentConversation(content string) ([]documentMessage, bool) {
 // `assistant`/`user`, and pi `message` shapes — keep the two switches in sync
 // when adding a format) but deliberately keeps user turns — where standing
 // rules and preferences live — and discards everything tool-related.
-func distillConversationText(obj map[string]any) string {
+func distillConversationText(record transcriptRecord) string {
+	if record.etf != nil {
+		// The format the CLI writes today ({"v":1,"agent":"codex",...,
+		// "content":[...]}) puts the content blocks at the record's top level
+		// with no wrapper. Reading only Claude's nested "message" stripped every
+		// record of a modern transcript to "" (observed: 1.7 MB of real Codex
+		// sessions preprocessed to 1.6 KB and distilled zero facts). Text is
+		// kept; tool calls and their inlined results are mechanics.
+		if !record.etfIs(transcript.TypeUser) && !record.etfIs(transcript.TypeAssistant) {
+			return ""
+		}
+		return strings.Join(etfTexts(record.etf), " ")
+	}
+	obj := record.obj
 	switch jsonString(obj["type"]) {
 	case "agent_message":
 		return jsonString(obj["message"])
@@ -2086,18 +2100,8 @@ func distillConversationText(obj map[string]any) string {
 		}
 		return distillTextBlocks(payload["content"])
 	case "assistant", "user":
-		// Two shapes carry the same record type. The claude-code dialect nests
-		// the turn under "message"; the dialect the CLI writes today
-		// ({"v":1,"agent":"codex",...,"content":[...]}) puts the content blocks
-		// at the RECORD's top level with no wrapper at all. Reading only the
-		// nested one stripped every record of a modern transcript to "" — the
-		// same silent total loss the "message" case below documents for pi, but
-		// on the dialect that is now the default (observed: 1.7 MB of real Codex
-		// sessions preprocessed to 1.6 KB and distilled zero facts).
-		if message, ok := obj["message"]; ok {
-			return distillTextBlocks(jsonMap(message)["content"])
-		}
-		return distillTextBlocks(obj["content"])
+		// The claude-code dialect nests the turn under "message".
+		return distillTextBlocks(jsonMap(obj["message"])["content"])
 	case "message":
 		// pi sessions wrap every turn as {"type":"message","message":{role,content}}.
 		// Without this case they fell to the default branch, whose

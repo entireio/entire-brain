@@ -23,8 +23,8 @@ var regressionCases = []mutationCase{
 	{
 		Name:       "brief must preserve raw-only matches",
 		File:       "internal/cli/agent_surface.go",
-		Before:     "rawMatches, rawErr := rawHistoryMatcher(status.Brain.Path, task, nil, briefOpts.limit, rawProfile)",
-		After:      "_ = rawProfile\n\t\t\trawMatches, rawErr := []brainTextMatch(nil), error(nil)",
+		Before:     "rawMatches, rawErr = rawHistoryMatcher(status.Brain.Path, task, indexedMatches, remaining, rawProfile)",
+		After:      "// MUTANT: drop raw fallback results.\n\t\t\t\t_ = rawProfile",
 		Test:       "TestRawHistoryFallbackRetainsFallbackOnlyMatch",
 		Diagnostic: "end-to-end brief lost fallback-only match",
 		Package:    "./internal/cli",

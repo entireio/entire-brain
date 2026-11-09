@@ -50,7 +50,7 @@ first. Local migration is one-way; Brain v0.2.0 to v0.4.0 cannot read the result
 - Claude Code **2.1.78 or later**, if you use Claude capture. Follow the
   [capture requirements](memory-storage-compatibility.md#claude-capture-requirement).
 - Git.
-- A Go toolchain (1.27 or newer), **only if you build from source**. The
+- A Go toolchain (1.27.3 or newer), **only if you build from source**. The
   released binaries need no toolchain at all: Brain's default build is pure Go,
   so the published archives run as-is. See "Installing a release" below.
 - The `entire-graph` semantic provider, invoked as `entire graph`. The brain shells
@@ -98,7 +98,7 @@ and registers both plugins, writes the default plugin configuration
 the three provider routes it took. Neither checkout has to have a particular
 name, and they do not have to be siblings.
 
-The prerequisites do not go away: Go 1.27 or newer and a cgo-capable C compiler
+The prerequisites do not go away: Go 1.27.3 or newer and a cgo-capable C compiler
 are still required, because both components are built from source here. What
 goes away is having to arrange directories before you start.
 

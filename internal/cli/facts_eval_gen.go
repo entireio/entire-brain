@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/cli/transcript"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
@@ -583,11 +584,11 @@ func firstUserRequest(transcript string) string {
 		if !strings.HasPrefix(line, "{") {
 			continue
 		}
-		var obj map[string]any
-		if json.Unmarshal([]byte(line), &obj) != nil {
+		record, ok := decodeTranscriptRecord(line)
+		if !ok {
 			continue
 		}
-		text := strings.TrimSpace(transcriptUserText(obj))
+		text := strings.TrimSpace(transcriptUserText(record))
 		if text == "" || isWrapperRequest(text) {
 			continue
 		}
@@ -596,7 +597,14 @@ func firstUserRequest(transcript string) string {
 	return ""
 }
 
-func transcriptUserText(obj map[string]any) string {
+func transcriptUserText(record transcriptRecord) string {
+	if record.etf != nil {
+		if !record.etfIs(transcript.TypeUser) {
+			return ""
+		}
+		return strings.Join(etfTexts(record.etf), " ")
+	}
+	obj := record.obj
 	payload := jsonMap(obj["payload"])
 	switch jsonString(obj["type"]) {
 	case "response_item":
@@ -608,8 +616,8 @@ func transcriptUserText(obj map[string]any) string {
 			return jsonString(payload["message"])
 		}
 	case "user":
-		// claude-code nests the turn under "message"; compact v1 does not.
-		return transcriptContentText(transcriptRecordContent(obj))
+		// claude-code nests the turn under "message".
+		return transcriptContentText(jsonMap(obj["message"])["content"])
 	case "message":
 		// pi wraps every turn as {"type":"message","message":{role,content}};
 		// keep user turns (same blind spot distillConversationText covers).

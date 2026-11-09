@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"regexp"
 	"strings"
 	"unicode"
@@ -371,11 +370,11 @@ func transcriptEpisodeSegments(transcript string) []episodeSegment {
 		if !strings.HasPrefix(line, "{") {
 			continue
 		}
-		var obj map[string]any
-		if json.Unmarshal([]byte(line), &obj) != nil {
+		record, ok := decodeTranscriptRecord(line)
+		if !ok {
 			continue
 		}
-		text := strings.TrimSpace(transcriptUserText(obj))
+		text := strings.TrimSpace(transcriptUserText(record))
 		if text != "" && !isWrapperRequest(text) {
 			flush()
 			current = episodeSegment{Request: userTurn{Text: strings.Join(strings.Fields(text), " "), Line: i + 1}}
@@ -418,11 +417,11 @@ func substantiveUserTurns(transcript string) []userTurn {
 		if !strings.HasPrefix(line, "{") {
 			continue
 		}
-		var obj map[string]any
-		if json.Unmarshal([]byte(line), &obj) != nil {
+		record, ok := decodeTranscriptRecord(line)
+		if !ok {
 			continue
 		}
-		text := strings.TrimSpace(transcriptUserText(obj))
+		text := strings.TrimSpace(transcriptUserText(record))
 		if text == "" || isWrapperRequest(text) {
 			continue
 		}
