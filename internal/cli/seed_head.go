@@ -902,7 +902,8 @@ func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner Envi
 				}
 				return []string{"-c", "core.attributesFile=" + committed}
 			}
-			return []string{"-c", "core.attributesFile=" + c.lfsAttributesFile(tracked, committed, file)}
+			c.lfsAttributesFile(ctx, runner, repoDir, env, tracked, committed, file)
+			return []string{"-c", "core.attributesFile=" + committed}
 		}
 	}
 	if !relative {
@@ -938,45 +939,66 @@ func writeSeedHeadBlob(ctx context.Context, runner EnvironmentCommandRunner, rep
 }
 
 // lfsAttributesFile settles a tracked attributes file whose HEAD copy
-// (committed) is a Git LFS pointer. git reads the worktree's file, which
-// git-lfs smudged to the object or left as the pointer. Where that file is
-// exactly the object, it is the committed content and is named; where it is
-// the pointer, so is the copy. Otherwise it was edited, and seed, which runs
-// no smudge, names the pointer and says so. Any other copy is named as it is.
-func (c *seedHeadCheckout) lfsAttributesFile(path, committed, worktree string) string {
+// (committed) is a Git LFS pointer, as a clean checkout of HEAD writes it,
+// and always in that copy, so nothing the work tree holds is read after it
+// was checked. The pointer is kept as committed unless HEAD's attributes mark
+// the file filter=lfs and the caller's git-lfs smudges it
+// (smudgesAttributesFile). Then its object is read from the local store, as
+// settleLFSPointers reads one, or from the worktree's file where that is
+// exactly the object (both copied and verified as they are read), and
+// otherwise the pointer is kept, with a warning unless the worktree shows the
+// pointer too.
+func (c *seedHeadCheckout) lfsAttributesFile(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, path, committed, worktree string) {
 	pointer, err := clibase.SafeReadFile(committed, seedHeadLFSPointerMaxBytes)
 	if err != nil {
-		return committed
+		return
 	}
-	oid, size, _, ok := parseLFSPointer(pointer)
-	if !ok {
-		return committed
+	oid, size, extended, ok := parseLFSPointer(pointer)
+	if !ok || !c.smudgesAttributesFile(ctx, runner, repoDir, env, path) {
+		return
 	}
-	if seedHeadFileIsLFSObject(worktree, oid, size) {
-		return worktree
+	keep := func(why string) {
+		c.warnings = append(c.warnings, fmt.Sprintf("the attributes file core.attributesFile names (%s) is stored in Git LFS and %s; seed read the rules in its committed pointer text", path, why))
+	}
+	switch {
+	case extended:
+		keep("its pointer names an LFS extension, which seed does not run")
+		return
+	case size > seedHeadAttributesFileMaxBytes:
+		keep(fmt.Sprintf("its object is over %d bytes", seedHeadAttributesFileMaxBytes))
+		return
+	case seedHeadLFSFetchFiltered(ctx, runner, repoDir, c.commit):
+		keep("Git LFS fetch include/exclude patterns are configured, which seed does not evaluate")
+		return
+	}
+	if objectsDir := seedHeadLFSObjectsDir(ctx, runner, repoDir); objectsDir != "" {
+		if copyLFSObject(filepath.Join(objectsDir, oid[0:2], oid[2:4], oid), committed, oid, size) == nil {
+			return
+		}
+	}
+	if copyLFSObject(worktree, committed, oid, size) == nil {
+		return
 	}
 	if data, err := clibase.SafeReadFile(worktree, seedHeadLFSPointerMaxBytes); err != nil || !bytes.Equal(data, pointer) {
-		c.warnings = append(c.warnings, fmt.Sprintf("the attributes file core.attributesFile names (%s) is stored in Git LFS and edited in the work tree; seed read the rules in its committed pointer text", path))
+		keep("its object is not stored locally while the work tree's copy is edited")
 	}
-	return committed
 }
 
-// seedHeadFileIsLFSObject reports whether path holds exactly the object a
-// pointer names: size bytes whose sha256 is oid.
-func seedHeadFileIsLFSObject(path, oid string, size int64) bool {
-	f, err := clibase.SafeOpenRegularFile(path)
-	if err != nil {
+// smudgesAttributesFile reports whether a clean checkout of HEAD hands the
+// attributes file at path to git-lfs's smudge: the attributes a fresh checkout
+// reads before that file exists (HEAD's .gitattributes and info/attributes)
+// mark it filter=lfs, and the caller's git-lfs smudges
+// (seedHeadLFSCheckoutMode).
+func (c *seedHeadCheckout) smudgesAttributesFile(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, path string) bool {
+	none := filepath.Join(c.tempRoot, "no-attributes")
+	if os.WriteFile(none, nil, 0o600) != nil {
 		return false
 	}
-	defer func() { _ = f.Close() }()
-	if info, err := f.Stat(); err != nil || info.Size() != size {
+	attrs, err := c.attributes(ctx, runner, repoDir, env, []string{"-c", "core.attributesFile=" + none}, []string{path})
+	if err != nil || attrs[path].filter != "lfs" {
 		return false
 	}
-	hash := sha256.New()
-	if n, err := io.Copy(hash, io.LimitReader(f, size+1)); err != nil || n != size {
-		return false
-	}
-	return hex.EncodeToString(hash.Sum(nil)) == oid
+	return seedHeadLFSCheckoutMode(ctx, runner, repoDir) == seedHeadLFSSmudges
 }
 
 // seedHeadWorkTreePath returns file's path in the work tree at root, in git's

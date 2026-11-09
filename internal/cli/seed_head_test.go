@@ -1675,24 +1675,33 @@ func writeLFSObject(t *testing.T, repoDir, content, stored string) {
 // checked out with CRLF line ends, which only checkout-index applies. A file
 // HEAD tracks is read as committed, like .gitattributes, so edits to it in
 // the worktree do not count; one it does not track is read where it is. One
-// HEAD stores in Git LFS is read from the worktree where that is exactly its
-// object, and otherwise as its pointer text, with a warning.
+// HEAD stores in Git LFS is read as a clean checkout writes it: hydrated from
+// the local store, or from the worktree where that is exactly its object, and
+// read from seed's own copy, so a later edit there does not count; otherwise,
+// or when nothing would smudge it, as its pointer text.
 func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
 	rules := "docs/manual.md filter=lfs -text\ndocs/crlf.md text eol=crlf\n"
 	noRules := "docs/manual.md -text\ndocs/crlf.md -text\n"
+	inLFS := map[string]string{".gitattributes": "custom.attrs filter=lfs -text\n", "custom.attrs": lfsPointer(rules)}
 	cases := []struct {
-		name      string
-		committed map[string]string
-		worktree  string
-		applied   bool
-		warned    bool
+		name       string
+		committed  map[string]string
+		worktree   string
+		stored     bool   // the attributes file's LFS object is in the local store
+		skipSmudge bool   // GIT_LFS_SKIP_SMUDGE=1
+		later      string // the worktree's file once seed has read it
+		applied    bool
+		warned     bool
 	}{
 		{name: "committed, edited in the worktree", committed: map[string]string{"custom.attrs": rules}, worktree: noRules, applied: true},
 		{name: "untracked", worktree: rules, applied: true},
 		{name: "committed, over the size bound", committed: map[string]string{"custom.attrs": rules + strings.Repeat("#\n", seedHeadAttributesFileMaxBytes/2)}, worktree: rules, warned: true},
-		{name: "in LFS, its content in the worktree", committed: map[string]string{".gitattributes": "custom.attrs filter=lfs -text\n", "custom.attrs": lfsPointer(rules)}, worktree: rules, applied: true},
-		{name: "in LFS, its pointer in the worktree", committed: map[string]string{".gitattributes": "custom.attrs filter=lfs -text\n", "custom.attrs": lfsPointer(rules)}, worktree: lfsPointer(rules)},
-		{name: "in LFS, edited in the worktree", committed: map[string]string{".gitattributes": "custom.attrs filter=lfs -text\n", "custom.attrs": lfsPointer(rules)}, worktree: rules + "# edited\n", warned: true},
+		{name: "in LFS, stored locally, edited in the worktree", committed: inLFS, worktree: noRules, stored: true, applied: true},
+		{name: "in LFS, its content in the worktree, edited after", committed: inLFS, worktree: rules, later: noRules, applied: true},
+		{name: "in LFS, its pointer in the worktree", committed: inLFS, worktree: lfsPointer(rules)},
+		{name: "in LFS, edited in the worktree", committed: inLFS, worktree: rules + "# edited\n", warned: true},
+		{name: "in LFS, smudge skipped", committed: inLFS, worktree: rules, stored: true, skipSmudge: true},
+		{name: "pointer text not marked filter=lfs", committed: map[string]string{"custom.attrs": lfsPointer(rules)}, worktree: rules, stored: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1704,7 +1713,11 @@ func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
 			}
 			t.Setenv("GIT_CONFIG_GLOBAL", global)
 			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-			t.Setenv("GIT_LFS_SKIP_SMUDGE", "")
+			skip := ""
+			if tc.skipSmudge {
+				skip = "1"
+			}
+			t.Setenv("GIT_LFS_SKIP_SMUDGE", skip)
 			for _, key := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} {
 				t.Setenv(key, "")
 				if err := os.Unsetenv(key); err != nil {
@@ -1713,6 +1726,9 @@ func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
 			}
 			repoDir := seedHeadTestRepo(t)
 			writeLFSObject(t, repoDir, stored, stored)
+			if tc.stored {
+				writeLFSObject(t, repoDir, rules, rules)
+			}
 			files := map[string]string{"docs/manual.md": lfsPointer(stored), "docs/crlf.md": "one\ntwo\n"}
 			maps.Copy(files, tc.committed)
 			writeSeedHeadFiles(t, repoDir, files)
@@ -1722,11 +1738,15 @@ func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
 			useLFSSmudge(t, repoDir)
 			dirtySeedHeadTree(t, repoDir)
 
-			head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+			runner := &attributesEditingRunner{file: filepath.Join(repoDir, "custom.attrs"), content: tc.later}
+			head, err := checkoutSeedHead(context.Background(), runner, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
 			if err != nil {
 				t.Fatalf("check out HEAD: %v", err)
 			}
 			defer head.remove()
+			if tc.later != "" && !runner.edited {
+				t.Fatal("the worktree's attributes file was never edited")
+			}
 			wantManual, wantCRLF := lfsPointer(stored), "one\ntwo\n"
 			if tc.applied {
 				wantManual, wantCRLF = stored, "one\r\ntwo\r\n"
@@ -1743,6 +1763,26 @@ func TestDirtySeedReadsARelativeAttributesFileFromTheWorkTree(t *testing.T) {
 			}
 		})
 	}
+}
+
+// attributesEditingRunner writes content to the worktree's attributes file
+// once seed has settled the copy it reads, before the first check-attr of the
+// files it checks out.
+type attributesEditingRunner struct {
+	ExecRunner
+	file, content string
+	edited        bool
+}
+
+func (r *attributesEditingRunner) RunWithEnv(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
+	if r.content != "" && !r.edited && name == "git" && slices.Contains(args, "check-attr") &&
+		!slices.ContainsFunc(args, func(arg string) bool { return strings.HasSuffix(arg, "no-attributes") }) {
+		r.edited = true
+		if err := os.WriteFile(r.file, []byte(r.content), 0o600); err != nil {
+			return nil, nil, err
+		}
+	}
+	return r.ExecRunner.RunWithEnv(ctx, dir, env, name, args...)
 }
 
 func TestSeedHeadAttributesFileConfigJoinsPathsAsGitDoes(t *testing.T) {
