@@ -392,7 +392,10 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		}
 		return nil
 	}
-	if persistentSeed {
+	// The brain store's write lock covers the prune too, so a seed that names
+	// the store with --output waits for it as well: the documents another
+	// writer is seeding there are never pruned from under it.
+	if inBrainStore {
 		if err := brainstore.WithBrainWriteLockContext(ctx, outputDir, commitSeed); err != nil {
 			return err
 		}

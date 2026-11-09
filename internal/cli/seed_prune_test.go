@@ -9,8 +9,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -296,6 +298,67 @@ func readmeFailureLeavesThePrunePending(t *testing.T, explicit bool) {
 	}
 }
 
+// TestAnExplicitOutputNamingTheBrainStoreWaitsForItsWriteLock: a seed whose
+// --output names the brain store prunes the store's documents, so it waits for
+// the store's write lock as an ordinary seed does. It used to prune while
+// another writer held the lock.
+func TestAnExplicitOutputNamingTheBrainStoreWaitsForItsWriteLock(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{
+		"README.md":   "# readme\n",
+		"docs/old.md": "# Old guide\n",
+	})
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: ExecRunner{}}
+	storage, err := repoStoragePaths(context.Background(), opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brainDir := storage.BrainDir
+	seed := func(args ...string) error {
+		argv := append([]string{"refresh", "seed", "--agent", "none"}, args...)
+		out, err := execute(t, NewRootCommand(opts), append(argv, repoDir)...)
+		if err != nil {
+			t.Logf("seed: %v\n%s", err, out)
+		}
+		return err
+	}
+	if err := seed(); err != nil {
+		t.Fatal(err)
+	}
+	assertSeedDoc(t, brainDir, "docs/old.md", true)
+	gitAt(t, repoDir, "rm", "-q", "docs/old.md")
+	gitAt(t, repoDir, "commit", "-q", "-m", "drop old doc")
+
+	unlock, err := brainstore.AcquireBrainWriteLockContext(context.Background(), brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked := true
+	defer func() {
+		if locked {
+			unlock()
+		}
+	}()
+	done := make(chan error, 1)
+	go func() { done <- seed("--update", "--output", brainDir) }()
+	select {
+	case err := <-done:
+		t.Fatalf("the seed finished while another writer held the brain write lock: %v", err)
+	case <-time.After(time.Second):
+	}
+	assertSeedDoc(t, brainDir, "docs/old.md", true)
+	unlock()
+	locked = false
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the seed did not finish once the brain write lock was released")
+	}
+	assertSeedDoc(t, brainDir, "docs/old.md", false)
+}
+
 // TestRefreshReseedsWhileAPruneIsPending: a current manifest is no reason to
 // skip the seed while its prune is marked pending.
 func TestRefreshReseedsWhileAPruneIsPending(t *testing.T) {
@@ -480,9 +543,13 @@ func TestPruneSeedDocsKeepsADocumentRenamedOnlyInCase(t *testing.T) {
 	if err := writeSeedDocs(outputDir, scan); err != nil {
 		t.Fatalf("write seed docs: %v", err)
 	}
+	pruneSeedDocs(outputDir, scan, scan.writtenDocs)
 	got, err := os.ReadFile(filepath.Join(outputDir, "seed", "docs", "docs", "guide.md"))
 	if err != nil || string(got) != "# renamed guide\n" {
 		t.Errorf("the document written under its new spelling = %q, %v; want the renamed guide", got, err)
+	}
+	if len(scan.Warnings) > 0 {
+		t.Errorf("warnings = %q, want none", scan.Warnings)
 	}
 }
 
