@@ -1060,6 +1060,7 @@ func TestDirtySeedResolvesLocalLFSObjects(t *testing.T) {
 	})
 	gitAt(t, repoDir, "add", "-A")
 	gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointers")
+	useLFSSmudge(t, repoDir)
 	dirtySeedHeadTree(t, repoDir)
 
 	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
@@ -1204,6 +1205,7 @@ func TestDirtySeedKeepsLFSPointersWhenFetchFiltersAreSet(t *testing.T) {
 			writeSeedHeadFiles(t, repoDir, files)
 			gitAt(t, repoDir, "add", "-A")
 			gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointer")
+			useLFSSmudge(t, repoDir)
 			if tc.configure != nil {
 				tc.configure(t, repoDir)
 			}
@@ -1227,6 +1229,93 @@ func TestDirtySeedKeepsLFSPointersWhenFetchFiltersAreSet(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped: when the caller's Git
+// LFS settings make a clean checkout skip the smudge, or set up no lfs filter
+// at all, it keeps every pointer although the object is stored locally, and so
+// does seed, without a warning, since that is exactly what the checkout holds.
+// Cases checked against git-lfs 3.4.1. The repository's own configuration
+// counts although seed's git commands blank its filters.
+func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
+	stored := "# manual kept in LFS\n"
+	for _, tc := range []struct {
+		name        string
+		skipEnv     string
+		configure   func(t *testing.T, repoDir string)
+		wantPointer bool
+	}{
+		{name: "GIT_LFS_SKIP_SMUDGE=1", skipEnv: "1", configure: useLFSSmudge, wantPointer: true},
+		{name: "GIT_LFS_SKIP_SMUDGE=Yes", skipEnv: "Yes", configure: useLFSSmudge, wantPointer: true},
+		{name: "GIT_LFS_SKIP_SMUDGE=2", skipEnv: "2", configure: useLFSSmudge},
+		{name: "no lfs filter", wantPointer: true},
+		{name: "repository filter-process --skip", wantPointer: true, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.process", "git-lfs filter-process --skip")
+		}},
+		{name: "global filter-process --skip", wantPointer: true, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "--global", "filter.lfs.process", "git-lfs filter-process --skip")
+		}},
+		{name: "smudge --skip without a process", wantPointer: true, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "--global", "filter.lfs.smudge", "git-lfs smudge --skip -- %f")
+		}},
+		{name: "smudge --skip behind a process that does not skip", configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.process", "git-lfs filter-process")
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge --skip -- %f")
+		}},
+		// An empty process is no process: git runs the smudge.
+		{name: "repository emptying the global filter-process --skip", configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "--global", "filter.lfs.process", "git-lfs filter-process --skip")
+			gitAt(t, repoDir, "config", "filter.lfs.process", "")
+			useLFSSmudge(t, repoDir)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isolateSeedHeadTemp(t)
+			global := filepath.Join(t.TempDir(), "gitconfig")
+			if err := os.WriteFile(global, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("GIT_CONFIG_GLOBAL", global)
+			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+			t.Setenv("GIT_LFS_SKIP_SMUDGE", tc.skipEnv)
+			repoDir := seedHeadTestRepo(t)
+			writeLFSObject(t, repoDir, stored, stored)
+			writeSeedHeadFiles(t, repoDir, map[string]string{
+				".gitattributes": "docs/manual.md filter=lfs -text\n",
+				"docs/manual.md": lfsPointer(stored),
+			})
+			gitAt(t, repoDir, "add", "-A")
+			gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointer")
+			if tc.configure != nil {
+				tc.configure(t, repoDir)
+			}
+			dirtySeedHeadTree(t, repoDir)
+
+			head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+			if err != nil {
+				t.Fatalf("check out HEAD: %v", err)
+			}
+			defer head.remove()
+			want := stored
+			if tc.wantPointer {
+				want = lfsPointer(stored)
+			}
+			if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "manual.md")); err != nil || string(got) != want {
+				t.Errorf("docs/manual.md = %q, %v; want %q", got, err, want)
+			}
+			if len(head.warnings) > 0 {
+				t.Errorf("warnings = %q, want none", head.warnings)
+			}
+		})
+	}
+}
+
+// useLFSSmudge sets git-lfs's smudge up in the repository's own configuration,
+// as `git lfs install --local` does, so a clean checkout by the caller fetches
+// LFS content. Seed's git commands blank it and so never run it.
+func useLFSSmudge(t *testing.T, repoDir string) {
+	t.Helper()
+	gitAt(t, repoDir, "config", "filter.lfs.smudge", "git-lfs smudge -- %f")
 }
 
 func lfsPointer(content string) string {
@@ -1570,6 +1659,7 @@ func TestDirtySeedSettlesAnLFSPointerWithACaseAlias(t *testing.T) {
 	})
 	gitAt(t, repoDir, "add", "-A")
 	gitAt(t, repoDir, "commit", "-q", "-m", "case aliases")
+	useLFSSmudge(t, repoDir)
 	dirtySeedHeadTree(t, repoDir)
 
 	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
