@@ -404,12 +404,14 @@ func TestDirtySeedChecksOutOnlyWhatTheScanNeeds(t *testing.T) {
 		// 40 Latin-1 bytes in the worktree, an 80-byte UTF-8 blob: over
 		// --max-file-bytes as a blob, under it once checked out.
 		"data/latin.txt": strings.Repeat("\xe9", 40),
-		// A 40-byte blob checked out as 80 bytes of UTF-16: too large once
-		// converted, not media, which is what its blob size alone says.
-		"wide.png": utf16LE(strings.Repeat("w", 40)),
 	}
 	writeSeedHeadFiles(t, repoDir, statOnly)
 	writeSeedHeadFiles(t, repoDir, checkedOut)
+	// A 40-byte blob checked out as 80 bytes of UTF-16: too large once
+	// converted, not media, which is what its blob size alone says. It is
+	// checked out with the other converted files and dropped there, at the
+	// size it came out.
+	writeSeedHeadFiles(t, repoDir, map[string]string{"wide.png": utf16LE(strings.Repeat("w", 40))})
 	// Over --max-file-bytes itself, so in neither list.
 	writeSeedHeadFiles(t, repoDir, map[string]string{
 		".gitattributes": "data/latin.txt working-tree-encoding=ISO-8859-1\nwide.png working-tree-encoding=UTF-16LE\ncrlf.png text eol=crlf\n",
@@ -450,6 +452,9 @@ func TestDirtySeedChecksOutOnlyWhatTheScanNeeds(t *testing.T) {
 			t.Errorf("%s must be checked out: %v", rel, err)
 		}
 	}
+	if size, ok := head.unreadSize("wide.png"); !ok || size != 80 {
+		t.Errorf("wide.png: unread size = %d, %v; want its checked-out size 80", size, ok)
+	}
 	head.remove()
 
 	dirtyDir := filepath.Join(t.TempDir(), "dirty")
@@ -475,13 +480,14 @@ func TestDirtySeedChecksOutOnlyWhatTheScanNeeds(t *testing.T) {
 
 // TestDirtySeedBoundsConvertedCheckouts: a file whose checkout converts is
 // checked out so the scan sees its converted size, but one whose blob alone is
-// more than seedHeadEncodingMaxShrink times --max-file-bytes is too large
-// however it re-encodes, so it is never written out; the scan gives it the
-// same reason, and so the same fingerprint, as a clean seed of the commit.
+// more than seedHeadDriverMaxShrink times --max-file-bytes is past the cap, so
+// it is never written out, and is reported too large at its blob size, with a
+// warning. Here re-encoding only grows it, so the scan gives it the same
+// reason, and so the same fingerprint, as a clean seed of the commit.
 func TestDirtySeedBoundsConvertedCheckouts(t *testing.T) {
 	tempDir := isolateSeedHeadTemp(t)
 	repoDir := seedHeadTestRepo(t)
-	huge := strings.Repeat("h", 4*64+1)
+	huge := strings.Repeat("h", seedHeadDriverMaxShrink*64+1)
 	writeSeedHeadFiles(t, repoDir, map[string]string{
 		".gitattributes": "data/*.txt working-tree-encoding=UTF-16LE\n",
 		"data/huge.txt":  utf16LE(huge),
@@ -506,6 +512,9 @@ func TestDirtySeedBoundsConvertedCheckouts(t *testing.T) {
 	}
 	if size, ok := head.unreadSize("data/huge.txt"); !ok || size != int64(len(huge)) {
 		t.Errorf("data/huge.txt: unread size = %d, %v; want its blob size %d", size, ok, len(huge))
+	}
+	if len(head.warnings) != 1 || !strings.Contains(head.warnings[0], "working-tree-encoding") || !strings.Contains(head.warnings[0], "data/huge.txt") {
+		t.Errorf("warnings = %q; want the one for a converted file past the cap", head.warnings)
 	}
 	head.remove()
 
@@ -1701,50 +1710,63 @@ func TestDirtySeedChecksOutWhatIdentShrinks(t *testing.T) {
 	assertNoSeedHeadLeftovers(t, tempDir)
 }
 
-// TestDirtySeedChecksOutALossyEncodingWhateverItsBlobSize: in a UTF-8 locale
-// ASCII//TRANSLIT writes a combining mark as nothing, so a 306-byte blob
-// checks out at 6 bytes, under --max-file-bytes 64 although the blob is over
-// seedHeadEncodingMaxShrink times it. The file is checked out and stat'd, so
-// its entry is the one a checkout of the commit gives, not "too large" at the
-// blob's size. Where the locale transliterates the marks to "?" instead, the
-// checkout is 156 bytes and the same comparison holds.
-func TestDirtySeedChecksOutALossyEncodingWhateverItsBlobSize(t *testing.T) {
-	isolateSeedHeadTemp(t)
-	t.Setenv("LC_ALL", "C.UTF-8")
-	repoDir := seedHeadTestRepo(t)
-	const rel = "data/marks.txt"
-	blob := "abcdef" + strings.Repeat("\u0301", 150)
-	writeSeedHeadFiles(t, repoDir, map[string]string{rel: blob})
-	gitAt(t, repoDir, "add", "-A")
-	gitAt(t, repoDir, "commit", "-q", "-m", "UTF-8 blob")
-	// Committed after the blob, so the blob stays the UTF-8 bytes.
-	writeSeedHeadFiles(t, repoDir, map[string]string{".gitattributes": rel + " working-tree-encoding=ASCII//TRANSLIT\n"})
-	gitAt(t, repoDir, "add", ".gitattributes")
-	gitAt(t, repoDir, "commit", "-q", "-m", "lossy encoding")
-	if err := os.Remove(filepath.Join(repoDir, filepath.FromSlash(rel))); err != nil {
-		t.Fatal(err)
-	}
-	gitAt(t, repoDir, "checkout-index", "-f", "--", rel)
-	clean, err := os.Stat(filepath.Join(repoDir, filepath.FromSlash(rel)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if clean.Size() >= int64(len(blob)) || int64(len(blob)) <= seedHeadEncodingMaxShrink*64 {
-		t.Fatalf("fixture: a %d-byte blob checked out at %d bytes; want a shrink past %dx 64 bytes", len(blob), clean.Size(), seedHeadEncodingMaxShrink)
-	}
+// TestDirtySeedChecksOutAnEncodedFileWhateverItsBlobSize: a checkout in a
+// working-tree-encoding can be far smaller than the UTF-8 blob, so a file is
+// checked out and stat'd however large its blob, up to the driver cap, and its
+// entry is the one a checkout of the commit gives, not "too large" at the
+// blob's size. TSCII writes the four characters of Tamil "sri"
+// (U+0BB8 U+0BCD U+0BB0 U+0BC0), 12 bytes of UTF-8, as one byte, so a 600-byte blob checks out at 50 bytes, under
+// --max-file-bytes 64. In a UTF-8 locale ASCII//TRANSLIT writes a combining
+// mark as nothing, so a 306-byte blob checks out at 6 bytes; where the locale
+// transliterates the marks to "?" instead, the checkout is 156 bytes and the
+// same comparison holds. An encoding the platform's iconv lacks is skipped.
+func TestDirtySeedChecksOutAnEncodedFileWhateverItsBlobSize(t *testing.T) {
+	for _, tc := range []struct{ encoding, blob string }{
+		{"TSCII", strings.Repeat("\u0bb8\u0bcd\u0bb0\u0bc0", 50)},
+		{"ASCII//TRANSLIT", "abcdef" + strings.Repeat("\u0301", 150)},
+	} {
+		t.Run(tc.encoding, func(t *testing.T) {
+			isolateSeedHeadTemp(t)
+			t.Setenv("LC_ALL", "C.UTF-8")
+			repoDir := seedHeadTestRepo(t)
+			const rel = "data/encoded.txt"
+			writeSeedHeadFiles(t, repoDir, map[string]string{rel: tc.blob})
+			gitAt(t, repoDir, "add", "-A")
+			gitAt(t, repoDir, "commit", "-q", "-m", "UTF-8 blob")
+			// Committed after the blob, so the blob stays the UTF-8 bytes.
+			writeSeedHeadFiles(t, repoDir, map[string]string{".gitattributes": rel + " working-tree-encoding=" + tc.encoding + "\n"})
+			gitAt(t, repoDir, "add", ".gitattributes")
+			gitAt(t, repoDir, "commit", "-q", "-m", "encoding")
+			if err := os.Remove(filepath.Join(repoDir, filepath.FromSlash(rel))); err != nil {
+				t.Fatal(err)
+			}
+			if out, err := exec.Command("git", "-C", repoDir, "checkout-index", "-f", "--", rel).CombinedOutput(); err != nil {
+				t.Skipf("git cannot check out %s here: %v\n%s", tc.encoding, err, out)
+			}
+			clean, err := os.Stat(filepath.Join(repoDir, filepath.FromSlash(rel)))
+			if err != nil {
+				t.Skipf("git cannot check out %s here: %v", tc.encoding, err)
+			}
+			// 4x is the most a character-for-character conversion could shrink
+			// UTF-8.
+			if clean.Size() >= int64(len(tc.blob)) || int64(len(tc.blob)) <= 4*64 {
+				t.Fatalf("fixture: a %d-byte blob checked out at %d bytes; want a shrink past 4x 64 bytes", len(tc.blob), clean.Size())
+			}
 
-	dirtySeedHeadTree(t, repoDir)
-	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
-	if err != nil {
-		t.Fatalf("check out HEAD: %v", err)
-	}
-	defer head.remove()
-	if size, unread := head.unreadSize(rel); unread {
-		if size != clean.Size() {
-			t.Errorf("%s recorded unread at %d bytes; a checkout of the commit writes %d", rel, size, clean.Size())
-		}
-	} else if got, err := os.Stat(filepath.Join(head.dir, filepath.FromSlash(rel))); err != nil || got.Size() != clean.Size() {
-		t.Errorf("%s checked out as %v, %v; a checkout of the commit writes %d bytes", rel, got, err, clean.Size())
+			dirtySeedHeadTree(t, repoDir)
+			head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+			if err != nil {
+				t.Fatalf("check out HEAD: %v", err)
+			}
+			defer head.remove()
+			if size, unread := head.unreadSize(rel); unread {
+				if size != clean.Size() {
+					t.Errorf("%s recorded unread at %d bytes; a checkout of the commit writes %d", rel, size, clean.Size())
+				}
+			} else if got, err := os.Stat(filepath.Join(head.dir, filepath.FromSlash(rel))); err != nil || got.Size() != clean.Size() {
+				t.Errorf("%s checked out as %v, %v; a checkout of the commit writes %d bytes", rel, got, err, clean.Size())
+			}
+		})
 	}
 }
 

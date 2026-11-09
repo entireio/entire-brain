@@ -77,12 +77,6 @@ const seedHeadCheckoutArgBytes = 16 * 1024
 // seedHeadLFSPointerMaxBytes is the largest blob Git LFS treats as a pointer.
 const seedHeadLFSPointerMaxBytes = 1024
 
-// seedHeadEncodingMaxShrink bounds how much smaller a working-tree-encoding
-// checkout can be than its blob: the blob is UTF-8, at most 4 bytes a
-// character, and no encoding writes a character in under one byte. A lossy
-// one can (seedHeadLossyEncoding).
-const seedHeadEncodingMaxShrink = 4
-
 // seedHeadDriverMaxShrink is the shrink a filter driver is allowed before its
 // file is treated as too large unread. Smudge drivers in use (decrypting,
 // decompressing, stripping) leave a file about its size or grow it. Without a
@@ -425,9 +419,11 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		}
 		// Every file a driver converts goes through the driver checkout below,
 		// which passes the driver's stderr on, and so does every ident file
-		// and every file with a lossy encoding: ident shrinks an expanded
-		// keyword and grows each "$Id$" by an object id, and ASCII//TRANSLIT
-		// can drop characters, so any of them can end up any size. They are
+		// and every file with a working-tree-encoding: ident shrinks an
+		// expanded keyword and grows each "$Id$" by an object id, an encoding
+		// can write several characters as one byte (TSCII writes the 12 bytes
+		// of UTF-8 for Tamil "sri" as one) and ASCII//TRANSLIT can drop them,
+		// so any of them can end up any size. They are
 		// checked out in bounded batches and dropped there when they come out
 		// too large. A doc the scan reads at any size is never removed there.
 		if seedHeadConvertsUnbounded(attr, drivers) {
@@ -440,7 +436,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 		// Past the cap a driver or ident could still have shrunk the file
 		// under --max-file-bytes, where a clean checkout would include it. Say
 		// so rather than let the entry read like an ordinary size exclusion.
-		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files over %dx --max-file-bytes were not converted by their filter driver, ident attribute or lossy working-tree-encoding and are reported too large at their committed size (first: %s)", len(convertSkipped), seedHeadDriverMaxShrink, convertSkipped[0]))
+		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files over %dx --max-file-bytes were not converted by their filter driver, ident attribute or working-tree-encoding and are reported too large at their committed size (first: %s)", len(convertSkipped), seedHeadDriverMaxShrink, convertSkipped[0]))
 	}
 	if len(absent) > 0 {
 		c.warnings = append(c.warnings, fmt.Sprintf("%d committed files were not read because this partial clone has not fetched them (first: %s)", len(absent), absent[0]))
@@ -764,34 +760,25 @@ func specifiedAttr(value string) bool {
 // seedHeadMaxShrink is how many times smaller than its blob a path's checkout
 // can be. A driver can shrink a file without bound, and so can ident: checkout
 // rewrites an expanded "$Id: ... $" committed as it is to "$Id: <object> $",
-// however long the line. So can a lossy encoding (seedHeadLossyEncoding). All
-// of them get the driver cap. Any other encoding shrinks a file at most
-// seedHeadEncodingMaxShrink times. eol, all that is left, does not shrink
-// one, so a blob over --max-file-bytes is too large.
+// however long the line. So can a working-tree-encoding. One byte of an
+// encoding can stand for several characters: TSCII writes Tamil "sri", four
+// characters and 12 bytes of UTF-8, as one byte, and which encodings there are
+// depends on the platform's iconv. One that transliterates or skips what it
+// cannot convert (ASCII//TRANSLIT, //IGNORE) can drop characters. All of them
+// get the driver cap. eol, all that is left, does not shrink a file, so a
+// blob over --max-file-bytes is too large.
 func seedHeadMaxShrink(attr seedHeadAttrs, drivers seedHeadDrivers) int64 {
-	switch {
-	case seedHeadConvertsUnbounded(attr, drivers):
+	if seedHeadConvertsUnbounded(attr, drivers) {
 		return seedHeadDriverMaxShrink
-	case specifiedAttr(attr.encoding):
-		return seedHeadEncodingMaxShrink
 	}
 	return 1
 }
 
 // seedHeadConvertsUnbounded reports whether a path's checkout can come out
 // any size relative to its blob: a filter driver runs on it, it has ident, or
-// its encoding is lossy.
+// it has a working-tree-encoding.
 func seedHeadConvertsUnbounded(attr seedHeadAttrs, drivers seedHeadDrivers) bool {
-	return drivers.runs(attr.filter) || attr.ident || seedHeadLossyEncoding(attr.encoding)
-}
-
-// seedHeadLossyEncoding reports whether a working-tree-encoding asks iconv to
-// transliterate or skip what it cannot convert (ASCII//TRANSLIT, //IGNORE).
-// Such a conversion can drop characters: in a UTF-8 locale ASCII//TRANSLIT
-// writes a combining mark as nothing, so the checkout can be any size under
-// the blob's.
-func seedHeadLossyEncoding(encoding string) bool {
-	return specifiedAttr(encoding) && strings.Contains(encoding, "//")
+	return drivers.runs(attr.filter) || attr.ident || specifiedAttr(attr.encoding)
 }
 
 // seedHeadDrivers is the set of filter drivers that run a command on checkout:
