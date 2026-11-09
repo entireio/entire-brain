@@ -1023,34 +1023,21 @@ func seedHeadLFSCheckoutMode(ctx context.Context, runner EnvironmentCommandRunne
 	return seedHeadLFSSmudges
 }
 
-// seedHeadRunsGitLFS reports whether a filter command runs git-lfs, as the
-// commands `git lfs install` writes do: its program is git-lfs, from any
-// directory and with .exe on Windows, or `git lfs`. Seed does not run any
-// other program here, so what the checkout wrote is left for it, as for no
-// filter.
+// seedHeadRunsGitLFS reports whether a filter command runs git-lfs: one of its
+// words names the git-lfs program, from any directory, with .exe on Windows,
+// quoted or not, or it runs `git lfs`. That covers the commands
+// `git lfs install` writes and a wrapper such as
+// `env LC_ALL=C git-lfs smudge -- %f`. Seed does not run any other program
+// here, so what the checkout wrote is left for it, as for no filter.
 func seedHeadRunsGitLFS(command string) bool {
-	command = strings.TrimSpace(command)
-	if command == "" {
-		return false
-	}
-	program, rest := "", ""
-	if quote := command[:1]; quote == `"` || quote == `'` {
-		if end := strings.Index(command[1:], quote); end >= 0 {
-			program, rest = command[1:1+end], command[2+end:]
+	words := strings.Fields(command)
+	for i, word := range words {
+		name := strings.TrimSuffix(strings.ToLower(path.Base(strings.ReplaceAll(strings.Trim(word, `'"`), `\`, "/"))), ".exe")
+		if name == "git-lfs" || name == "git" && i+1 < len(words) && strings.Trim(words[i+1], `'"`) == "lfs" {
+			return true
 		}
 	}
-	if program == "" {
-		program = command
-		if i := strings.IndexFunc(command, unicode.IsSpace); i >= 0 {
-			program, rest = command[:i], command[i:]
-		}
-	}
-	name := strings.TrimSuffix(strings.ToLower(path.Base(strings.ReplaceAll(program, `\`, "/"))), ".exe")
-	if name == "git" {
-		args := strings.Fields(rest)
-		return len(args) > 0 && args[0] == "lfs"
-	}
-	return name == "git-lfs"
+	return false
 }
 
 // seedHeadCallerLFSFilter returns filter.lfs.process and filter.lfs.smudge,

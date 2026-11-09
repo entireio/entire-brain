@@ -1322,6 +1322,9 @@ func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 		{name: "global filter that is not git-lfs with GIT_LFS_SKIP_SMUDGE=1", skipEnv: "1", want: asCommitted, configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "--global", "filter.lfs.smudge", "cat")
 		}},
+		{name: "repository wrapper that runs git-lfs", want: content, configure: func(t *testing.T, repoDir string) {
+			gitAt(t, repoDir, "config", "filter.lfs.smudge", "env LC_ALL=C git-lfs smudge -- %f")
+		}},
 		{name: "repository filter that is not git-lfs", want: asCommitted, configure: func(t *testing.T, repoDir string) {
 			gitAt(t, repoDir, "config", "filter.lfs.smudge", "my-lfs-wrapper smudge %f")
 		}},
@@ -1388,7 +1391,9 @@ func TestSeedHeadRunsGitLFSNamesTheProgram(t *testing.T) {
 		"git":                                                   false,
 		"my-git-lfs-wrapper smudge %f":                          false,
 		"git-lfs-wrapper smudge %f":                             false,
-		`"unterminated git-lfs filter-process`:                  false,
+		"env LC_ALL=C git-lfs smudge -- %f":                     true,
+		"sh -c 'git-lfs smudge -- %f'":                          true,
+		"cat -- %f":                                             false,
 		"":                                                      false,
 	} {
 		if got := seedHeadRunsGitLFS(command); got != want {
