@@ -898,8 +898,12 @@ type gitConfigCountingRunner struct {
 }
 
 func (r *gitConfigCountingRunner) RunWithEnv(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
-	if name == "git" && len(args) > 0 {
-		switch args[0] {
+	command := args
+	for len(command) > 1 && command[0] == "-c" {
+		command = command[2:] // the checkout's own attributes file
+	}
+	if name == "git" && len(command) > 0 {
+		switch command[0] {
 		case "config":
 			// The one core.attributesFile read is not per filter.
 			if !slices.Contains(args, "core.attributesFile") {
@@ -1827,7 +1831,7 @@ func TestSeedHeadAttributesFileConfigJoinsPathsAsGitDoes(t *testing.T) {
 		t.Errorf("attributes file for a path that names none = %q, %v; want an empty one", data, err)
 	}
 	if got := c.attributesFileConfig(context.Background(), fixedConfigRunner{err: errors.New("exit status 1")}, root, nil, entries); got != nil {
-		t.Errorf("unset core.attributesFile: config = %q, want none", got)
+		t.Errorf("unreadable core.attributesFile: config = %q, want none", got)
 	}
 }
 
@@ -1865,6 +1869,99 @@ func TestSeedHeadAttributesFileConfigReadsAnUnsizedEntryAsCommitted(t *testing.T
 	}
 	if data, err := os.ReadFile(committed); err != nil || string(data) != rules {
 		t.Errorf("committed copy = %q, %v; want %q", data, err, rules)
+	}
+}
+
+// TestSeedHeadAttributesFileConfigReadsGitsDefaultFileFromHEAD: with
+// core.attributesFile unset, git reads $XDG_CONFIG_HOME/git/attributes, or
+// $HOME/.config/git/attributes, and a work tree can track that file too (a
+// dotfiles checkout at $HOME). It is read as committed, as a named one is,
+// and an empty value still names none.
+func TestSeedHeadAttributesFileConfigReadsGitsDefaultFileFromHEAD(t *testing.T) {
+	t.Parallel()
+	repoDir := seedHeadTestRepo(t)
+	xdgRules, homeRules := "*.md text eol=crlf\n", "*.md -text\n"
+	writeSeedHeadFiles(t, repoDir, map[string]string{"cfg/git/attributes": xdgRules, ".config/git/attributes": homeRules})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "attributes")
+	writeSeedHeadFiles(t, repoDir, map[string]string{"cfg/git/attributes": "# edited\n", ".config/git/attributes": "# edited\n"})
+	entries := map[string]seedHeadEntry{}
+	for _, path := range []string{"cfg/git/attributes", ".config/git/attributes"} {
+		object, _, err := ExecRunner{}.RunWithEnv(context.Background(), repoDir, nil, "git", "rev-parse", "HEAD:"+path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries[path] = seedHeadEntry{mode: "100644", kind: "blob", object: strings.TrimSpace(string(object)), size: -1}
+	}
+	elsewhere := t.TempDir()
+	cases := []struct{ name, xdg, home, want string }{
+		{"XDG_CONFIG_HOME", filepath.Join(repoDir, "cfg"), elsewhere, xdgRules},
+		{"a relative XDG_CONFIG_HOME", "cfg", elsewhere, xdgRules},
+		{"HOME", "", repoDir, homeRules},
+		{"a default file that does not exist", filepath.Join(elsewhere, "none"), repoDir, ""},
+	}
+	for _, tc := range cases {
+		env := seedHeadGitEnv("")
+		env["XDG_CONFIG_HOME"], env["HOME"] = tc.xdg, tc.home
+		c := &seedHeadCheckout{tempRoot: t.TempDir()}
+		got := c.attributesFileConfig(context.Background(), ExecRunner{}, repoDir, env, entries)
+		committed := filepath.Join(c.tempRoot, "attributes")
+		if want := []string{"-c", "core.attributesFile=" + committed}; !slices.Equal(got, want) {
+			t.Errorf("%s: config = %q, want %q", tc.name, got, want)
+			continue
+		}
+		if data, err := os.ReadFile(committed); err != nil || string(data) != tc.want || len(c.warnings) != 0 {
+			t.Errorf("%s: committed copy = %q, %v (warnings %q); want %q", tc.name, data, err, c.warnings, tc.want)
+		}
+	}
+	gitAt(t, repoDir, "config", "core.attributesFile", "")
+	env := seedHeadGitEnv("")
+	env["XDG_CONFIG_HOME"] = filepath.Join(repoDir, "cfg")
+	c := &seedHeadCheckout{tempRoot: t.TempDir()}
+	if got := c.attributesFileConfig(context.Background(), ExecRunner{}, repoDir, env, entries); got != nil {
+		t.Errorf("empty core.attributesFile: config = %q, want none", got)
+	}
+}
+
+// TestSeedDefaultAttributesFileIsTheOneGitReads: XDG_CONFIG_HOME wins unless
+// it is empty, and HOME is read as git reads it, which on Windows sets an
+// unset one from HOMEDRIVE and HOMEPATH, or else USERPROFILE.
+func TestSeedDefaultAttributesFileIsTheOneGitReads(t *testing.T) {
+	t.Parallel()
+	for env, want := range map[[2]string]string{
+		{"/x", "/h"}: "/x/git/attributes",
+		{"", "/h"}:   "/h/.config/git/attributes",
+	} {
+		if got := seedDefaultAttributesFile(map[string]string{"XDG_CONFIG_HOME": env[0], "HOME": env[1]}); got != want {
+			t.Errorf("XDG_CONFIG_HOME %q, HOME %q: default = %q, want %q", env[0], env[1], got, want)
+		}
+	}
+	share, profile := t.TempDir(), t.TempDir()
+	drive := filepath.VolumeName(share)
+	windows := runtime.GOOS == "windows"
+	cases := []struct {
+		env         map[string]string
+		want        string
+		ok          bool
+		windowsOnly bool
+	}{
+		{env: map[string]string{"HOME": "h", "USERPROFILE": profile}, want: "h", ok: true},
+		{env: map[string]string{"HOME": "", "USERPROFILE": profile}, want: "", ok: true},
+		{env: map[string]string{"HOMEDRIVE": drive, "HOMEPATH": share[len(drive):], "USERPROFILE": profile}, want: share, ok: true, windowsOnly: true},
+		{env: map[string]string{"HOMEDRIVE": drive, "HOMEPATH": share[len(drive):] + "-gone", "USERPROFILE": profile}, want: profile, ok: true, windowsOnly: true},
+		{env: map[string]string{"HOMEDRIVE": drive, "USERPROFILE": profile}, want: profile, ok: true, windowsOnly: true},
+		{env: map[string]string{"USERPROFILE": profile}, want: profile, ok: true, windowsOnly: true},
+		{env: map[string]string{}},
+	}
+	for _, tc := range cases {
+		want, wantOK := tc.want, tc.ok
+		if tc.windowsOnly && !windows {
+			want, wantOK = "", false
+		}
+		got, ok := seedGitHome(func(key string) (string, bool) { value, ok := tc.env[key]; return value, ok })
+		if got != want || ok != wantOK {
+			t.Errorf("%q: HOME = %q, %v; want %q, %v", tc.env, got, ok, want, wantOK)
+		}
 	}
 }
 

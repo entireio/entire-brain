@@ -15,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -894,13 +895,20 @@ const seedHeadAttributesFileMaxBytes = 1 << 20
 // with a warning, rather than read with its uncommitted edits. A file HEAD
 // does not track is named where the walk found it, and a path that names no
 // file in a clean checkout gets an empty one, so no rules apply, as git
-// applies none. --path expands ~ and %(prefix); an unset value needs nothing.
+// applies none. --path expands ~ and %(prefix). With the value unset, git
+// reads its default file (seedDefaultAttributesFile), which a work tree can
+// track like any other (a dotfiles checkout at $HOME), so that path is read
+// the same way; an empty value names none.
 func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, entries map[string]seedHeadEntry) []string {
 	out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "config", "-z", "--path", "--get", "core.attributesFile")
+	value, named := strings.TrimSuffix(string(out), "\x00"), "the attributes file core.attributesFile names"
 	if err != nil {
-		return nil // unset, or unreadable, which the checkout reports itself
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 || len(out) != 0 {
+			return nil // unreadable, which the checkout reports itself
+		}
+		value, named = seedDefaultAttributesFile(env), "the attributes file git reads by default"
 	}
-	value := strings.TrimSuffix(string(out), "\x00")
 	if value == "" {
 		return nil
 	}
@@ -916,6 +924,7 @@ func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner Envi
 	}
 	tree := newSeedHeadTree(entries, folds)
 	path, kind, err := seedHeadTrackedPath(root, seedHeadAttributesPath(root, value), tree, seedHeadLinkReader(ctx, runner, repoDir, env))
+	named = fmt.Sprintf("%s (%s)", named, path)
 	if err == nil && kind == seedHeadPathUntracked {
 		return []string{"-c", "core.attributesFile=" + path}
 	}
@@ -924,18 +933,56 @@ func (c *seedHeadCheckout) attributesFileConfig(ctx context.Context, runner Envi
 		entry := entries[path]
 		if err = writeSeedHeadBlob(ctx, runner, repoDir, env, entry, committed); err == nil {
 			if entry.mode != seedHeadSymlinkMode { // git converts no symlink
-				c.settleAttributesFile(ctx, runner, repoDir, env, path, committed, filepath.Join(root, filepath.FromSlash(path)))
+				c.settleAttributesFile(ctx, runner, repoDir, env, named, path, committed, filepath.Join(root, filepath.FromSlash(path)))
 			}
 			return []string{"-c", "core.attributesFile=" + committed}
 		}
 	}
 	if err != nil {
-		c.warnings = append(c.warnings, fmt.Sprintf("the attributes file core.attributesFile names (%s) could not be read from HEAD (%v); its rules were not applied", path, err))
+		c.warnings = append(c.warnings, fmt.Sprintf("%s could not be read from HEAD (%v); its rules were not applied", named, err))
 	}
 	if os.WriteFile(committed, nil, 0o600) != nil {
 		return nil
 	}
 	return []string{"-c", "core.attributesFile=" + committed}
+}
+
+// seedDefaultAttributesFile is the attributes file git reads with
+// core.attributesFile unset, in the environment seed runs git with:
+// $XDG_CONFIG_HOME/git/attributes, or $HOME/.config/git/attributes where
+// XDG_CONFIG_HOME is unset or empty. It is "" with neither set, as git then
+// reads none.
+func seedDefaultAttributesFile(env map[string]string) string {
+	lookup := func(key string) (string, bool) {
+		if value, ok := env[key]; ok {
+			return value, true
+		}
+		return os.LookupEnv(key)
+	}
+	if config, _ := lookup("XDG_CONFIG_HOME"); config != "" {
+		return config + "/git/attributes"
+	}
+	if home, ok := seedGitHome(lookup); ok {
+		return home + "/.config/git/attributes"
+	}
+	return ""
+}
+
+// seedGitHome is HOME as git reads it. On Windows git sets an unset HOME as
+// it starts: to HOMEDRIVE and HOMEPATH where they name a directory, and to
+// USERPROFILE otherwise.
+func seedGitHome(lookup func(string) (string, bool)) (string, bool) {
+	if home, ok := lookup("HOME"); ok || runtime.GOOS != "windows" {
+		return home, ok
+	}
+	if drive, ok := lookup("HOMEDRIVE"); ok {
+		if dir, ok := lookup("HOMEPATH"); ok {
+			if info, err := os.Stat(drive + dir); err == nil && info.IsDir() {
+				return drive + dir, true
+			}
+		}
+	}
+	return lookup("USERPROFILE")
 }
 
 // seedHeadSymlinkMode is the mode git records for a symlink.
@@ -1031,8 +1078,9 @@ func readSeedHeadBlob(ctx context.Context, runner EnvironmentCommandRunner, repo
 // the caller's git-lfs smudges (seedHeadLFSCheckoutMode), lfsAttributesFile
 // hydrates it. Any other filter driver, or a working-tree-encoding, is not
 // run for it, since running the file's own filters could fetch or fail
-// unreported; seed reads its committed bytes and says so.
-func (c *seedHeadCheckout) settleAttributesFile(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, path, committed, worktree string) {
+// unreported; seed reads its committed bytes and says so. named is how
+// warnings name the file.
+func (c *seedHeadCheckout) settleAttributesFile(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string, named, path, committed, worktree string) {
 	none := filepath.Join(c.tempRoot, "no-attributes")
 	if os.WriteFile(none, nil, 0o600) != nil {
 		return
@@ -1048,10 +1096,10 @@ func (c *seedHeadCheckout) settleAttributesFile(ctx context.Context, runner Envi
 	}
 	switch {
 	case lfsMode == seedHeadLFSSmudges:
-		c.lfsAttributesFile(ctx, runner, repoDir, path, committed, worktree)
+		c.lfsAttributesFile(ctx, runner, repoDir, named, committed, worktree)
 	case specifiedAttr(attr.encoding),
 		lfsMode == seedHeadLFSUnfiltered && seedHeadFilterDrivers(ctx, runner, repoDir, env).runs(attr.filter):
-		c.warnings = append(c.warnings, fmt.Sprintf("the attributes file core.attributesFile names (%s) has a filter or working-tree-encoding, which seed does not run for it; seed read the rules in its committed bytes", path))
+		c.warnings = append(c.warnings, fmt.Sprintf("%s has a filter or working-tree-encoding, which seed does not run for it; seed read the rules in its committed bytes", named))
 	}
 }
 
@@ -1062,7 +1110,7 @@ func (c *seedHeadCheckout) settleAttributesFile(ctx context.Context, runner Envi
 // from the worktree's file where that is exactly the object (both copied and
 // verified as they are read). Otherwise the pointer is kept, with a warning
 // unless the worktree shows the pointer too.
-func (c *seedHeadCheckout) lfsAttributesFile(ctx context.Context, runner EnvironmentCommandRunner, repoDir, path, committed, worktree string) {
+func (c *seedHeadCheckout) lfsAttributesFile(ctx context.Context, runner EnvironmentCommandRunner, repoDir, named, committed, worktree string) {
 	pointer, err := clibase.SafeReadFile(committed, seedHeadLFSPointerMaxBytes)
 	if err != nil {
 		return
@@ -1072,7 +1120,7 @@ func (c *seedHeadCheckout) lfsAttributesFile(ctx context.Context, runner Environ
 		return
 	}
 	keep := func(why string) {
-		c.warnings = append(c.warnings, fmt.Sprintf("the attributes file core.attributesFile names (%s) is stored in Git LFS and %s; seed read the rules in its committed pointer text", path, why))
+		c.warnings = append(c.warnings, fmt.Sprintf("%s is stored in Git LFS and %s; seed read the rules in its committed pointer text", named, why))
 	}
 	switch {
 	case size == 0:
