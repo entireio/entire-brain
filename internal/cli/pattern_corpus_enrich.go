@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/cli/transcript"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
@@ -91,17 +92,28 @@ func corpusEpisodeOps(workText, repoRoot string) (tools []corpusToolOp, commands
 		if !strings.HasPrefix(line, "{") {
 			continue
 		}
-		var obj map[string]any
-		if json.Unmarshal([]byte(line), &obj) != nil {
+		record, ok := decodeTranscriptRecord(line)
+		if !ok {
 			continue
 		}
 		ln := i + 1
+		var uses []toolUse
+		if record.etf != nil {
+			if !record.etfIs(transcript.TypeAssistant) {
+				continue
+			}
+			uses = etfToolUses(record.etf)
+			if strings.EqualFold(record.etf.Agent, "codex") {
+				compactCodexResults(uses, exitByCall, failedByCall)
+			}
+		}
+		obj := record.obj // nil for a format line, which matches no case below
 		switch jsonString(obj["type"]) {
 		case "response_item":
 			p := jsonMap(obj["payload"])
 			switch jsonString(p["type"]) {
 			case "function_call":
-				name := strings.ToLower(strings.TrimSpace(jsonString(p["name"])))
+				name := normalizeToolName(jsonString(p["name"]))
 				tools = append(tools, corpusToolOp{name: name, line: ln})
 				if cmd := shellCommandFromInput(name, p["arguments"]); cmd != "" {
 					if h := normalizeCommand(cmd); h != "" {
@@ -109,7 +121,7 @@ func corpusEpisodeOps(workText, repoRoot string) (tools []corpusToolOp, commands
 					}
 				}
 			case "custom_tool_call":
-				name := strings.ToLower(strings.TrimSpace(jsonString(p["name"])))
+				name := normalizeToolName(jsonString(p["name"]))
 				tools = append(tools, corpusToolOp{name: name, line: ln})
 				files = append(files, patchFiles(jsonString(p["input"]), ln)...)
 			case "function_call_output", "custom_tool_call_output":
@@ -130,20 +142,12 @@ func corpusEpisodeOps(workText, repoRoot string) (tools []corpusToolOp, commands
 			if jsonString(obj["type"]) == "message" && jsonString(msg["role"]) != "assistant" {
 				continue
 			}
-			content := msg["content"]
-			if len(msg) == 0 {
-				// ETF compact records carry the content blocks at the record's
-				// top level (see distillConversationText).
-				content = obj["content"]
-				if strings.EqualFold(jsonString(obj["agent"]), "codex") {
-					compactCodexResults(content, exitByCall, failedByCall)
-				}
-			}
-			t, c, f := claudeContentOps(content, repoRoot, ln)
-			tools = append(tools, t...)
-			commands = append(commands, c...)
-			files = append(files, f...)
+			uses = nativeToolUses(msg["content"])
 		}
+		t, c, f := toolUseOps(uses, repoRoot, ln)
+		tools = append(tools, t...)
+		commands = append(commands, c...)
+		files = append(files, f...)
 	}
 	// Correlate exit codes, and failures that carry none, to their commands.
 	for i := range commands {
@@ -161,41 +165,47 @@ func corpusEpisodeOps(workText, repoRoot string) (tools []corpusToolOp, commands
 	return tools, commands, dedupeFileRefs(files)
 }
 
-func claudeContentOps(content any, repoRoot string, ln int) (tools []corpusToolOp, commands []corpusCommand, files []corpusFileRef) {
-	blocks, ok := content.([]any)
-	if !ok {
-		return nil, nil, nil
-	}
-	for _, b := range blocks {
-		bm := jsonMap(b)
-		switch jsonString(bm["type"]) {
-		case "tool_use", "tool":
-			name := strings.ToLower(strings.TrimSpace(firstNonEmptyString(bm["name"], bm["tool"])))
-			if name == "" {
-				continue
+// toolUseOps returns the tool, command, and file operations of one record's
+// tool calls. repoRoot is the session's checkout root for compact codex
+// FileChange paths, or "" when unknown.
+func toolUseOps(uses []toolUse, repoRoot string, ln int) (tools []corpusToolOp, commands []corpusCommand, files []corpusFileRef) {
+	for _, use := range uses {
+		if use.name == "" {
+			continue
+		}
+		tools = append(tools, corpusToolOp{name: use.name, line: ln})
+		if cmd := shellCommandFromInput(use.name, use.input); cmd != "" {
+			if h := normalizeCommand(cmd); h != "" {
+				commands = append(commands, corpusCommand{head: h, raw: cmd, line: ln, callID: use.id})
 			}
-			tools = append(tools, corpusToolOp{name: name, line: ln})
-			if cmd := shellCommandFromInput(name, bm["input"]); cmd != "" {
-				if h := normalizeCommand(cmd); h != "" {
-					commands = append(commands, corpusCommand{head: h, raw: cmd, line: ln, callID: jsonString(bm["id"])})
-				}
+		}
+		if action, isFile := claudeFileTools[use.name]; isFile {
+			if p := filePathFromInput(use.input); p != "" {
+				files = append(files, corpusFileRef{path: p, action: action, line: ln})
+			} else if use.name == "apply_patch" {
+				// Compact codex has no path: the patch text is the input,
+				// read the way the native custom_tool_call case reads it.
+				files = append(files, patchFiles(patchInputText(use.input), ln)...)
 			}
-			if action, isFile := claudeFileTools[name]; isFile {
-				if p := filePathFromInput(bm["input"]); p != "" {
-					files = append(files, corpusFileRef{path: p, action: action, line: ln})
-				} else if name == "apply_patch" {
-					// Compact codex has no path: the converter wraps the
-					// custom_tool_call patch text as {"input": <patch>}, so read
-					// it the way the native custom_tool_call case does.
-					files = append(files, patchFiles(jsonString(asObject(bm["input"])["input"]), ln)...)
-				}
-			}
-			if name == "filechange" {
-				files = append(files, fileChangeFiles(bm["input"], repoRoot, ln)...)
-			}
+		}
+		if use.name == "filechange" {
+			files = append(files, fileChangeFiles(use.input, repoRoot, ln)...)
 		}
 	}
 	return tools, commands, files
+}
+
+// patchInputText returns the patch text of an apply_patch call that names no
+// path. The CLI wraps a custom_tool_call's text input as {"input": <patch>}
+// (as an object, or JSON-encoded in a string); any other string input is read
+// as the patch itself, so a converter that stops wrapping it still yields the
+// patch's files.
+func patchInputText(input any) string {
+	if m := asObject(input); m != nil {
+		return jsonString(m["input"])
+	}
+	text, _ := input.(string)
+	return text
 }
 
 // fileChangeFiles reads the file refs of a compact codex FileChange, the tool
@@ -406,8 +416,14 @@ func filePathFromInput(raw any) string {
 	return strings.TrimSpace(firstNonEmptyString(m["file_path"], m["path"], m["filename"]))
 }
 
+// parseExitCode reads the exit code from a command result's text. Codex's
+// command wrapper writes a header (exit code, wall time) and then an "Output:"
+// line that starts the command's own output; when that line is there, only the
+// header is searched, so exit-like text the command printed cannot shadow the
+// wrapper's own line, or stand in for one the header lacks (a command still
+// running reports a session ID, not an exit code).
 func parseExitCode(output string) (int, bool) {
-	m := reExitCode.FindStringSubmatch(output)
+	m := reExitCode.FindStringSubmatch(codexWrapperHeader(output))
 	if m == nil {
 		return 0, false
 	}
@@ -418,42 +434,63 @@ func parseExitCode(output string) (int, bool) {
 	return n, true
 }
 
-// compactCodexResults records what a compact v1 codex record's tool_use blocks
-// say about how their commands ended, keyed by call id for the same
-// correlation the native function_call_output case feeds.
+// codexWrapperHeader returns the text before the first line that is exactly
+// "Output:" (surrounding spaces aside), or all of text when there is none.
+func codexWrapperHeader(text string) string {
+	for start := 0; start < len(text); {
+		line := text[start:]
+		end := strings.IndexByte(line, '\n')
+		if end >= 0 {
+			line = line[:end]
+		}
+		if strings.TrimSpace(line) == "Output:" {
+			return text[:start]
+		}
+		if end < 0 {
+			break
+		}
+		start += end + 1
+	}
+	return text
+}
+
+// compactCodexResults records what a compact v1 codex record's tool calls say
+// about how their commands ended, keyed by call id for the same correlation
+// the native function_call_output case feeds.
 //
 // For a rollout of an older Codex (the cli's response_item path) every result
-// is status "success" and the exit code is only in the inlined output text,
-// which goes into exitByCall. A current Codex rollout (the cli's item path)
-// names every command "Bash", inlines the command's own output with no exit
-// text, and marks a failure only as status "error"; the exit code is not
-// carried over. So a Bash block's output is not read for exit text (a test
-// that logs "exited with code 1" is not the command's exit code), and its
-// status "error" goes into failedByCall: the command failed, with no exit code
-// to store. The cli also writes "error" for a command the user declined.
-func compactCodexResults(content any, exitByCall map[string]int, failedByCall map[string]bool) {
-	blocks, _ := content.([]any)
-	for _, b := range blocks {
-		bm := jsonMap(b)
-		if t := jsonString(bm["type"]); t != "tool_use" && t != "tool" {
+// is status "success" and the exit code is only in the wrapper text Codex puts
+// around the command's output, which goes into exitByCall. A current Codex
+// rollout (the cli's item path) carries the command's own output with no
+// wrapper and marks a failure only as status "error"; the exit code is not
+// carried over. Such a call's output is not read for exit text (a test that
+// logs "exited with code 1" is not the command's exit code), and its status
+// "error" goes into failedByCall: the command failed, with no exit code to
+// store. The cli also writes "error" for a command the user declined.
+func compactCodexResults(uses []toolUse, exitByCall map[string]int, failedByCall map[string]bool) {
+	for _, use := range uses {
+		if use.id == "" {
 			continue
 		}
-		id := jsonString(bm["id"])
-		if id == "" {
-			continue
-		}
-		result := jsonMap(bm["result"])
-		if jsonString(bm["name"]) == "Bash" {
-			if jsonString(result["status"]) == "error" {
-				failedByCall[id] = true
+		if use.name == codexItemCommandTool {
+			if use.status == transcript.ToolStatusError {
+				failedByCall[use.id] = true
 			}
 			continue
 		}
-		if code, ok := parseExitCode(jsonString(result["output"])); ok {
-			exitByCall[id] = code
+		if code, ok := parseExitCode(use.output); ok {
+			exitByCall[use.id] = code
 		}
 	}
 }
+
+// codexItemCommandTool is the name the cli's item path gives every command,
+// lowercased as toolUse names are. Codex's own tools, which the response_item
+// path keeps, never use it. The input can't tell the two paths apart: the item
+// path writes {"command": <script>}, but Codex's own shell_command tool also
+// takes its command as a "command" string, and its output is the wrapper text
+// that carries the exit code.
+const codexItemCommandTool = "bash"
 
 func dedupeFileRefs(in []corpusFileRef) []corpusFileRef {
 	seen := map[string]bool{}

@@ -5,6 +5,13 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Building from source needs Go 1.27.3 or newer (was 1.27). Brain now reads
+  compact transcripts with the CLI's own `transcript` package
+  (`github.com/entireio/cli` v0.13.1), whose module requires it. The source
+  installer's Go check compares the patch version too (#607).
+
 ### Fixed
 
 - The pattern corpus now reads current Codex sessions (the cli's item path,
@@ -12,7 +19,7 @@ All notable changes to `entire-brain` are recorded here. The format follows
   exit code since the session records none, and counts in `exit_fails`. A file
   edit gives a file ref, stored relative to the repository root (taken from the
   files the session's checkpoint touched) so it links to the file's symbols.
-  The indexer version moves to 12, so the next refresh re-indexes existing
+  The indexer version moves, so the next refresh re-indexes existing
   sessions (#600).
 - `recall --evidence` no longer returns harness-injected `<system-reminder>`
   text as `role: "user"` evidence. User-role strings and text blocks now go
@@ -20,6 +27,11 @@ All notable changes to `entire-brain` are recorded here. The format follows
   `Caveat:` notes and environment envelopes are skipped like system-role
   records already were. As in conversation, user text that itself starts with
   `<` is skipped too. Assistant text is unchanged (#565).
+- The pattern corpus reads a Codex command's exit code only from the header
+  Codex writes before its `Output:` line. Exit-like text the command printed,
+  such as a test logging `child process exited with code 1`, is no longer
+  stored as the command's exit code or failure. The next corpus build
+  re-indexes existing sessions (#607).
 - The history-fragment reader now mines compact v1 transcripts: tool output
   inlined as `tool_use.result.output` becomes code facts, and a history index,
   scan cache or short-term overlay built by another extractor revision is
