@@ -1058,11 +1058,36 @@ func TestSeedHeadFilterDriversParsesTheEffectiveConfiguration(t *testing.T) {
 				}
 			}
 			// Where the lfs filter is git-lfs, the checkout leaves it out.
-			drivers.gitLFS = true
+			drivers.leaveOut("lfs")
 			if drivers.runs("lfs") {
 				t.Error("filter \"lfs\" is git-lfs: a driver; want none")
 			}
 		})
+	}
+}
+
+// TestSeedHeadFilterDriversFindsGitLFSUnderAnotherName: a filter whose
+// command is git-lfs is LFS whatever it is called. Its command is the process
+// one where that is set, the smudge one otherwise; lfs itself is read from the
+// caller's configuration instead, and a name with "=" cannot be left out of
+// the checkout, so it stays a driver.
+func TestSeedHeadFilterDriversFindsGitLFSUnderAnotherName(t *testing.T) {
+	t.Parallel()
+	runner := fixedConfigRunner{out: []byte("filter.assets.process\ngit-lfs filter-process\x00" +
+		"filter.media.smudge\n git-lfs smudge -- %f \x00" +
+		"filter.wrapped.smudge\ngit-lfs smudge -- %f\x00filter.wrapped.process\nmy-filter\x00" +
+		"filter.blank.process\n \x00filter.blank.smudge\ngit lfs smudge %f\x00" +
+		"filter.x=y.smudge\ngit-lfs smudge %f\x00filter.lfs.process\ngit-lfs filter-process\x00" +
+		"filter.other.smudge\ncat\x00")}
+	drivers := seedHeadFilterDrivers(context.Background(), runner, t.TempDir(), nil)
+	want := map[string]string{"assets": "git-lfs filter-process", "media": "git-lfs smudge -- %f", "blank": "git lfs smudge %f"}
+	if !maps.Equal(drivers.lfsAliases, want) {
+		t.Errorf("git-lfs filters = %q, want %q", drivers.lfsAliases, want)
+	}
+	for _, name := range []string{"assets", "media", "wrapped", "blank", "x=y", "lfs", "other"} {
+		if !drivers.runs(name) {
+			t.Errorf("filter %q: no driver; want one until the checkout leaves it out", name)
+		}
 	}
 }
 
@@ -1576,6 +1601,76 @@ func TestDirtySeedWritesAnEmptyLFSObjectAsAnEmptyFile(t *testing.T) {
 				t.Errorf("warnings = %q, want none", head.warnings)
 			}
 		})
+	}
+}
+
+// TestDirtySeedTreatsAnotherFilterThatRunsGitLFSAsLFS: git-lfs smudges a
+// pointer whatever filter runs it, so a filter under another name whose
+// command is git-lfs is left out of seed's checkout and settled as lfs is,
+// in that command's own mode: assets smudges, media passes --skip. The
+// attributes file under assets is hydrated too, so its rule applies.
+func TestDirtySeedTreatsAnotherFilterThatRunsGitLFSAsLFS(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in git-lfs is a shell script")
+	}
+	isolateSeedHeadTemp(t)
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(global, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_LFS_SKIP_SMUDGE", "")
+	for _, key := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repoDir := seedHeadTestRepo(t)
+	stored, skipped, rules := "# manual kept in LFS\n", "# skipped by its filter\n", "docs/plain.md text eol=crlf\n"
+	for _, content := range []string{stored, skipped, rules} {
+		writeLFSObject(t, repoDir, content, content)
+	}
+	writeSeedHeadFiles(t, repoDir, map[string]string{
+		".gitattributes":  "docs/manual.md filter=assets -text\ndocs/skipped.md filter=media -text\ncustom.attrs filter=assets -text\n",
+		"docs/manual.md":  lfsPointer(stored),
+		"docs/skipped.md": lfsPointer(skipped),
+		"docs/plain.md":   "one\ntwo\n",
+		"custom.attrs":    lfsPointer(rules),
+	})
+	gitAt(t, repoDir, "add", "-A")
+	gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointers under other filters")
+	// A stand-in git-lfs that says it ran and passes the pointer through.
+	bin := t.TempDir()
+	ran := filepath.Join(t.TempDir(), "ran")
+	if err := os.WriteFile(filepath.Join(bin, "git-lfs"), []byte("#!/bin/sh\n: > '"+ran+"'\nexec cat\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// The tree is dirtied first: git add would run the required filter,
+	// which has no clean command.
+	dirtySeedHeadTree(t, repoDir)
+	gitLFS := "'" + filepath.Join(bin, "git-lfs") + "'"
+	gitAt(t, repoDir, "config", "--global", "filter.assets.smudge", "GIT_LFS_SKIP_SMUDGE=0 "+gitLFS+" smudge -- %f")
+	gitAt(t, repoDir, "config", "--global", "filter.assets.required", "true")
+	gitAt(t, repoDir, "config", "--global", "filter.media.smudge", gitLFS+" smudge --skip -- %f")
+	gitAt(t, repoDir, "config", "--global", "core.attributesFile", "custom.attrs")
+
+	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+	if err != nil {
+		t.Fatalf("check out HEAD: %v", err)
+	}
+	defer head.remove()
+	if _, err := os.Stat(ran); err == nil {
+		t.Error("seed's checkout ran the user's git-lfs")
+	}
+	for rel, want := range map[string]string{"docs/manual.md": stored, "docs/skipped.md": lfsPointer(skipped), "docs/plain.md": "one\r\ntwo\r\n"} {
+		if got, err := os.ReadFile(filepath.Join(head.dir, filepath.FromSlash(rel))); err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v; want %q", rel, got, err, want)
+		}
+	}
+	if len(head.warnings) > 0 {
+		t.Errorf("warnings = %q, want none", head.warnings)
 	}
 }
 

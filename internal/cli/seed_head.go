@@ -380,14 +380,30 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	// hardened runner does for a repository's own filter. Its command line
 	// can set GIT_LFS_SKIP_SMUDGE=0 over seedHeadGitEnv's, and it would then
 	// download objects in the middle of a background seed. Any other command
-	// the lfs filter runs is a driver like any other.
-	lfsMode := seedHeadLFSUnfiltered
+	// the lfs filter runs is a driver like any other. git-lfs smudges a
+	// pointer whatever filter runs it, so a filter under another name whose
+	// command is git-lfs (seedHeadDrivers.lfsAliases) is left out and settled
+	// the same way, in its own command's mode.
+	lfsModes := map[string]seedHeadLFSMode{}
 	checkoutConfig := slices.Clone(attrConfig)
-	if slices.ContainsFunc(regular, func(path string) bool { return attrs[path].filter == "lfs" }) {
-		lfsMode = seedHeadLFSCheckoutMode(ctx, runner, repoDir)
-		if lfsMode != seedHeadLFSUnfiltered {
-			drivers.gitLFS = true
-			checkoutConfig = append(checkoutConfig, "-c", "filter.lfs.process=", "-c", "filter.lfs.smudge=", "-c", "filter.lfs.required=false")
+	for _, path := range regular {
+		filter := attrs[path].filter
+		if _, done := lfsModes[filter]; done {
+			continue
+		}
+		var mode seedHeadLFSMode
+		switch command, alias := drivers.lfsAliases[filter]; {
+		case alias:
+			mode = seedHeadLFSCommandMode(command)
+		case filter == "lfs":
+			mode = seedHeadLFSCheckoutMode(ctx, runner, repoDir)
+		default:
+			continue
+		}
+		lfsModes[filter] = mode
+		if mode != seedHeadLFSUnfiltered {
+			drivers.leaveOut(filter)
+			checkoutConfig = append(checkoutConfig, "-c", "filter."+filter+".process=", "-c", "filter."+filter+".smudge=", "-c", "filter."+filter+".required=false")
 		}
 	}
 	var wanted []string
@@ -421,11 +437,11 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 			continue
 		}
 		attr := attrs[path]
-		if attr.filter == "lfs" && !drivers.runs(attr.filter) && entry.size <= seedHeadLFSPointerMaxBytes {
+		if mode, isLFS := lfsModes[attr.filter]; isLFS && !drivers.runs(attr.filter) && entry.size <= seedHeadLFSPointerMaxBytes {
 			// The blob is a pointer git-lfs, or no command, would check out:
 			// the file's real size is only known once it is read.
 			wanted = append(wanted, path)
-			lfs = append(lfs, seedHeadSmallFile{path: path, size: entry.size})
+			lfs = append(lfs, seedHeadSmallFile{path: path, size: entry.size, mode: mode})
 			continue
 		}
 		// Otherwise the size rules need the size of the checked-out file,
@@ -517,7 +533,7 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	if warning := driverStderr.warning(); warning != "" {
 		c.warnings = append(c.warnings, warning)
 	}
-	c.settleLFSPointers(ctx, runner, repoDir, lfs, lfsMode, opts)
+	c.settleLFSPointers(ctx, runner, repoDir, lfs, opts)
 	return nil
 }
 
@@ -831,18 +847,31 @@ func seedHeadConvertsUnbounded(attr seedHeadAttrs, drivers seedHeadDrivers) bool
 // a driver like any other.
 type seedHeadDrivers struct {
 	names map[string]bool
-	// gitLFS: the lfs filter is git-lfs, which the checkout leaves out.
-	gitLFS bool
+	// lfsAliases: filters other than lfs whose command is git-lfs (the
+	// process command where one is set, the smudge command otherwise), by
+	// name. A name with "=" is left out, since a -c setting cannot name it
+	// (git_harden_filters.go), so the checkout could not leave it out.
+	lfsAliases map[string]string
+	// gitLFS: the filters the checkout leaves out because they are git-lfs.
+	gitLFS map[string]bool
 	// unknown: the configuration could not be read, so every filter is
 	// taken to run one, which only costs checking more files out.
 	unknown bool
 }
 
 func (d seedHeadDrivers) runs(filter string) bool {
-	if !specifiedAttr(filter) || (filter == "lfs" && d.gitLFS) {
+	if !specifiedAttr(filter) || d.gitLFS[filter] {
 		return false
 	}
 	return d.unknown || d.names[filter]
+}
+
+// leaveOut records that the checkout leaves filter out as git-lfs.
+func (d *seedHeadDrivers) leaveOut(filter string) {
+	if d.gitLFS == nil {
+		d.gitLFS = map[string]bool{}
+	}
+	d.gitLFS[filter] = true
 }
 
 // seedHeadFilterDrivers reads every driver command in one git call, however
@@ -874,7 +903,20 @@ func seedHeadFilterDrivers(ctx context.Context, runner EnvironmentCommandRunner,
 			names[name] = true
 		}
 	}
-	return seedHeadDrivers{names: names}
+	aliases := map[string]string{}
+	for name := range names {
+		if name == "lfs" || strings.Contains(name, "=") {
+			continue
+		}
+		command := strings.TrimSpace(values["filter."+name+".process"])
+		if command == "" {
+			command = strings.TrimSpace(values["filter."+name+".smudge"])
+		}
+		if _, _, ok := seedHeadGitLFSCommand(command); ok {
+			aliases[name] = command
+		}
+	}
+	return seedHeadDrivers{names: names, lfsAliases: aliases}
 }
 
 // seedHeadAttributesFileMaxBytes bounds the committed attributes file seed
@@ -1091,14 +1133,20 @@ func (c *seedHeadCheckout) settleAttributesFile(ctx context.Context, runner Envi
 	}
 	attr := attrs[path]
 	lfsMode := seedHeadLFSUnfiltered
-	if attr.filter == "lfs" {
-		lfsMode = seedHeadLFSCheckoutMode(ctx, runner, repoDir)
+	var drivers seedHeadDrivers
+	if specifiedAttr(attr.filter) {
+		drivers = seedHeadFilterDrivers(ctx, runner, repoDir, env)
+		if command, alias := drivers.lfsAliases[attr.filter]; alias {
+			lfsMode = seedHeadLFSCommandMode(command)
+		} else if attr.filter == "lfs" {
+			lfsMode = seedHeadLFSCheckoutMode(ctx, runner, repoDir)
+		}
 	}
 	switch {
 	case lfsMode == seedHeadLFSSmudges:
 		c.lfsAttributesFile(ctx, runner, repoDir, named, committed, worktree)
 	case specifiedAttr(attr.encoding),
-		lfsMode == seedHeadLFSUnfiltered && seedHeadFilterDrivers(ctx, runner, repoDir, env).runs(attr.filter):
+		lfsMode == seedHeadLFSUnfiltered && drivers.runs(attr.filter):
 		c.warnings = append(c.warnings, fmt.Sprintf("%s has a filter or working-tree-encoding, which seed does not run for it; seed read the rules in its committed bytes", named))
 	}
 }
@@ -1486,10 +1534,12 @@ func (c *seedHeadCheckout) attributes(ctx context.Context, runner EnvironmentCom
 	return attrs, nil
 }
 
-// seedHeadSmallFile is a checked-out blob small enough to be a Git LFS pointer.
+// seedHeadSmallFile is a checked-out blob small enough to be a Git LFS
+// pointer, with what a clean checkout's filter does with one (mode).
 type seedHeadSmallFile struct {
 	path string
 	size int64
+	mode seedHeadLFSMode
 }
 
 // settleLFSPointers finishes the blobs the commit tracks with filter=lfs. The
@@ -1501,18 +1551,16 @@ type seedHeadSmallFile struct {
 // same text a working tree without the content shows. The store is the one
 // git-lfs reads (seedHeadLFSObjectsDir). An object that is stored but cannot be
 // copied is reported in the seed's warnings rather than passed off as read.
-// The caller's Git LFS settings come first (mode, from
-// seedHeadLFSCheckoutMode): with no lfs filter, or one that is not git-lfs,
-// every file stays as the checkout wrote it, and where the smudge is skipped,
-// every pointer is written the way git-lfs writes it.
+// The caller's Git LFS settings come first (each file's mode, from
+// seedHeadLFSCheckoutMode, or seedHeadLFSCommandMode for another filter that
+// runs git-lfs): with no lfs filter, or one that is not git-lfs, a file stays
+// as the checkout wrote it, and where the smudge is skipped, its pointer is
+// written the way git-lfs writes it.
 //
 // Each file is then held to the same rule as every other blob, at its real
 // size: one the scan would only stat leaves the checkout and is recorded
 // unread, so a large LFS binary is never copied here either.
-func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, files []seedHeadSmallFile, mode seedHeadLFSMode, opts seedCommandOptions) {
-	if mode == seedHeadLFSUnfiltered {
-		return
-	}
+func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, files []seedHeadSmallFile, opts seedCommandOptions) {
 	objectsDir, objectsResolved := "", false
 	fetchFiltered, filterResolved := false, false
 	var filteredPaths []string
@@ -1522,6 +1570,9 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 		}
 	}()
 	for _, file := range files {
+		if file.mode == seedHeadLFSUnfiltered {
+			continue
+		}
 		target := filepath.Join(c.dir, filepath.FromSlash(file.path))
 		data, err := clibase.SafeReadFile(target, seedHeadLFSPointerMaxBytes)
 		if err != nil {
@@ -1534,7 +1585,7 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 		// git-lfs writes a pointer it skips in its own encoding, and the
 		// empty object as an empty file whether or not the store has it
 		// (checked against git-lfs 3.4.1).
-		if mode == seedHeadLFSSkips || size == 0 {
+		if file.mode == seedHeadLFSSkips || size == 0 {
 			c.encodeLFSPointer(file.path, target, data, oid, size, extended)
 			continue
 		}
@@ -1615,6 +1666,12 @@ func seedHeadLFSCheckoutMode(ctx context.Context, runner EnvironmentCommandRunne
 	if command == "" {
 		command = smudge
 	}
+	return seedHeadLFSCommandMode(command)
+}
+
+// seedHeadLFSCommandMode is what the filter command git runs (command) does
+// with an LFS pointer on checkout, as seedHeadLFSCheckoutMode describes.
+func seedHeadLFSCommandMode(command string) seedHeadLFSMode {
 	args, assignments, ok := seedHeadGitLFSCommand(command)
 	if !ok {
 		return seedHeadLFSUnfiltered
