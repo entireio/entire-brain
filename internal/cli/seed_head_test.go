@@ -1412,6 +1412,52 @@ func TestDirtySeedKeepsLFSPointersWhenTheSmudgeIsSkipped(t *testing.T) {
 	}
 }
 
+// TestDirtySeedWritesAnEmptyLFSObjectAsAnEmptyFile: git-lfs smudges a
+// pointer of size 0 to an empty file without reading the store, so it is
+// empty although no object is stored. Where the smudge is skipped, git-lfs
+// writes it empty too.
+func TestDirtySeedWritesAnEmptyLFSObjectAsAnEmptyFile(t *testing.T) {
+	for _, skip := range []string{"", "1"} {
+		t.Run("GIT_LFS_SKIP_SMUDGE="+skip, func(t *testing.T) {
+			isolateSeedHeadTemp(t)
+			global := filepath.Join(t.TempDir(), "gitconfig")
+			if err := os.WriteFile(global, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("GIT_CONFIG_GLOBAL", global)
+			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+			t.Setenv("GIT_LFS_SKIP_SMUDGE", skip)
+			for _, key := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} {
+				t.Setenv(key, "")
+				if err := os.Unsetenv(key); err != nil {
+					t.Fatal(err)
+				}
+			}
+			repoDir := seedHeadTestRepo(t)
+			writeSeedHeadFiles(t, repoDir, map[string]string{
+				".gitattributes": "docs/empty.md filter=lfs -text\n",
+				"docs/empty.md":  lfsPointer(""),
+			})
+			gitAt(t, repoDir, "add", "-A")
+			gitAt(t, repoDir, "commit", "-q", "-m", "empty lfs object")
+			useLFSSmudge(t, repoDir)
+			dirtySeedHeadTree(t, repoDir)
+
+			head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
+			if err != nil {
+				t.Fatalf("check out HEAD: %v", err)
+			}
+			defer head.remove()
+			if got, err := os.ReadFile(filepath.Join(head.dir, "docs", "empty.md")); err != nil || len(got) != 0 {
+				t.Errorf("docs/empty.md = %q, %v; want an empty file", got, err)
+			}
+			if len(head.warnings) > 0 {
+				t.Errorf("warnings = %q, want none", head.warnings)
+			}
+		})
+	}
+}
+
 // TestDirtySeedNeverRunsGitLFSInItsCheckout: a git-lfs filter in the user's
 // own config runs in seed's checkout unless seed leaves it out, and its command
 // line can set GIT_LFS_SKIP_SMUDGE=0 over seed's, so git-lfs would download a

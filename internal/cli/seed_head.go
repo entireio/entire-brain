@@ -923,7 +923,10 @@ func (c *seedHeadCheckout) settleLFSPointers(ctx context.Context, runner Environ
 		if !ok {
 			continue
 		}
-		if mode == seedHeadLFSSkips {
+		// git-lfs writes a pointer it skips in its own encoding, and the
+		// empty object as an empty file whether or not the store has it
+		// (checked against git-lfs 3.4.1).
+		if mode == seedHeadLFSSkips || size == 0 {
 			c.encodeLFSPointer(file.path, target, data, oid, size, extended)
 			continue
 		}
