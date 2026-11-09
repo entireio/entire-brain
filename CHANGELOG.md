@@ -13,6 +13,21 @@ All notable changes to `entire-brain` are recorded here. The format follows
   `Caveat:` notes and environment envelopes are skipped like system-role
   records already were. As in conversation, user text that itself starts with
   `<` is skipped too. Assistant text is unchanged (#565).
+- The history-fragment reader now mines compact v1 transcripts: tool output
+  inlined as `tool_use.result.output` becomes code facts, and a history index,
+  scan cache or short-term overlay built by another extractor revision is
+  rebuilt once on the next refresh instead of being reused. `doctor` reports an
+  index built by a different revision instead of calling it current (#560).
+- Episode tool sequences, the pattern corpus, and `recall --evidence` now read
+  compact v1 transcripts. Compact sessions previously produced episodes with
+  empty tool and command sequences, no corpus tool ops or file refs, and no
+  evidence spans — each compact session was reported as unreadable or
+  unsupported content. The pattern corpus and episode layer rebuild once on
+  the first refresh after upgrading (#564).
+- Compact codex sessions now record `apply_patch` file refs and command exit
+  codes the same way native codex records do. A patch-only turn is no longer
+  classified read-only, and a failing command is no longer stored as a
+  success (#566, #567).
 
 ## [0.5.1] - 2026-11-04
 
