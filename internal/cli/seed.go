@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -114,6 +115,7 @@ type seedScanResult struct {
 	Coverage    *seedHistoryCoverage
 	Warnings    []string
 	Fingerprint string
+	// writtenDocs holds the seed/docs paths writeSeedDocs wrote, for the
 }
 
 func newSeedCommand(opts Options) *cobra.Command {
@@ -289,7 +291,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			Commands:          scan.Commands,
 			HistoryBaseline:   buildSeedHistoryBaseline(ctx, opts.Runner, repoDir, outputDir),
 			HistoryCoverage:   manifestCoverage,
-			Warnings:          scan.Warnings,
+			Warnings:          slices.Clone(scan.Warnings),
 			DeterministicPath: []string{"seed/repo-overview.md", "seed/architecture.md", "seed/commands.md", "seed/conventions.md", "seed/risks.md", "seed/history-gaps.md", "seed/file-index.json"},
 		}
 
@@ -317,6 +319,14 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 				return errors.New("worktree_changed: worktree content changed during seed refresh")
 			}
 		}
+		// Pruning waits until nothing can refuse the refresh. A refused one
+		// keeps the previous manifest, and with it the previous worktree hash:
+		// had it already removed a document the earlier seed copied, a tree
+		// restored to that state would match the hash, the next refresh would
+		// skip the reseed, and the document would stay missing from search.
+		pruned := len(scan.Warnings)
+		pruneSeedDocs(outputDir, &scan, scan.writtenDocs)
+		seedManifest.Warnings = append(seedManifest.Warnings, scan.Warnings[pruned:]...)
 
 		if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
 			return err
@@ -992,9 +1002,10 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		// kept precisely because it is oversized is pure waste.
 		data, truncated, err := clibase.ReadFilePrefix(src, limit)
 		if err != nil {
-			// Said, like every other drop: the prune below removes an earlier
-			// copy of a document this run did not write, so a silent skip
-			// would leave it recorded as seeded with nothing on disk.
+			// Said, like every other drop: the prune that follows a committed
+			// refresh removes an earlier copy of a document this run did not
+			// write, so a silent skip would leave it recorded as seeded with
+			// nothing on disk.
 			dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 			continue
 		}
@@ -1008,7 +1019,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		}
 		written[filepath.ToSlash(cleanDst)] = true
 	}
-	pruneSeedDocs(outputDir, scan, written)
+	scan.writtenDocs = written
 	return nil
 }
 

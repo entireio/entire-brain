@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,6 +117,62 @@ func TestCleanReseedRemovesADocumentOnlyTheWorktreeHad(t *testing.T) {
 	assertDocIndexLacks(t, outputDir, "zebra pipeline")
 }
 
+// TestRefusedWorktreeRefreshKeepsTheDocumentsItWouldPrune: a --worktree
+// refresh refused because the tree changed while it ran keeps the previous
+// manifest, and with it the previous worktree hash. The prune used to run
+// before that check, so a document the earlier seed copied, deleted when the
+// refresh started and restored while it ran, was removed although the
+// restored tree matched the saved hash: the next refresh skipped the reseed
+// and the document stayed missing from search.
+func TestRefusedWorktreeRefreshKeepsTheDocumentsItWouldPrune(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
+	draft := map[string]string{"docs/drafts/draft.md": "# Draft\n\nAn untracked zebra pipeline note.\n"}
+	writeSeedPruneFiles(t, repoDir, draft)
+	outputDir := filepath.Join(t.TempDir(), "brain")
+	seedPruneRun(t, repoDir, outputDir, "--worktree")
+	assertSeedDoc(t, outputDir, "docs/drafts/draft.md", true)
+
+	if err := os.RemoveAll(filepath.Join(repoDir, "docs")); err != nil {
+		t.Fatal(err)
+	}
+	fileIndex := filepath.Join(outputDir, seedDirName, "file-index.json")
+	runner := &seedRestoreRunner{restore: func() bool {
+		// This refresh has written its artifacts once the file index no
+		// longer lists the draft. The next git status is the final worktree
+		// check, so the draft comes back just before it.
+		data, err := os.ReadFile(fileIndex)
+		if err != nil || strings.Contains(string(data), "draft.md") {
+			return false
+		}
+		writeSeedPruneFiles(t, repoDir, draft)
+		return true
+	}}
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: runner}
+	out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--output", outputDir, "--worktree", "--update", repoDir)
+	if !runner.restored {
+		t.Fatalf("the draft was never restored during the refresh: %v\n%s", err, out)
+	}
+	if err == nil || !strings.Contains(err.Error(), "worktree_changed") {
+		t.Fatalf("refresh = %v\n%s; want worktree_changed", err, out)
+	}
+	assertSeedDoc(t, outputDir, "docs/drafts/draft.md", true)
+}
+
+// seedRestoreRunner runs git for real, calling restore before each git status
+// until it reports that it changed the worktree.
+type seedRestoreRunner struct {
+	ExecRunner
+	restore  func() bool
+	restored bool
+}
+
+func (r *seedRestoreRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	if !r.restored && name == "git" && len(args) > 0 && args[0] == "status" {
+		r.restored = r.restore()
+	}
+	return r.ExecRunner.Run(ctx, dir, name, args...)
+}
+
 // TestUpdateIntoTheRepositoryKeepsItsOwnSeedDocs: --update skips the output
 // checks a fresh or --force seed makes, so it can seed into the repository
 // itself. Its own files under seed/docs are not this seed's to prune.
@@ -190,6 +247,8 @@ func TestSeedDocThatCannotBeReadIsDroppedNotSilentlySkipped(t *testing.T) {
 	if err := writeSeedDocs(outputDir, scan); err != nil {
 		t.Fatalf("write seed docs: %v", err)
 	}
+	// As runSeed does once the refresh commits.
+	pruneSeedDocs(outputDir, scan, scan.writtenDocs)
 	if scan.Docs[0].SeedPath != "" {
 		t.Errorf("an unreadable document kept its seed path %q", scan.Docs[0].SeedPath)
 	}
