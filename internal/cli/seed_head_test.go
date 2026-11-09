@@ -1009,6 +1009,21 @@ type fixedConfigRunner struct {
 	err error
 }
 
+// filterConfigOutput is what git config -z --show-scope --show-origin
+// --get-regexp prints for records of scope, key and value, in order: the
+// command scope's values set directly have the origin "command line:".
+func filterConfigOutput(records ...[3]string) []byte {
+	var out strings.Builder
+	for _, record := range records {
+		origin := "file:/config/" + record[0]
+		if record[0] == "command" {
+			origin = "command line:"
+		}
+		out.WriteString(record[0] + "\x00" + origin + "\x00" + record[1] + "\n" + record[2] + "\x00")
+	}
+	return []byte(out.String())
+}
+
 func (r fixedConfigRunner) RunWithEnv(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
 	return r.out, nil, r.err
 }
@@ -1036,10 +1051,13 @@ func TestSeedHeadFilterDriversParsesTheEffectiveConfiguration(t *testing.T) {
 		{name: "none configured", runner: fixedConfigRunner{err: exitOne}, skips: []string{"a", "lfs", ""}},
 		{
 			name: "the last value of a key wins",
-			runner: fixedConfigRunner{out: []byte("filter.a.smudge\ntr x y\x00filter.b.process\nrun it\x00" +
-				"filter.a.smudge\n\x00filter.c.d.smudge\ncat\x00filter.lfs.process\ngit-lfs filter-process\x00")},
+			runner: fixedConfigRunner{out: filterConfigOutput(
+				[3]string{"global", "filter.a.smudge", "tr x y"}, [3]string{"global", "filter.b.process", "run it"},
+				[3]string{"command", "filter.a.smudge", ""}, [3]string{"global", "filter.c.d.smudge", "cat"},
+				[3]string{"global", "filter.e.clean", "cat"}, [3]string{"global", "filter.e.required", "true"},
+				[3]string{"system", "filter.lfs.process", "git-lfs filter-process"})},
 			runs:  []string{"b", "c.d", "lfs"},
-			skips: []string{"a", "unset", "unspecified"},
+			skips: []string{"a", "e", "unset", "unspecified"},
 		},
 		{name: "unreadable", runner: fixedConfigRunner{err: errors.New("signal: killed")}, runs: []string{"a", "anything", "lfs"}, skips: []string{""}},
 	}
@@ -1067,27 +1085,102 @@ func TestSeedHeadFilterDriversParsesTheEffectiveConfiguration(t *testing.T) {
 }
 
 // TestSeedHeadFilterDriversFindsGitLFSUnderAnotherName: a filter whose
-// command is git-lfs is LFS whatever it is called. Its command is the process
-// one where that is set, the smudge one otherwise; lfs itself is read from the
-// caller's configuration instead, and a name with "=" cannot be left out of
-// the checkout, so it stays a driver.
+// command is git-lfs is LFS whatever it is called, a name with "=" included.
+// Its command is the process one where that is set, the smudge one otherwise,
+// as the caller's git reads it: where the repository's own configuration sets
+// any key of a filter, seed's git reads the hardened runner's blank after the
+// caller's values, and the caller's does not. lfs is always settled as LFS,
+// in whatever mode its command gives.
 func TestSeedHeadFilterDriversFindsGitLFSUnderAnotherName(t *testing.T) {
-	t.Parallel()
-	runner := fixedConfigRunner{out: []byte("filter.assets.process\ngit-lfs filter-process\x00" +
-		"filter.media.smudge\n git-lfs smudge -- %f \x00" +
-		"filter.wrapped.smudge\ngit-lfs smudge -- %f\x00filter.wrapped.process\nmy-filter\x00" +
-		"filter.blank.process\n \x00filter.blank.smudge\ngit lfs smudge %f\x00" +
-		"filter.x=y.smudge\ngit-lfs smudge %f\x00filter.lfs.process\ngit-lfs filter-process\x00" +
-		"filter.other.smudge\ncat\x00")}
-	drivers := seedHeadFilterDrivers(context.Background(), runner, t.TempDir(), nil)
-	want := map[string]string{"assets": "git-lfs filter-process", "media": "git-lfs smudge -- %f", "blank": "git lfs smudge %f"}
-	if !maps.Equal(drivers.lfsAliases, want) {
-		t.Errorf("git-lfs filters = %q, want %q", drivers.lfsAliases, want)
+	for _, key := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"} {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
 	}
+	blank := func(name string) [][3]string {
+		return [][3]string{
+			{"command", "filter." + name + ".clean", ""}, {"command", "filter." + name + ".smudge", ""},
+			{"command", "filter." + name + ".process", ""}, {"command", "filter." + name + ".required", "false"},
+		}
+	}
+	records := [][3]string{
+		{"global", "filter.assets.process", "git-lfs filter-process"},
+		{"global", "filter.media.smudge", " git-lfs smudge -- %f "},
+		{"global", "filter.wrapped.smudge", "git-lfs smudge -- %f"}, {"global", "filter.wrapped.process", "my-filter"},
+		{"global", "filter.blank.process", " "}, {"global", "filter.blank.smudge", "git lfs smudge %f"},
+		{"global", "filter.x=y.smudge", "git-lfs smudge %f"},
+		{"system", "filter.lfs.process", "git-lfs filter-process"},
+		{"global", "filter.other.smudge", "cat"},
+		{"local", "filter.local.process", "git-lfs filter-process"},
+		{"global", "filter.cleaned.smudge", "git-lfs smudge -- %f"}, {"worktree", "filter.cleaned.clean", "git-lfs clean -- %f"},
+	}
+	records = append(append(records, blank("local")...), blank("cleaned")...)
+	drivers := seedHeadFilterDrivers(context.Background(), fixedConfigRunner{out: filterConfigOutput(records...)}, t.TempDir(), nil)
+	want := map[string]string{
+		"assets": "git-lfs filter-process", "media": "git-lfs smudge -- %f", "blank": "git lfs smudge %f",
+		"x=y": "git-lfs smudge %f", "lfs": "git-lfs filter-process",
+		"local": "git-lfs filter-process", "cleaned": "git-lfs smudge -- %f",
+	}
+	for _, name := range []string{"assets", "media", "wrapped", "blank", "x=y", "lfs", "other", "local", "cleaned", "unset"} {
+		command, isLFS := drivers.lfsCommand(name)
+		if wantCommand, wantLFS := want[name]; command != wantCommand && isLFS || isLFS != wantLFS {
+			t.Errorf("filter %q: LFS %v with %q; want %v with %q", name, isLFS, command, wantLFS, wantCommand)
+		}
+	}
+	// The checkout runs what seed's git reads, until it leaves a filter out.
 	for _, name := range []string{"assets", "media", "wrapped", "blank", "x=y", "lfs", "other"} {
 		if !drivers.runs(name) {
 			t.Errorf("filter %q: no driver; want one until the checkout leaves it out", name)
 		}
+	}
+	for _, name := range []string{"local", "cleaned"} {
+		if drivers.runs(name) {
+			t.Errorf("filter %q: a driver; want the hardened runner's blank", name)
+		}
+	}
+	none := seedHeadFilterDrivers(context.Background(), fixedConfigRunner{}, t.TempDir(), nil)
+	if command, isLFS := none.lfsCommand("lfs"); !isLFS || command != "" {
+		t.Errorf("lfs with no command: LFS %v with %q; want LFS with none", isLFS, command)
+	}
+}
+
+// TestSeedHeadLeaveOutFiltersBlanksAnyFilterName: the checkout's leave-outs
+// come after the caller's own GIT_CONFIG_PARAMETERS, which they keep, and name
+// a filter whatever it holds, "=", a quote and "!" included.
+func TestSeedHeadLeaveOutFiltersBlanksAnyFilterName(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	const name = "x=y'z!w"
+	global := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(global, []byte("[filter \"x=y'z!w\"]\n\tsmudge = echo armed\n\trequired = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", global)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_COUNT", "")
+	if err := os.Unsetenv("GIT_CONFIG_COUNT"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_PARAMETERS", "'filter.x=y'\\''z!w.process'='git-lfs filter-process' 'core.seedtest'='kept'")
+	env := seedHeadLeaveOutFilters(map[string]string{"GIT_INDEX_FILE": "index"}, []string{name})
+	if env["GIT_INDEX_FILE"] != "index" {
+		t.Errorf("GIT_INDEX_FILE = %q, want the checkout's own", env["GIT_INDEX_FILE"])
+	}
+	for key, want := range map[string]string{
+		"filter." + name + ".smudge": "", "filter." + name + ".process": "", "filter." + name + ".required": "false", "core.seedtest": "kept",
+	} {
+		cmd := exec.Command("git", "config", "--get", key)
+		cmd.Dir = t.TempDir()
+		cmd.Env = mergeCommandEnv(os.Environ(), env)
+		out, err := cmd.Output()
+		if got := strings.TrimSuffix(string(out), "\n"); err != nil || got != want {
+			t.Errorf("%s = %q, %v; want %q", key, got, err, want)
+		}
+	}
+	if got := seedHeadLeaveOutFilters(map[string]string{"A": "b"}, nil); !maps.Equal(got, map[string]string{"A": "b"}) {
+		t.Errorf("no filters left out: env = %q, want it unchanged", got)
 	}
 }
 
@@ -1608,7 +1701,11 @@ func TestDirtySeedWritesAnEmptyLFSObjectAsAnEmptyFile(t *testing.T) {
 // pointer whatever filter runs it, so a filter under another name whose
 // command is git-lfs is left out of seed's checkout and settled as lfs is,
 // in that command's own mode: assets smudges, media passes --skip. The
-// attributes file under assets is hydrated too, so its rule applies.
+// attributes file under assets is hydrated too, so its rule applies. So is a
+// filter the repository itself defines, whose command the hardened runner
+// blanks in seed's git but the caller's git runs, and a name with "=", which
+// is left out although a -c argument cannot name it, even under a filter the
+// caller's own git -c configuration defines.
 func TestDirtySeedTreatsAnotherFilterThatRunsGitLFSAsLFS(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the stand-in git-lfs is a shell script")
@@ -1629,15 +1726,20 @@ func TestDirtySeedTreatsAnotherFilterThatRunsGitLFSAsLFS(t *testing.T) {
 	}
 	repoDir := seedHeadTestRepo(t)
 	stored, skipped, rules := "# manual kept in LFS\n", "# skipped by its filter\n", "docs/plain.md text eol=crlf\n"
-	for _, content := range []string{stored, skipped, rules} {
+	local, equals, included := "# under the repository's filter\n", "# under a filter named x=y\n", "# under an included filter\n"
+	for _, content := range []string{stored, skipped, rules, local, equals, included} {
 		writeLFSObject(t, repoDir, content, content)
 	}
 	writeSeedHeadFiles(t, repoDir, map[string]string{
-		".gitattributes":  "docs/manual.md filter=assets -text\ndocs/skipped.md filter=media -text\ncustom.attrs filter=assets -text\n",
-		"docs/manual.md":  lfsPointer(stored),
-		"docs/skipped.md": lfsPointer(skipped),
-		"docs/plain.md":   "one\ntwo\n",
-		"custom.attrs":    lfsPointer(rules),
+		".gitattributes": "docs/manual.md filter=assets -text\ndocs/skipped.md filter=media -text\ncustom.attrs filter=assets -text\n" +
+			"docs/local.md filter=local -text\ndocs/equals.md filter=x=y -text\ndocs/included.md filter=in=cluded -text\n",
+		"docs/manual.md":   lfsPointer(stored),
+		"docs/skipped.md":  lfsPointer(skipped),
+		"docs/plain.md":    "one\ntwo\n",
+		"custom.attrs":     lfsPointer(rules),
+		"docs/local.md":    lfsPointer(local),
+		"docs/equals.md":   lfsPointer(equals),
+		"docs/included.md": lfsPointer(included),
 	})
 	gitAt(t, repoDir, "add", "-A")
 	gitAt(t, repoDir, "commit", "-q", "-m", "lfs pointers under other filters")
@@ -1655,6 +1757,16 @@ func TestDirtySeedTreatsAnotherFilterThatRunsGitLFSAsLFS(t *testing.T) {
 	gitAt(t, repoDir, "config", "--global", "filter.assets.required", "true")
 	gitAt(t, repoDir, "config", "--global", "filter.media.smudge", gitLFS+" smudge --skip -- %f")
 	gitAt(t, repoDir, "config", "--global", "core.attributesFile", "custom.attrs")
+	gitAt(t, repoDir, "config", "filter.local.process", gitLFS+" filter-process")
+	gitAt(t, repoDir, "config", "--global", "filter.x=y.smudge", "GIT_LFS_SKIP_SMUDGE=0 "+gitLFS+" smudge -- %f")
+	gitAt(t, repoDir, "config", "--global", "filter.x=y.required", "true")
+	// Values from a file the caller's git -c includes come after every
+	// GIT_CONFIG_COUNT entry.
+	include := filepath.Join(t.TempDir(), "included")
+	if err := os.WriteFile(include, []byte("[filter \"in=cluded\"]\n\tsmudge = GIT_LFS_SKIP_SMUDGE=0 "+gitLFS+" smudge -- %f\n\trequired = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_PARAMETERS", "'include.path'='"+include+"'")
 
 	head, err := checkoutSeedHead(context.Background(), ExecRunner{}, repoDir, seedCommandOptions{maxFiles: defaultSeedMaxFiles, maxFileBytes: 64})
 	if err != nil {
@@ -1664,7 +1776,10 @@ func TestDirtySeedTreatsAnotherFilterThatRunsGitLFSAsLFS(t *testing.T) {
 	if _, err := os.Stat(ran); err == nil {
 		t.Error("seed's checkout ran the user's git-lfs")
 	}
-	for rel, want := range map[string]string{"docs/manual.md": stored, "docs/skipped.md": lfsPointer(skipped), "docs/plain.md": "one\r\ntwo\r\n"} {
+	for rel, want := range map[string]string{
+		"docs/manual.md": stored, "docs/skipped.md": lfsPointer(skipped), "docs/plain.md": "one\r\ntwo\r\n",
+		"docs/local.md": local, "docs/equals.md": equals, "docs/included.md": included,
+	} {
 		if got, err := os.ReadFile(filepath.Join(head.dir, filepath.FromSlash(rel))); err != nil || string(got) != want {
 			t.Errorf("%s = %q, %v; want %q", rel, got, err, want)
 		}

@@ -382,30 +382,27 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	// download objects in the middle of a background seed. Any other command
 	// the lfs filter runs is a driver like any other. git-lfs smudges a
 	// pointer whatever filter runs it, so a filter under another name whose
-	// command is git-lfs (seedHeadDrivers.lfsAliases) is left out and settled
+	// command is git-lfs (seedHeadDrivers.lfsCommand) is left out and settled
 	// the same way, in its own command's mode.
 	lfsModes := map[string]seedHeadLFSMode{}
-	checkoutConfig := slices.Clone(attrConfig)
+	var leftOut []string
 	for _, path := range regular {
 		filter := attrs[path].filter
 		if _, done := lfsModes[filter]; done {
 			continue
 		}
-		var mode seedHeadLFSMode
-		switch command, alias := drivers.lfsAliases[filter]; {
-		case alias:
-			mode = seedHeadLFSCommandMode(command)
-		case filter == "lfs":
-			mode = seedHeadLFSCheckoutMode(ctx, runner, repoDir)
-		default:
+		command, isLFS := drivers.lfsCommand(filter)
+		if !isLFS {
 			continue
 		}
+		mode := seedHeadLFSCommandMode(command)
 		lfsModes[filter] = mode
 		if mode != seedHeadLFSUnfiltered {
 			drivers.leaveOut(filter)
-			checkoutConfig = append(checkoutConfig, "-c", "filter."+filter+".process=", "-c", "filter."+filter+".smudge=", "-c", "filter."+filter+".required=false")
+			leftOut = append(leftOut, filter)
 		}
 	}
+	checkoutEnv := seedHeadLeaveOutFilters(env, leftOut)
 	var wanted []string
 	var lfs []seedHeadSmallFile
 	var absent, convertSkipped, driven []string
@@ -490,8 +487,8 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	// -f: write over whatever is at a path, so the checkout never fails on
 	// one it did not expect there.
 	for _, batch := range chunkPathsByBytes(wanted, seedHeadCheckoutArgBytes) {
-		args := append(append(slices.Clone(checkoutConfig), "checkout-index", "-f", prefix, "--"), batch...)
-		if _, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", args...); err != nil {
+		args := append(append(slices.Clone(attrConfig), "checkout-index", "-f", prefix, "--"), batch...)
+		if _, _, err := runner.RunWithEnv(ctx, repoDir, checkoutEnv, "git", args...); err != nil {
 			return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
 		}
 	}
@@ -511,12 +508,12 @@ func (c *seedHeadCheckout) populate(ctx context.Context, runner EnvironmentComma
 	// git localizes the line that says it gave up on a driver; LANGUAGE
 	// keeps it in English so the warning can tell a failure from other
 	// output. It changes only the language of messages, for the driver too.
-	driverEnv := maps.Clone(env)
+	driverEnv := maps.Clone(checkoutEnv)
 	driverEnv["LANGUAGE"] = "en"
 	for start := 0; start < len(driven); start += seedHeadDriverBatchFiles {
 		group := driven[start:min(start+seedHeadDriverBatchFiles, len(driven))]
 		for _, batch := range chunkPathsByBytes(group, seedHeadCheckoutArgBytes) {
-			args := append(append(slices.Clone(checkoutConfig), "checkout-index", "-f", prefix, "--"), batch...)
+			args := append(append(slices.Clone(attrConfig), "checkout-index", "-f", prefix, "--"), batch...)
 			_, stderr, err := runner.RunWithEnv(ctx, repoDir, driverEnv, "git", args...)
 			if err != nil {
 				return fmt.Errorf("check out committed HEAD %s: %w", shortCommitHash(c.commit), err)
@@ -842,16 +839,15 @@ func seedHeadConvertsUnbounded(attr seedHeadAttrs, drivers seedHeadDrivers) bool
 // a smudge or process command set in the configuration the hardened runner
 // leaves in force. Repository-scoped drivers are blanked there
 // (git_harden_filters.go), so a filter=x with only a repository driver, or
-// none at all, writes the blob unchanged. Where the lfs filter is git-lfs,
+// none at all, writes the blob unchanged. Where a filter's command is git-lfs,
 // LFS is handled on its own (settleLFSPointers); another command named lfs is
 // a driver like any other.
 type seedHeadDrivers struct {
 	names map[string]bool
-	// lfsAliases: filters other than lfs whose command is git-lfs (the
-	// process command where one is set, the smudge command otherwise), by
-	// name. A name with "=" is left out, since a -c setting cannot name it
-	// (git_harden_filters.go), so the checkout could not leave it out.
-	lfsAliases map[string]string
+	// commands: each filter's command as a git command the caller runs reads
+	// it (the process command where one is set, the smudge command
+	// otherwise), trimmed, with the hardened runner's blanking left out.
+	commands map[string]string
 	// gitLFS: the filters the checkout leaves out because they are git-lfs.
 	gitLFS map[string]bool
 	// unknown: the configuration could not be read, so every filter is
@@ -866,6 +862,25 @@ func (d seedHeadDrivers) runs(filter string) bool {
 	return d.unknown || d.names[filter]
 }
 
+// lfsCommand reports whether seed settles filter's files as Git LFS
+// pointers, and the command whose mode it settles them in
+// (seedHeadLFSCommandMode): lfs whatever its command, which counts as none
+// unless it is git-lfs, and any other filter whose command is git-lfs, since
+// git-lfs smudges a pointer whatever filter runs it. The command is the
+// caller's: a repository's own driver is blanked in seed's git commands, not
+// in the caller's, and reading it as text runs nothing.
+func (d seedHeadDrivers) lfsCommand(filter string) (string, bool) {
+	if !specifiedAttr(filter) {
+		return "", false
+	}
+	command := d.commands[filter]
+	if filter == "lfs" {
+		return command, true
+	}
+	_, _, ok := seedHeadGitLFSCommand(command)
+	return command, ok
+}
+
 // leaveOut records that the checkout leaves filter out as git-lfs.
 func (d *seedHeadDrivers) leaveOut(filter string) {
 	if d.gitLFS == nil {
@@ -875,9 +890,10 @@ func (d *seedHeadDrivers) leaveOut(filter string) {
 }
 
 // seedHeadFilterDrivers reads every driver command in one git call, however
-// many filters the commit names.
+// many filters the commit names: both the configuration seed's git commands
+// read and, for seedHeadDrivers.commands, the one the caller's do.
 func seedHeadFilterDrivers(ctx context.Context, runner EnvironmentCommandRunner, repoDir string, env map[string]string) seedHeadDrivers {
-	out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "config", "-z", "--get-regexp", `^filter\..*\.(smudge|process)$`)
+	out, _, err := runner.RunWithEnv(ctx, repoDir, env, "git", "config", "-z", "--show-scope", "--show-origin", "--get-regexp", `^filter\..*\.(clean|smudge|process|required)$`)
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && len(out) == 0 {
@@ -885,38 +901,105 @@ func seedHeadFilterDrivers(ctx context.Context, runner EnvironmentCommandRunner,
 		}
 		return seedHeadDrivers{unknown: true}
 	}
-	// -z: <key> LF <value> NUL per entry, in the order git reads its
-	// configuration, so a key's last value is the one in force; the hardened
-	// runner's blanking comes last of all.
-	values := map[string]string{}
-	for _, record := range strings.Split(string(out), "\x00") {
-		if key, value, _ := strings.Cut(record, "\n"); key != "" {
-			values[key] = value
-		}
+	// -z with --show-scope and --show-origin: <scope> NUL <origin> NUL <key> LF
+	// <value> NUL per value, in the order git reads them: the configuration
+	// files, then GIT_CONFIG_COUNT's entries, then GIT_CONFIG_PARAMETERS
+	// (git -c), so a key's last value is the one in force. Keys come
+	// lowercased except for the subsection. A file included from the command
+	// scope keeps that scope and names its own origin; values set there
+	// directly have the origin "command line:".
+	//
+	// Where the repository's own configuration sets any key of a filter, the
+	// hardened runner blanks its commands with GIT_CONFIG_COUNT entries
+	// appended after the caller's (git_harden_filters.go): one more value set
+	// directly for each key, which seed's commands read and the caller's do
+	// not.
+	type configValue struct {
+		direct bool
+		value  string
 	}
-	names := map[string]bool{}
-	for key, value := range values {
-		if strings.TrimSpace(value) == "" {
+	values := map[string][]configValue{}
+	repositoryScoped := map[string]bool{}
+	fields := strings.Split(string(out), "\x00")
+	for i := 0; i+2 < len(fields); i += 3 {
+		scope, origin := fields[i], fields[i+1]
+		key, value, _ := strings.Cut(fields[i+2], "\n")
+		name, ok := filterDriverFromConfigKey(key)
+		if !ok {
 			continue
 		}
-		if name, ok := filterDriverFromConfigKey(key); ok {
+		if scope == "local" || scope == "worktree" {
+			repositoryScoped[name] = true
+		}
+		values[key] = append(values[key], configValue{direct: scope == "command" && origin == "command line:", value: value})
+	}
+	// command is the value of key in force, trimmed: for seed, or with the
+	// hardened runner's blank dropped, for the caller. The blank follows the
+	// caller's own GIT_CONFIG_COUNT entries for the key, which come first
+	// among the values set directly.
+	command := func(name, key string, caller bool) string {
+		all := values[key]
+		if caller && repositoryScoped[name] {
+			skip := seedHeadCallerConfigCountEntries(key)
+			for i, v := range all {
+				if !v.direct {
+					continue
+				}
+				if skip == 0 {
+					all = slices.Delete(slices.Clone(all), i, i+1)
+					break
+				}
+				skip--
+			}
+		}
+		if len(all) == 0 {
+			return ""
+		}
+		return strings.TrimSpace(all[len(all)-1].value)
+	}
+	names, commands := map[string]bool{}, map[string]string{}
+	for key := range values {
+		name, _ := filterDriverFromConfigKey(key)
+		if _, done := commands[name]; done {
+			continue
+		}
+		process, smudge := "filter."+name+".process", "filter."+name+".smudge"
+		if command(name, process, false) != "" || command(name, smudge, false) != "" {
 			names[name] = true
 		}
-	}
-	aliases := map[string]string{}
-	for name := range names {
-		if name == "lfs" || strings.Contains(name, "=") {
-			continue
-		}
-		command := strings.TrimSpace(values["filter."+name+".process"])
-		if command == "" {
-			command = strings.TrimSpace(values["filter."+name+".smudge"])
-		}
-		if _, _, ok := seedHeadGitLFSCommand(command); ok {
-			aliases[name] = command
+		commands[name] = command(name, process, true)
+		if commands[name] == "" {
+			commands[name] = command(name, smudge, true)
 		}
 	}
-	return seedHeadDrivers{names: names, lfsAliases: aliases}
+	return seedHeadDrivers{names: names, commands: commands}
+}
+
+// seedHeadLeaveOutFilters returns env with the filters named left out of a
+// checkout: their commands blank and required false. They go after
+// everything the caller set, appended to GIT_CONFIG_PARAMETERS as git -c
+// itself appends them, key and value each single-quoted, so they win over any
+// value but a later -c, and a filter name with "=" is left out too, which a
+// -c argument cannot express (git_harden_filters.go). The checkout's own -c
+// arguments set no filter.
+func seedHeadLeaveOutFilters(env map[string]string, filters []string) map[string]string {
+	if len(filters) == 0 {
+		return env
+	}
+	quote := strings.NewReplacer("'", `'\''`, "!", `'\!'`)
+	var params []string
+	if caller := strings.TrimSpace(os.Getenv("GIT_CONFIG_PARAMETERS")); caller != "" {
+		params = append(params, caller)
+	}
+	for _, filter := range filters {
+		for _, setting := range [][2]string{{"process", ""}, {"smudge", ""}, {"required", "false"}} {
+			key := "filter." + filter + "." + setting[0]
+			params = append(params, "'"+quote.Replace(key)+"'='"+quote.Replace(setting[1])+"'")
+		}
+	}
+	out := maps.Clone(env)
+	out["GIT_CONFIG_PARAMETERS"] = strings.Join(params, " ")
+	return out
 }
 
 // seedHeadAttributesFileMaxBytes bounds the committed attributes file seed
@@ -1116,9 +1199,9 @@ func readSeedHeadBlob(ctx context.Context, runner EnvironmentCommandRunner, repo
 // settleAttributesFile makes seed's copy (committed) of the tracked attributes
 // file at path what a clean checkout of HEAD writes, as far as seed can. Its
 // own attributes are the ones a fresh checkout reads before that file exists:
-// HEAD's .gitattributes and info/attributes. Where they mark it filter=lfs and
-// the caller's git-lfs smudges (seedHeadLFSCheckoutMode), lfsAttributesFile
-// hydrates it. Any other filter driver, or a working-tree-encoding, is not
+// HEAD's .gitattributes and info/attributes. Where they give it a filter
+// whose command is the caller's git-lfs and that smudges
+// (seedHeadLFSCommandMode), lfsAttributesFile hydrates it. Any other filter driver, or a working-tree-encoding, is not
 // run for it, since running the file's own filters could fetch or fail
 // unreported; seed reads its committed bytes and says so. named is how
 // warnings name the file.
@@ -1136,10 +1219,8 @@ func (c *seedHeadCheckout) settleAttributesFile(ctx context.Context, runner Envi
 	var drivers seedHeadDrivers
 	if specifiedAttr(attr.filter) {
 		drivers = seedHeadFilterDrivers(ctx, runner, repoDir, env)
-		if command, alias := drivers.lfsAliases[attr.filter]; alias {
+		if command, isLFS := drivers.lfsCommand(attr.filter); isLFS {
 			lfsMode = seedHeadLFSCommandMode(command)
-		} else if attr.filter == "lfs" {
-			lfsMode = seedHeadLFSCheckoutMode(ctx, runner, repoDir)
 		}
 	}
 	switch {
@@ -1552,10 +1633,10 @@ type seedHeadSmallFile struct {
 // git-lfs reads (seedHeadLFSObjectsDir). An object that is stored but cannot be
 // copied is reported in the seed's warnings rather than passed off as read.
 // The caller's Git LFS settings come first (each file's mode, from
-// seedHeadLFSCheckoutMode, or seedHeadLFSCommandMode for another filter that
-// runs git-lfs): with no lfs filter, or one that is not git-lfs, a file stays
-// as the checkout wrote it, and where the smudge is skipped, its pointer is
-// written the way git-lfs writes it.
+// seedHeadLFSCommandMode, for lfs or another filter that runs git-lfs): with
+// no lfs filter, or one that is not git-lfs, a file stays as the checkout
+// wrote it, and where the smudge is skipped, its pointer is written the way
+// git-lfs writes it.
 //
 // Each file is then held to the same rule as every other blob, at its real
 // size: one the scan would only stat leaves the checkout and is recorded
@@ -1651,26 +1732,15 @@ const (
 	seedHeadLFSSmudges
 )
 
-// seedHeadLFSCheckoutMode reads the caller's Git LFS settings. The lfs filter
-// git runs is filter.lfs.process when it is set and filter.lfs.smudge
-// otherwise; with neither, there is none, and one that is not a git-lfs
-// command (seedHeadGitLFSCommand) counts as none. Git LFS skips the smudge
-// when that command passes --skip, as `git lfs install --skip-smudge` sets it
-// up, or when GIT_LFS_SKIP_SMUDGE is true in its environment: the caller's,
-// unless the command line sets it. Seed's own git commands always skip it
-// (seedHeadGitEnv), so only the caller's settings count. Checked against
-// git-lfs 3.4.1, which reads 1, t, true, yes and on in any case as true.
-func seedHeadLFSCheckoutMode(ctx context.Context, runner EnvironmentCommandRunner, repoDir string) seedHeadLFSMode {
-	process, smudge := seedHeadCallerLFSFilter(ctx, runner, repoDir)
-	command := process
-	if command == "" {
-		command = smudge
-	}
-	return seedHeadLFSCommandMode(command)
-}
-
-// seedHeadLFSCommandMode is what the filter command git runs (command) does
-// with an LFS pointer on checkout, as seedHeadLFSCheckoutMode describes.
+// seedHeadLFSCommandMode is what a filter's command, the one the caller's git
+// runs (seedHeadDrivers.lfsCommand), does with an LFS pointer on checkout. A
+// command that is not git-lfs (seedHeadGitLFSCommand), or none, leaves it
+// unfiltered. Git LFS skips the smudge when the command passes --skip, as
+// `git lfs install --skip-smudge` sets it up, or when GIT_LFS_SKIP_SMUDGE is
+// true in its environment: the caller's, unless the command line sets it.
+// Seed's own git commands always skip it (seedHeadGitEnv), so only the
+// caller's settings count. Checked against git-lfs 3.4.1, which reads 1, t,
+// true, yes and on in any case as true.
 func seedHeadLFSCommandMode(command string) seedHeadLFSMode {
 	args, assignments, ok := seedHeadGitLFSCommand(command)
 	if !ok {
@@ -1885,65 +1955,6 @@ func seedHeadDoubleQuoted(s string, text *strings.Builder) (n int, closed bool) 
 		text.WriteByte(s[i])
 	}
 	return 0, false
-}
-
-// seedHeadCallerLFSFilter returns filter.lfs.process and filter.lfs.smudge,
-// trimmed, as a git command the caller runs in repoDir reads them. Seed's git
-// commands read one more value for each: where the repository's own
-// configuration defines the lfs filter, the hardened runner blanks its
-// commands with GIT_CONFIG_COUNT entries appended after the caller's
-// (git_harden_filters.go). That entry is dropped. Reading a filter's command
-// as text runs nothing.
-func seedHeadCallerLFSFilter(ctx context.Context, runner EnvironmentCommandRunner, repoDir string) (process, smudge string) {
-	out, _, err := runner.RunWithEnv(ctx, repoDir, seedHeadGitEnv(""), "git", "config", "-z", "--show-scope", "--show-origin", "--get-regexp", `^filter\.lfs\.(clean|smudge|process|required)$`)
-	if err != nil {
-		return "", ""
-	}
-	// -z with --show-scope and --show-origin: <scope> NUL <origin> NUL <key> LF
-	// <value> NUL per value, in the order git reads them: the configuration
-	// files, then GIT_CONFIG_COUNT's entries, then GIT_CONFIG_PARAMETERS
-	// (git -c), so the last value is in force. Keys come lowercased except for
-	// the subsection. A file included from the command scope keeps that scope
-	// and names its own origin; values set there directly have the origin
-	// "command line:".
-	type configValue struct {
-		direct bool
-		value  string
-	}
-	values := map[string][]configValue{}
-	blanked := false
-	fields := strings.Split(string(out), "\x00")
-	for i := 0; i+2 < len(fields); i += 3 {
-		scope, origin := fields[i], fields[i+1]
-		key, value, _ := strings.Cut(fields[i+2], "\n")
-		if scope == "local" || scope == "worktree" {
-			blanked = true
-		}
-		values[key] = append(values[key], configValue{direct: scope == "command" && origin == "command line:", value: value})
-	}
-	last := func(key string) string {
-		all := values[key]
-		if blanked {
-			// The blank follows the caller's own GIT_CONFIG_COUNT entries for
-			// the key, which come first among the values set directly.
-			skip := seedHeadCallerConfigCountEntries(key)
-			for i, v := range all {
-				if !v.direct {
-					continue
-				}
-				if skip == 0 {
-					all = slices.Delete(slices.Clone(all), i, i+1)
-					break
-				}
-				skip--
-			}
-		}
-		if len(all) == 0 {
-			return ""
-		}
-		return strings.TrimSpace(all[len(all)-1].value)
-	}
-	return last("filter.lfs.process"), last("filter.lfs.smudge")
 }
 
 // seedHeadCallerConfigCountEntries counts the GIT_CONFIG_COUNT entries of the
