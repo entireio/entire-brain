@@ -350,6 +350,50 @@ func TestRawHistoryTopUpKeepsAToolResultsStatus(t *testing.T) {
 	}
 }
 
+// A document-form transcript is indexed by historyDocumentRecords, not the
+// JSONL extractor, and its records keep a tool part's output only as code
+// facts. A message object written on one line is still one JSON value to the
+// raw scan, so the check must not read it as text the brief shows in full.
+func TestRawHistoryTopUpKeepsADocumentMessagesToolOutput(t *testing.T) {
+	t.Parallel()
+	brainDir := t.TempDir()
+	sessionDir := filepath.Join(brainDir, "sessions", "main")
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	name := "20260716T010203Z_0001.json"
+	document := "{\n  \"messages\": [\n" +
+		`    {"info":{"role":"assistant"},"parts":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"},{"type":"tool","state":{"output":"FAIL: expected 2, got 3"}}]}` +
+		"\n  ]\n}\n"
+	if err := os.WriteFile(filepath.Join(sessionDir, name), []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	messages, ok := parseDocumentConversation(document)
+	if !ok {
+		t.Fatal("fixture is not a document-form transcript")
+	}
+	rel := "sessions/main/" + name
+	var indexed []brainTextMatch
+	for _, record := range historyDocumentRecords(rel, messages) {
+		if strings.Contains(record.Summary, "expected 2, got 3") {
+			t.Fatalf("fixture tool output must not be indexed, got record %q", record.Summary)
+		}
+		indexed = append(indexed, brainTextMatch{Path: rel, Line: record.Line, Excerpt: record.Summary})
+	}
+	if len(indexed) == 0 || indexed[0].Line != 3 {
+		t.Fatalf("fixture records = %+v, want the message indexed at line 3", indexed)
+	}
+	for impl, matcher := range rawHistoryMatcherImplementations() {
+		got, err := matcher(brainDir, "ALPHA_IDENTIFIER", indexed, 4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].Line != 3 || !strings.Contains(got[0].Excerpt, "expected 2, got 3") {
+			t.Fatalf("%s: raw top-up = %+v, want line 3 kept with its tool output", impl, got)
+		}
+	}
+}
+
 // assertRawTopUpKeepsFullyIndexedLine shows every record the history index
 // makes for line and checks that both scans still return the line, with an
 // excerpt that has wantIn, which no record may hold.
@@ -387,6 +431,24 @@ func assertRawTopUpKeepsFullyIndexedLine(t *testing.T, line, wantIn string) {
 		}
 		if len(got) != 1 || got[0].Line != 1 || !strings.Contains(got[0].Excerpt, wantIn) {
 			t.Fatalf("%s: raw top-up = %+v, want the line kept with %q", impl, got, wantIn)
+		}
+	}
+}
+
+func TestRawLineIsIndexedTextReadsOnlyTextRecords(t *testing.T) {
+	t.Parallel()
+	cases := map[string]bool{
+		`ALPHA_IDENTIFIER discussed in a plain text line`:                                                          true,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"}]}}`:     true,
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}`:  false,
+		`{"type":"user","message":{"content":[{"type":"tool_result","content":"func ALPHA_IDENTIFIER() error"}]}}`: false,
+		`{"info":{"role":"assistant"},"parts":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"}]}`:          false,
+		`{"unknown":"Decision: ALPHA_IDENTIFIER = 1"}`:                                                             false,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"Decision: ALPHA_IDENTIFIER = 1"}]}},`:    true,
+	}
+	for line, want := range cases {
+		if got := rawLineIsIndexedText(line); got != want {
+			t.Errorf("rawLineIsIndexedText(%q) = %v, want %v", line, got, want)
 		}
 	}
 }
