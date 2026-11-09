@@ -21,6 +21,9 @@ All notable changes to `entire-brain` are recorded here. The format follows
   files the session's checkpoint touched) so it links to the file's symbols.
   The indexer version moves, so the next refresh re-indexes existing
   sessions (#600).
+- The pattern corpus works out a Codex session's repository root from the
+  same edit records it stores file refs from, so the two can no longer
+  disagree about which records are edits.
 - `recall --evidence` no longer returns harness-injected `<system-reminder>`
   text as `role: "user"` evidence. User-role strings and text blocks now go
   through the same wrapper filter as the conversation reader, so reminders,
