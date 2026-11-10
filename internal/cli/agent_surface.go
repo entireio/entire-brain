@@ -4680,6 +4680,12 @@ const seedFreshDriftBound = 50
 func seedCommitDriftAxis(ctx context.Context, runner CommandRunner, repoDir, seedCommit, head string) staleAxis {
 	refresh := clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none"
 	stale := staleAxis{State: "stale", Detail: "repository context and docs are based on an older commit; run " + refresh, Current: head, Indexed: seedCommit}
+	// An empty seed commit must not reach rev-list: "...HEAD" means
+	// "HEAD...HEAD", whose 0 0 counts would read as fresh.
+	if strings.TrimSpace(seedCommit) == "" {
+		stale.Detail = "repository context has no recorded commit; run " + refresh
+		return stale
+	}
 	counts, err := clibase.GitScalar(ctx, runner, repoDir, "rev-list", "--count", "--left-right", seedCommit+"..."+head)
 	if err != nil {
 		return stale

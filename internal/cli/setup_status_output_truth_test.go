@@ -677,6 +677,22 @@ func driftSeedAxisLive(t *testing.T, revListOut string, withResponse, dirty bool
 	return status.Freshness.Axes["seed"]
 }
 
+// An empty seed commit would hit rev-list as "...HEAD" = "HEAD...HEAD" and
+// count 0 0, reading fresh (PR #630 Bugbot); it must keep the stale verdict.
+func TestSeedEmptyCommitStaysStale(t *testing.T) {
+	t.Parallel()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	live := brainLiveState{Branch: "main", Head: "headsha", Dirty: false}
+	manifest := &exportManifest{Sources: &brainSources{
+		Seed: &seedSourceManifest{Commit: "", WorktreeMode: "commit", GeneratedAt: setupTestNow},
+	}}
+	status := buildBrainRetrievalStatus(context.Background(), runner, t.TempDir(), t.TempDir(), manifest, live, false)
+	axis := status.Freshness.Axes["seed"]
+	if axis.State != "stale" || !strings.Contains(axis.Detail, "no recorded commit") {
+		t.Fatalf("an empty seed commit must stay stale, got %+v", axis)
+	}
+}
+
 func TestSeedNearDriftReadsOkWithDetail(t *testing.T) {
 	t.Parallel()
 	axis := driftSeedAxis(t, "0\t3\n", true)
