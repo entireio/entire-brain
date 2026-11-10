@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M73JHM2CNHJ0VVESA07N96XN",
+  "session_id": "69790fcf-0d15-4707-a9f1-f1bf2220dd4d",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-10T20:31:45.612205Z",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "CHANGELOG.md",
+    "internal/cli/seed.go",
+    "internal/cli/seed_snapshot_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "7f782d8ade12",
+  "checkpoint_transcript_start": 399,
+  "transcript_lines_at_start": 399,
+  "compact_transcript_start": 43,
+  "token_usage": {
+    "input_tokens": 68,
+    "cache_creation_tokens": 36485,
+    "cache_read_tokens": 4970883,
+    "output_tokens": 19655,
+    "api_call_count": 34
+  },
+  "redaction": {
+    "replacements": 26,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 24,
+      "key_context": 2,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "session_metrics": {
+    "turn_count": 1
+  }
+}
