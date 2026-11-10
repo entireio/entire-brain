@@ -113,8 +113,10 @@ func TestRankFactsRecencyPrior(t *testing.T) {
 
 // TestRankFactsCollapsesRelatedPairs locks in the COR-2311 collapse rule:
 // facts cross-linked via related_ids (distill judged them related below the
-// merge threshold) surface as one result — the highest-ranked wins, the freed
-// slot backfills — and --all skips the collapse for store introspection.
+// merge threshold) get one primary rank — the highest-ranked wins, the freed
+// slot backfills — while the lower member is demoted behind every unlinked
+// result, never silently dropped (trail 2821 finding 01M71XZN03ZT). --all
+// skips the collapse for store introspection.
 func TestRankFactsCollapsesRelatedPairs(t *testing.T) {
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	a := factRecord{ID: "fact:a", RelatedIDs: []string{"fact:b"},
@@ -137,13 +139,20 @@ func TestRankFactsCollapsesRelatedPairs(t *testing.T) {
 		t.Fatalf("linked pair should collapse to the top-ranked member and backfill, got %v", ids)
 	}
 
-	// A one-sided link still collapses: only the lower-ranked fact names the pair.
+	// With room left under the limit, the demoted member surfaces at the end
+	// instead of disappearing.
+	got = rankFactsAt([]factRecord{a, b, other}, "sync retries backoff", 3, false, now)
+	if len(got) != 3 || got[0].ID != "fact:a" || got[1].ID != "fact:other" || got[2].ID != "fact:b" {
+		t.Fatalf("demoted family member should trail the unlinked results, got %+v", got)
+	}
+
+	// A one-sided link still demotes: only the lower-ranked fact names the pair.
 	a2 := a
 	a2.RelatedIDs = nil
-	got = rankFactsAt([]factRecord{a2, b, other}, "sync retries backoff", 3, false, now)
+	got = rankFactsAt([]factRecord{a2, b, other}, "sync retries backoff", 2, false, now)
 	for _, f := range got {
 		if f.ID == "fact:b" {
-			t.Fatalf("one-sided related_ids should still collapse the pair, got %+v", got)
+			t.Fatalf("one-sided related_ids should still demote the pair's lower member, got %+v", got)
 		}
 	}
 

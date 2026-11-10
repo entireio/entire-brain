@@ -110,35 +110,40 @@ func rankFactsAt(facts []factRecord, query string, limit int, includeAll bool, n
 	return out
 }
 
-// collapseRelatedFacts keeps one result per related_ids family (COR-2311):
-// when distill judges two facts related below the merge threshold, both stay
-// active and cross-linked (factmerge.ApplyActions), and until the compaction
-// loop (COR-2273) settles them they would surface as near-duplicate results.
-// The highest-ranked member represents the family — its related_ids field
-// still names the absorbed alternates — and the freed slots backfill with the
-// next-ranked facts. Greedy in rank order: a chain A-B, B-C with A ranked
-// first keeps A and C (C is not linked to A directly). Links are checked in
-// both directions, so a one-sided related_ids entry still collapses the pair.
+// collapseRelatedFacts gives one top result per related_ids family
+// (COR-2311): when distill judges two facts related below the merge threshold,
+// both stay active and cross-linked (factmerge.ApplyActions), and until the
+// compaction loop (COR-2273) settles them they would surface as near-duplicate
+// neighbours. The highest-ranked member represents the family in the primary
+// ranks; linked lower-ranked members are demoted behind every unlinked result
+// rather than dropped, because a below-threshold relative can be a
+// complementary fact, not a duplicate (trail 2821 finding 01M71XZN03ZT) — so
+// an alternate still surfaces whenever the limit leaves room, and disappears
+// only by ordinary truncation. Greedy in rank order: a chain A-B, B-C with A
+// ranked first keeps A and C in the primary ranks (C is not linked to A
+// directly). Links are checked in both directions, so a one-sided related_ids
+// entry still demotes the pair's lower member.
 // ponytail: O(kept * related_ids) per candidate; fine at recall's k<=128.
 func collapseRelatedFacts(scored []scoredFact) []scoredFact {
 	if len(scored) < 2 {
 		return scored
 	}
 	kept := make([]scoredFact, 0, len(scored))
+	demoted := make([]scoredFact, 0, 2)
 	keptIDs := make(map[string]bool, len(scored))
 	claimed := make(map[string]bool)
 	for _, s := range scored {
-		if claimed[s.Record.ID] {
-			continue
-		}
-		linked := false
-		for _, rid := range s.Record.RelatedIDs {
-			if keptIDs[rid] {
-				linked = true
-				break
+		linked := claimed[s.Record.ID]
+		if !linked {
+			for _, rid := range s.Record.RelatedIDs {
+				if keptIDs[rid] {
+					linked = true
+					break
+				}
 			}
 		}
 		if linked {
+			demoted = append(demoted, s)
 			continue
 		}
 		kept = append(kept, s)
@@ -147,7 +152,7 @@ func collapseRelatedFacts(scored []scoredFact) []scoredFact {
 			claimed[rid] = true
 		}
 	}
-	return kept
+	return append(kept, demoted...)
 }
 
 // factQueryScore scores a fact against a query, reusing the history index's

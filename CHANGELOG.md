@@ -13,9 +13,11 @@ All notable changes to `entire-brain` are recorded here. The format follows
   the decision fact; kind no longer affects ranking. A gentle recency prior
   (±15%, 90-day half-life) now applies by default: it breaks stale-vs-current
   ties between near-duplicate facts and leaves dateless facts neutral. Facts
-  cross-linked via `related_ids` collapse to one result — the highest-ranked
-  member represents the family, its `related_ids` field names the alternates,
-  and the freed slots backfill; `--all` skips the collapse. Each change was
+  cross-linked via `related_ids` get one primary rank — the highest-ranked
+  member represents the family, the freed slots backfill, and the other
+  members are demoted behind every unlinked result rather than dropped, so a
+  complementary (not duplicate) relative still surfaces when the limit leaves
+  room; `--all` skips the collapse. Each change was
   gated on a 60-task provenance-labeled `memories eval` comparison with no
   significant relevance regression.
 
