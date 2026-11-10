@@ -1,0 +1,74 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M71KNFBKW3Y2G4GXW1QXAZ4F",
+  "strategy": "manual-commit",
+  "branch": "evisdren/cor-2308-phase-b-design",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "internal/agentsetup/guide.go",
+    "internal/agentsetup/strict.go",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_brief_action_relevance.go",
+    "internal/cli/brain_brief_action_relevance_test.go",
+    "internal/cli/brain_brief_compact.go",
+    "internal/cli/brain_brief_compact_test.go",
+    "internal/cli/brain_brief_compact_v2.go",
+    "internal/cli/brain_brief_compact_v2_test.go",
+    "internal/cli/brain_brief_compact_v3_test.go",
+    "internal/cli/brain_brief_history_merge_test.go",
+    "internal/cli/brain_brief_profile.go",
+    "internal/cli/brain_brief_profile_test.go",
+    "internal/cli/brain_brief_raw_history_benchmark_test.go",
+    "internal/cli/brain_brief_semantic_freshness_test.go",
+    "internal/cli/brain_test.go",
+    "internal/cli/brief_failure_residual_regression_test.go",
+    "internal/cli/brief_output_regression_test.go",
+    "internal/cli/brief_overlay_payload_regression_test.go",
+    "internal/cli/history_audit_regression_test.go",
+    "internal/cli/history_fts_benchmark_test.go",
+    "internal/cli/history_fts_test.go",
+    "internal/cli/history_legacy_identity.go",
+    "internal/cli/history_legacy_identity_test.go",
+    "internal/cli/history_retrieval_equivalence_test.go",
+    "internal/cli/history_single_read_test.go",
+    "internal/cli/historystore_aliases.go",
+    "internal/cli/internal/historystore/historystore.go",
+    "internal/cli/internal/historystore/legacy.go",
+    "internal/cli/regression.go",
+    "internal/cli/review_regressions_test.go",
+    "internal/cli/testdata/brain_brief_compact_v1.golden",
+    "internal/cli/testdata/brain_brief_compact_v2.golden",
+    "internal/cli/versioned_state_test.go",
+    "tools/mutationcheck/cases.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 352,
+    "cache_creation_tokens": 326436,
+    "cache_read_tokens": 39815562,
+    "output_tokens": 114969,
+    "api_call_count": 176
+  },
+  "redaction": {
+    "replacements": 15,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 11,
+      "key_context": 4,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
