@@ -1,0 +1,37 @@
+put up a trail for this
+
+---
+
+fix the trail review: https://entire.com/gh/entireio/-/trails/2801/changes/entire-brain/497
+
+---
+
+explain this precedence section to me? dont' we already have the anchors? so waht do we need the precendece section for?
+
+---
+
+when is that built? or rebuilt? how long does it take?
+
+---
+
+how long does this take? bench it
+
+---
+
+when is the 6 limit enforced? is that after the search? 
+
+sweep from 6 to 50
+
+---
+
+okay so still very fast then
+
+---
+
+okay this is merged: https://entire.com/gh/entireio/-/trails/2801/changes/entire-brain/497
+
+validat eit on main
+
+---
+
+yes

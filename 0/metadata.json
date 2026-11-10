@@ -1,0 +1,78 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M71FA8G6PHYSZBA8WTX60AWS",
+  "session_id": "4011955e-800b-4011-a831-999280619b79",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-10T00:56:48.251855Z",
+  "branch": "evisdren/cor-2307-symlink-hardening",
+  "checkpoints_count": 9,
+  "save_step_count": 7,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_brief_precedent_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "1fdb08947541",
+  "checkpoint_transcript_start": 375,
+  "transcript_lines_at_start": 375,
+  "compact_transcript_start": 45,
+  "token_usage": {
+    "input_tokens": 84,
+    "cache_creation_tokens": 300795,
+    "cache_read_tokens": 5765179,
+    "output_tokens": 22754,
+    "api_call_count": 42
+  },
+  "redaction": {
+    "replacements": 15,
+    "layers": {
+      "betterleaks": 2,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 4,
+      "key_context": 9,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01MnJprr53ErfAAaBggqyXNi",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "entire:address-findings"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "1fdb08947541",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 440,
+        "end": 441,
+        "entry_ids": [
+          "9ead7ec6-71c3-4bb9-902c-21ce41ae25be"
+        ],
+        "tool_use_id": "toolu_01MnJprr53ErfAAaBggqyXNi"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01MnJprr53ErfAAaBggqyXNi"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: entire:address-findings",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 10
+  }
+}

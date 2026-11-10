@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M71FA8G6PHYSZBA8WTX60AWS",
+  "strategy": "manual-commit",
+  "branch": "evisdren/cor-2307-symlink-hardening",
+  "checkpoints_count": 9,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_brief_precedent_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 84,
+    "cache_creation_tokens": 300795,
+    "cache_read_tokens": 5765179,
+    "output_tokens": 22754,
+    "api_call_count": 42
+  },
+  "redaction": {
+    "replacements": 15,
+    "layers": {
+      "betterleaks": 2,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 4,
+      "key_context": 9,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
