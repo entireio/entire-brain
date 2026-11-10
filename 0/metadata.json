@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M73H687H0K1N30R79Z9XN9X8",
+  "session_id": "69790fcf-0d15-4707-a9f1-f1bf2220dd4d",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-10T20:08:04.600732Z",
+  "branch": "evisdren/cor-2193-memories-rename",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/facts_sync_cmd.go",
+    "internal/cli/facts_sync_hosted_cmd_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "72f87931044e",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 78389,
+    "cache_read_tokens": 1497668,
+    "output_tokens": 7989,
+    "api_call_count": 19
+  },
+  "redaction": {
+    "replacements": 7,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 6,
+      "key_context": 1,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
