@@ -4662,6 +4662,54 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	return report, nil
 }
 
+// seedFreshDriftBound is how much one-sided drift between the seed commit and
+// this worktree's HEAD still reads as fresh. One brain is shared by every
+// worktree of a repo (keyed by the origin remote), so at most one worktree can
+// ever satisfy seed == HEAD; strict equality made the stale warning the
+// PERMANENT state of every other worktree (COR-2315). A worktree a few dozen
+// commits off the seed deserves a detail line, not a warning; hundreds of
+// commits is a genuinely old seed and still warns.
+const seedFreshDriftBound = 50
+
+// seedCommitDriftAxis classifies a seed built on a different commit than this
+// worktree's HEAD. One git call — `rev-list --count --left-right A...B` — says
+// how far each side is from their merge base, which separates near-ancestor
+// drift (ok, with a built-from detail) from real distance or divergence
+// (stale). A comparison that cannot run keeps the stale verdict: an unreadable
+// history must not read as fresh.
+func seedCommitDriftAxis(ctx context.Context, runner CommandRunner, repoDir, seedCommit, head string) staleAxis {
+	refresh := clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none"
+	stale := staleAxis{State: "stale", Detail: "repository context and docs are based on an older commit; run " + refresh, Current: head, Indexed: seedCommit}
+	// An empty seed commit must not reach rev-list: "...HEAD" means
+	// "HEAD...HEAD", whose 0 0 counts would read as fresh.
+	if strings.TrimSpace(seedCommit) == "" {
+		stale.Detail = "repository context has no recorded commit; run " + refresh
+		return stale
+	}
+	counts, err := clibase.GitScalar(ctx, runner, repoDir, "rev-list", "--count", "--left-right", seedCommit+"..."+head)
+	if err != nil {
+		return stale
+	}
+	var seedOnly, headOnly int
+	if _, err := fmt.Sscanf(strings.TrimSpace(counts), "%d %d", &seedOnly, &headOnly); err != nil {
+		return stale
+	}
+	switch {
+	case seedOnly > 0 && headOnly > 0:
+		stale.Detail = fmt.Sprintf("repository context and docs were built from %s, which diverged from HEAD (%d and %d commits from their merge base); run %s", seedCommit, seedOnly, headOnly, refresh)
+		return stale
+	case headOnly > seedFreshDriftBound || seedOnly > seedFreshDriftBound:
+		stale.Detail = fmt.Sprintf("repository context and docs were built from %s, %d commits from HEAD; run %s", seedCommit, max(seedOnly, headOnly), refresh)
+		return stale
+	case headOnly > 0:
+		return staleAxis{State: "ok", Detail: fmt.Sprintf("repository context and docs were built from %s, %d commit(s) behind HEAD", seedCommit, headOnly), Current: head, Indexed: seedCommit}
+	default:
+		// The seed is ahead: another worktree refreshed on a newer commit and
+		// this one's HEAD is its ancestor.
+		return staleAxis{State: "ok", Detail: fmt.Sprintf("repository context and docs were built from %s, %d commit(s) ahead of this worktree's HEAD", seedCommit, seedOnly), Current: head, Indexed: seedCommit}
+	}
+}
+
 func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainDir, repoDir string, manifest *exportManifest, live brainLiveState, audit bool) *brainStatusRetrieval {
 	report := &brainStatusRetrieval{}
 	axes := map[string]staleAxis{}
@@ -4675,7 +4723,30 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		case live.Head == "":
 			axes["seed"] = staleAxis{State: "unsafe", Detail: "current HEAD unavailable, so repository context freshness cannot be compared", Remedy: "run `git rev-parse HEAD` here to see why HEAD is unreadable", Indexed: seed.Commit}
 		case seed.Commit != live.Head:
-			axes["seed"] = staleAxis{State: "stale", Detail: "repository context and docs are based on an older commit; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: live.Head, Indexed: seed.Commit}
+			drift := seedCommitDriftAxis(ctx, runner, repoDir, seed.Commit, live.Head)
+			// Near drift reads ok only for a clean committed-HEAD seed. The
+			// dirty and worktree-overlay gates below assume seed == HEAD, so a
+			// drifted seed applies them here: the dirty tree that earns a cause
+			// line at the seed commit must not read fresh a few commits away,
+			// and a worktree overlay is tied to the commit it was built on.
+			switch {
+			case drift.State != "ok":
+				axes["seed"] = drift
+			case seed.WorktreeMode == "worktree" && live.Dirty:
+				axes["seed"] = staleAxis{State: "dirty-stale", Detail: "dirty worktree moved to a different commit since its repository context snapshot (built at " + seed.Commit + ")", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --worktree` to re-index the current changes", Current: live.Head, Indexed: seed.Commit}
+			case seed.WorktreeMode == "worktree":
+				axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "repository context was built from dirty content at " + seed.Commit + " but the worktree is now clean on a different commit", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild from committed HEAD", Current: live.Head, Indexed: seed.Commit}
+			case live.Dirty:
+				axes["seed"] = staleAxis{
+					State:   dirtyUnindexedAxisState,
+					Detail:  drift.Detail + "; uncommitted changes are excluded",
+					Remedy:  setupDirtyWorktreeHint(clibase.SetupCommandPrefix(os.LookupEnv)),
+					Current: live.Head,
+					Indexed: seed.Commit,
+				}
+			default:
+				axes["seed"] = drift
+			}
 		case seed.WorktreeMode != "worktree" && live.Dirty:
 			// CAUSE only, no remedy. This axis is rendered as the `Cause`
 			// line directly under the status verdict, which prints the one
