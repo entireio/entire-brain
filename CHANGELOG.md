@@ -13,6 +13,13 @@ All notable changes to `entire-brain` are recorded here. The format follows
   teaches the `memories` command group with a note that the `facts` spellings
   remain aliases (COR-2193).
 
+- The seed freshness axis is drift-aware. One brain is shared by every
+  worktree of a repo, so `seed commit != HEAD` was the permanent state of all
+  but one worktree and the stale warning was permanent noise. A seed within 50
+  commits of HEAD on one line of history now reads ok with a "built from
+  <sha>, N commits behind/ahead" detail; real distance, divergence, or an
+  unreadable comparison still warns (COR-2315).
+
 - Facts ranking (recall, brief, the facts arms) changed in three ways
   (COR-2311). The flat closed-negative score bonus is gone: it boosted ~17% of
   the corpus on any match and let topically-similar closed-negatives displace

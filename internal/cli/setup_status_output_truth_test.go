@@ -648,3 +648,51 @@ func TestQueryabilityClauseNeverOverclaims(t *testing.T) {
 		}
 	}
 }
+
+// --- COR-2315: seed drift in shared multi-worktree brains --------------------
+
+// driftSeedAxis runs the real producer with a stubbed rev-list comparison.
+// One brain is shared by every worktree, so seed != HEAD is the permanent
+// state of all but one of them; these tests pin which drifts warn.
+func driftSeedAxis(t *testing.T, revListOut string, withResponse bool) staleAxis {
+	t.Helper()
+	repoDir := t.TempDir()
+	responses := map[string]fakeCommandResponse{}
+	if withResponse {
+		responses[fakeCommandKey("git", "rev-list", "--count", "--left-right", "seedsha...headsha")] = fakeCommandResponse{stdout: revListOut}
+	}
+	runner := &fakeCommandRunner{responses: responses}
+	live := brainLiveState{Branch: "main", Head: "headsha", Dirty: false}
+	manifest := &exportManifest{Sources: &brainSources{
+		Seed: &seedSourceManifest{Commit: "seedsha", WorktreeMode: "commit", GeneratedAt: setupTestNow},
+	}}
+	status := buildBrainRetrievalStatus(context.Background(), runner, t.TempDir(), repoDir, manifest, live, false)
+	return status.Freshness.Axes["seed"]
+}
+
+func TestSeedNearDriftReadsOkWithDetail(t *testing.T) {
+	t.Parallel()
+	axis := driftSeedAxis(t, "0\t3\n", true)
+	if axis.State != "ok" || !strings.Contains(axis.Detail, "3 commit(s) behind HEAD") {
+		t.Fatalf("a seed a few commits behind must read ok with a built-from detail, got %+v", axis)
+	}
+	// The seed can also be AHEAD of a worktree checked out on an older commit.
+	axis = driftSeedAxis(t, "2\t0\n", true)
+	if axis.State != "ok" || !strings.Contains(axis.Detail, "2 commit(s) ahead") {
+		t.Fatalf("a seed slightly ahead of this worktree must read ok, got %+v", axis)
+	}
+}
+
+func TestSeedFarOrDivergedDriftStillWarns(t *testing.T) {
+	t.Parallel()
+	if axis := driftSeedAxis(t, "0\t640\n", true); axis.State != "stale" || !strings.Contains(axis.Detail, "640 commits from HEAD") {
+		t.Fatalf("a genuinely old seed must stay stale, got %+v", axis)
+	}
+	if axis := driftSeedAxis(t, "4\t7\n", true); axis.State != "stale" || !strings.Contains(axis.Detail, "diverged") {
+		t.Fatalf("a diverged seed must stay stale, got %+v", axis)
+	}
+	// An unreadable comparison must not read as fresh.
+	if axis := driftSeedAxis(t, "", false); axis.State != "stale" {
+		t.Fatalf("an unreadable drift comparison must keep the stale verdict, got %+v", axis)
+	}
+}
