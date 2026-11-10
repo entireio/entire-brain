@@ -9,6 +9,10 @@ import (
 	"testing"
 )
 
+func normalizeEOL(data []byte) string {
+	return strings.ReplaceAll(string(data), "\r\n", "\n")
+}
+
 // COR-2316: a dirty worktree seeds from the committed HEAD snapshot instead of
 // refusing, so permanently-dirty worktrees (every Conductor workspace) still
 // get background refreshes. Real git: dirtiness and archives are properties of
@@ -66,15 +70,18 @@ func TestDirtyWorktreeSeedsFromCommittedHead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("snapshot README: %v", err)
 	}
-	if string(body) != "committed content\n" {
+	// checkout-index applies the machine's eol conversion (core.autocrlf)
+	// exactly as a clean checkout at this commit would — that conversion IS
+	// the parity target, so the comparison normalizes line endings.
+	if normalizeEOL(body) != "committed content\n" {
 		t.Fatalf("snapshot must hold committed content, got %q", body)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "scratch.txt")); !os.IsNotExist(err) {
 		t.Fatalf("untracked file must not reach the snapshot, stat err=%v", err)
 	}
 	doc, err := os.ReadFile(filepath.Join(dir, "docs", "guide.md"))
-	if err != nil || string(doc) != "export-ignored doc\n" {
-		t.Fatalf("export-ignored committed file must reach the snapshot verbatim, err=%v body=%q", err, doc)
+	if err != nil || normalizeEOL(doc) != "export-ignored doc\n" {
+		t.Fatalf("export-ignored committed file must reach the snapshot, err=%v body=%q", err, doc)
 	}
 
 	// The scan in snapshot mode reads committed bytes and stamps the snapshot
