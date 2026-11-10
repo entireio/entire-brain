@@ -12,6 +12,7 @@ import (
 	"io"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 )
 
@@ -43,7 +44,7 @@ type Deps struct {
 	RecordServedFacts func(errW io.Writer, ctx context.Context, opts base.Options, brainDir, branch, surface, repoDir, taskText string, factIDs []string)
 	// EmptyResultBlindSpot explains an empty result on a branch whose store
 	// holds memories elsewhere.
-	EmptyResultBlindSpot func(brainDir, branch string) string
+	EmptyResultBlindSpot func(brainDir, branch string, integrity *factstore.Integrity) string
 	// TaskHints derives likely edit/test files from indexed result paths; it
 	// stays in cli with the brain-brief path classifiers it binds.
 	TaskHints func(repoRoot string, results []retrieval.Result, query string) retrieval.TaskHints

@@ -293,14 +293,24 @@ func Inspect(brainDir string, source *bmanifest.FactSource) Integrity {
 	if brainDir == "" || source == nil {
 		return Integrity{}
 	}
-	report := Integrity{Declared: source.Facts, Pending: source.PendingReconcile}
-
 	combined, err := loadCombined(brainDir)
 	if err != nil {
+		report := Integrity{Declared: source.Facts, Pending: source.PendingReconcile}
 		report.ParseError = err.Error()
 		report.Mode = DefectUnreadable
 		return report
 	}
+	return inspectCombined(source, combined)
+}
+
+// inspectCombined is Inspect over an already-parsed store, so a caller that
+// just loaded the records (LoadWithIntegrity) does not parse the store a
+// second time for its integrity report (COR-2313).
+func inspectCombined(source *bmanifest.FactSource, combined combinedRecords) Integrity {
+	if source == nil {
+		return Integrity{}
+	}
+	report := Integrity{Declared: source.Facts, Pending: source.PendingReconcile}
 
 	// Not built: memories are declared but neither a store nor any legacy
 	// FILE exists on disk (an empty leftover branch dir holds nothing).

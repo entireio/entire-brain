@@ -12,6 +12,7 @@ import (
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -44,7 +45,7 @@ type Deps struct {
 	RecordServedFacts func(errW io.Writer, ctx context.Context, opts base.Options, brainDir, branch, surface, repoDir, taskText string, served []factmerge.Record)
 	// EmptyResultBlindSpot explains an empty result on a branch whose store
 	// holds memories elsewhere.
-	EmptyResultBlindSpot func(brainDir, branch string) string
+	EmptyResultBlindSpot func(brainDir, branch string, integrity *factstore.Integrity) string
 	// RunRecallEvidence runs recall's deterministic evidence mode, which still
 	// lives with the cli-resident evidence engine.
 	RunRecallEvidence func(cmd *cobra.Command, brainDir, branch, query string, limit, budget int, jsonOut bool) error

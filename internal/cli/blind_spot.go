@@ -40,14 +40,17 @@ func distillCoverage(manifest *exportManifest) (last time.Time, undigested int, 
 // gone" decides whether the line is true.
 // Empty string when nothing useful can be said (no manifest at all).
 func emptyResultBlindSpot(brainDir string) string {
-	return emptyResultBlindSpotOnBranch(brainDir, "")
+	return emptyResultBlindSpotOnBranch(brainDir, "", nil)
 }
 
 // emptyResultBlindSpotOnBranch is emptyResultBlindSpot for callers that know
 // which branch they queried. Facts are stored per branch, so "nothing here" and
 // "nothing anywhere" are different answers and only this variant can tell them
 // apart.
-func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
+// pre, when non-nil, is an integrity report the caller already computed from
+// its own store parse; nil means compute one here (COR-2313: recall passes
+// its report so an empty result does not re-parse the store).
+func emptyResultBlindSpotOnBranch(brainDir, branch string, pre *factstore.Integrity) string {
 	manifest, err := bmanifest.Load(brainDir)
 	// A missing manifest loads as an empty struct, not an error, and a nil
 	// Sources is exactly that case: bmanifest.Normalize gives every manifest
@@ -66,7 +69,13 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	//
 	// This single choke point is why recall, search, query and retrieve all
 	// inherit the correction without each having to remember to ask.
-	if integrity := factstore.Inspect(brainDir, manifest.Sources.Facts); !integrity.OK() {
+	integrity := factstore.Integrity{}
+	if pre != nil {
+		integrity = *pre
+	} else {
+		integrity = factstore.Inspect(brainDir, manifest.Sources.Facts)
+	}
+	if !integrity.OK() {
 		return "note: this empty result is NOT evidence of absence — " + integrity.Warning()
 	}
 	// A connected repo whose branch never synced may be missing the whole

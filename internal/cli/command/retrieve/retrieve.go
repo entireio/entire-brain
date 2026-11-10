@@ -226,7 +226,7 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, query string, mode
 				out["related_patterns"] = related
 			}
 			if len(results) == 0 {
-				if note := cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch); note != "" {
+				if note := cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch, nil); note != "" {
 					out["blind_spot"] = note
 				}
 			}
@@ -246,7 +246,7 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, query string, mode
 		if err := cmdutil.WriteTextToWriter(&rendered, func(out io.Writer) {
 			if len(results) == 0 {
 				fmt.Fprintf(out, "no results for %q\n", query)
-				if note := cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch); note != "" {
+				if note := cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch, nil); note != "" {
 					fmt.Fprintln(out, note)
 				}
 			}
@@ -303,7 +303,7 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, query string, mode
 		Related:                   related,
 	}
 	if len(results) == 0 {
-		extras.BlindSpot = cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch)
+		extras.BlindSpot = cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch, nil)
 	}
 	// Preserve the established JSON `text` field
 	// surfaces. Excerpt is additive; existing consumers must not be forced to

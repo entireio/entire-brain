@@ -42,7 +42,7 @@ func TestHostedNoteSurfacesOnAnEmptyResult(t *testing.T) {
 	if err := brainstore.WriteHostedRepoBinding(brainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: "https://api.example.com/api/v1"}); err != nil {
 		t.Fatal(err)
 	}
-	note := emptyResultBlindSpotOnBranch(brainDir, "feature/x")
+	note := emptyResultBlindSpotOnBranch(brainDir, "feature/x", nil)
 	if !strings.Contains(note, "has not synced") {
 		t.Fatalf("the hosted note is actionable and must surface, got %q", note)
 	}

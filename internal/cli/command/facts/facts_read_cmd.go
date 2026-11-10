@@ -100,7 +100,9 @@ func NewRecall(cfg Config) *cobra.Command {
 			if evidence {
 				return cfg.Deps.RunRecallEvidence(cmd, brainDir, resolvedBranch, query, limit, evidenceBytes, jsonOut)
 			}
-			allFacts, err := factstore.Load(brainDir)
+			// One parse serves both the records and the integrity report
+			// (COR-2313); the blind-spot explainer below reuses the report.
+			allFacts, storeIntegrity, err := factstore.LoadWithIntegrity(brainDir)
 			if err != nil {
 				return err
 			}
@@ -136,10 +138,10 @@ func NewRecall(cfg Config) *cobra.Command {
 			var storeWarning string
 			if _, manifestErr := bmanifest.Load(brainDir); manifestErr != nil {
 				storeWarning = "memory source manifest unavailable: " + manifestErr.Error()
-			} else if integrity := factstore.InspectBrain(brainDir); !integrity.OK() {
+			} else if !storeIntegrity.OK() {
 				// A short or collided store must never read as a smaller but
 				// healthy corpus.
-				storeWarning = integrity.Warning()
+				storeWarning = storeIntegrity.Warning()
 			}
 			candidateFacts := allFacts
 			var eligibility *FactEligibilityAudit
@@ -218,7 +220,7 @@ func NewRecall(cfg Config) *cobra.Command {
 					out["warnings"] = append(warnings, storeWarning)
 				}
 				if len(matches) == 0 {
-					if note := cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch); note != "" && storeWarning == "" {
+					if note := cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch, &storeIntegrity); note != "" && storeWarning == "" {
 						out["blind_spot"] = note
 					}
 				}
@@ -240,7 +242,7 @@ func NewRecall(cfg Config) *cobra.Command {
 					if storeWarning != "" {
 						fmt.Fprintln(out, "warning: "+storeWarning)
 					}
-					if note := cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch); note != "" && storeWarning == "" {
+					if note := cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch, &storeIntegrity); note != "" && storeWarning == "" {
 						fmt.Fprintln(out, note)
 					}
 				})

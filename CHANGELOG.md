@@ -7,6 +7,11 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Changed
 
+- `recall` parses the memory store once per query instead of up to three
+  times: the integrity report comes from the same parse as the records
+  (`LoadWithIntegrity`), and the empty-result blind-spot note reuses that
+  report instead of re-reading the store (COR-2313).
+
 - Facts ranking (recall, brief, the facts arms) changed in three ways
   (COR-2311). The flat closed-negative score bonus is gone: it boosted ~17% of
   the corpus on any match and let topically-similar closed-negatives displace

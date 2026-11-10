@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -902,4 +903,35 @@ func TestFactStoreIntegrityStagedCandidateIsNotAStaleManifest(t *testing.T) {
 	if !strings.Contains(stale.Warning(), "5 declared (+1 staged candidate(s)), 7 readable") {
 		t.Fatalf("stale warning does not account for the staged share: %q", stale.Warning())
 	}
+}
+
+// TestLoadWithIntegrityMatchesSeparateCalls pins the COR-2313 single-parse
+// contract: one LoadWithIntegrity call returns what Load and InspectBrain
+// return separately, on a healthy store and after a fact is lost.
+func TestLoadWithIntegrityMatchesSeparateCalls(t *testing.T) {
+	_, _, brainDir, path := factLossFixture(t)
+	check := func(t *testing.T) {
+		records, integrity, err := factstore.LoadWithIntegrity(brainDir)
+		if err != nil {
+			t.Fatalf("LoadWithIntegrity: %v", err)
+		}
+		want, err := factstore.Load(brainDir)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if len(records) != len(want) {
+			t.Fatalf("records diverge: got %d, Load returns %d", len(records), len(want))
+		}
+		for i := range want {
+			if records[i].ID != want[i].ID {
+				t.Fatalf("record %d diverges: %q vs %q", i, records[i].ID, want[i].ID)
+			}
+		}
+		if wantIntegrity := factstore.InspectBrain(brainDir); !reflect.DeepEqual(integrity, wantIntegrity) {
+			t.Fatalf("integrity diverges:\n got %+v\nwant %+v", integrity, wantIntegrity)
+		}
+	}
+	t.Run("healthy", check)
+	replaceFactLines(t, path, `{"hello":"world"}`, 0)
+	t.Run("lossy", check)
 }

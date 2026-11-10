@@ -29,6 +29,7 @@ import (
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 const RepositoryPath = "facts/store.json"
@@ -111,6 +112,23 @@ func Load(brainDir string) ([]factmerge.Record, error) {
 		return nil, err
 	}
 	return combined.sorted(), nil
+}
+
+// LoadWithIntegrity is Load plus the integrity report computed from the same
+// parse, so a read surface needs one pass over the store instead of one per
+// concern (COR-2313). The report matches InspectBrain: a manifest that will
+// not load or declares no fact source reads as healthy.
+func LoadWithIntegrity(brainDir string) ([]factmerge.Record, Integrity, error) {
+	combined, err := loadCombined(brainDir)
+	if err != nil {
+		return nil, Integrity{}, err
+	}
+	records := combined.sorted()
+	manifest, merr := bmanifest.Load(brainDir)
+	if merr != nil || manifest == nil || manifest.Sources == nil {
+		return records, Integrity{}, nil
+	}
+	return records, inspectCombined(manifest.Sources.Facts, combined), nil
 }
 
 // Write replaces the flat store with exactly these records. Callers hold the

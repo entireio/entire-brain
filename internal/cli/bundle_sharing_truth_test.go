@@ -100,7 +100,7 @@ func TestEmptyRecallNamesTheImportThatReplacedTheFacts(t *testing.T) {
 	declareFactsAt(t, brainDir, now, now, 1, "main")
 	writeAuditLine(t, brainDir, `{"action":"bundle_import","generated_at":"2026-10-11T10:00:00Z","layers":["seed","docs","facts"]}`)
 
-	note := emptyResultBlindSpotOnBranch(brainDir, "main")
+	note := emptyResultBlindSpotOnBranch(brainDir, "main", nil)
 	if note == "" {
 		t.Fatal("an empty result after an import must still be explained")
 	}
@@ -136,7 +136,7 @@ func TestABrainThatNeverImportedKeepsItsUsualNote(t *testing.T) {
 	declareFactsAt(t, brainDir, now, now, 1, "main")
 	writeAuditLine(t, brainDir, `{"action":"bundle_export","generated_at":"2026-10-11T10:00:00Z"}`)
 
-	note := emptyResultBlindSpotOnBranch(brainDir, "main")
+	note := emptyResultBlindSpotOnBranch(brainDir, "main", nil)
 	if strings.Contains(note, "bundle import") {
 		t.Fatalf("an export is not an import; got: %s", note)
 	}
