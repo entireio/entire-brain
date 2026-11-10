@@ -108,6 +108,15 @@ type brainStatusReport struct {
 	// deliberately not part of the JSON contract: it duplicates the structured
 	// sections above and its session list scales with brain size.
 	Manifest *exportManifest `json:"-"`
+	// graphStoreErr is the store probe's verdict, kept for in-process consumers:
+	// when it is errGraphStoreUnavailable the provider itself said "no store for
+	// this commit", and the brief uses that to not ask again (COR-2314). The
+	// probe always runs the DEFAULT `entire` binary, so the verdict only speaks
+	// for that binary.
+	graphStoreErr error
+	// graphStoreDetail is the provider's own detail for that refusal — bare, so
+	// warnings can carry its remedy without the probe error's wrapping.
+	graphStoreDetail string
 }
 
 type brainStatusFacts struct {
@@ -1506,7 +1515,20 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 	semanticDelegated := false
 	graphStoreMissing := false
 	var graphStoreMissingDetail string
-	{
+	// The status build above already asked the provider for its store. When
+	// the provider itself answered "no store for this commit" and cannot serve
+	// an ancestor answer either, `graph context` would spawn a subprocess only
+	// to repeat that refusal — at real corpus sizes it was half the brief's
+	// wall clock (COR-2314). The probe's own detail keeps carrying the remedy.
+	// The probe ran the DEFAULT binary, so its refusal speaks only for that
+	// binary: a --graph-binary override is always asked.
+	briefGraphBinary := strings.TrimSpace(briefOpts.graphBinary)
+	if errors.Is(status.graphStoreErr, errGraphStoreUnavailable) &&
+		(briefGraphBinary == "" || briefGraphBinary == "entire") &&
+		!(graphBriefAncestorBudget > 0 && graphContextAllowsAncestor(ctx, opts.Runner, status.Repo.Root, briefOpts.graphBinary)) {
+		graphStoreMissing = true
+		graphStoreMissingDetail = status.graphStoreDetail
+	} else {
 		delegationStarted := profile.start()
 		graphContext, graphErr := fetchGraphTaskContext(ctx, opts.Runner, status.Repo.Root, briefOpts.graphBinary, task, briefOpts.limit, briefOpts.limit)
 		if graphErr == nil && graphContext.StoreUnavailable {
@@ -4493,6 +4515,8 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	// outright -- is a different, actionable problem, and used to vanish along
 	// with the ordinary case. That one is recorded as a warning instead.
 	var graphStatusWarning string
+	var graphStoreErr error
+	var graphStoreDetail string
 	if layoutErr := checkLegacyBrainLayout(storage.BrainDir, manifest); layoutErr != nil {
 		graphStatusWarning = layoutErr.Error()
 		code := brainstore.MemoryErrorCode(layoutErr)
@@ -4510,6 +4534,8 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		// Do not replace the old source with a healthy Graph descriptor.
 		if graphStatusWarning == "" {
 			if d, graphErr := fetchGraphStore(ctx, opts, repoDir, "", profile); graphErr != nil {
+				graphStoreErr = graphErr
+				graphStoreDetail = strings.TrimSpace(d.Detail)
 				if !errors.Is(graphErr, errGraphStoreUnsupported) && !errors.Is(graphErr, errGraphStoreUnavailable) {
 					graphStatusWarning = "graph store unavailable: " + graphErr.Error()
 				}
@@ -4527,8 +4553,10 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 			SupportedSchema: bmanifest.SchemaVersion,
 			ManifestState:   manifestState,
 		},
-		Manifest: manifest,
-		Issues:   healthIssues,
+		Manifest:         manifest,
+		Issues:           healthIssues,
+		graphStoreErr:    graphStoreErr,
+		graphStoreDetail: graphStoreDetail,
 	}
 	if graphStatusWarning != "" {
 		report.Warnings = append(report.Warnings, graphStatusWarning)
