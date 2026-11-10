@@ -294,7 +294,10 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		}
 
 		if seedOpts.agent != "none" {
-			agentManifest, err := runSeedAgent(ctx, repoDir, outputDir, scan, seedOpts)
+			// The agent works in the scan's content root: in snapshot mode the
+			// repository itself is dirty, and an agent run there could fold
+			// uncommitted content into the overview (trail #2845 finding).
+			agentManifest, err := runSeedAgent(ctx, scan.contentRoot(), outputDir, scan, seedOpts)
 			if err != nil {
 				if seedOpts.requireAgent {
 					return err
