@@ -200,11 +200,12 @@ func TestRealProductsPreserveSharedAgentInstructions(t *testing.T) {
 	}
 }
 
-// The pinned Graph release still includes two obsolete MCP sentences and
-// predates the COR-2308 memories-first wording (precedent anchors, history
-// search as explicit escalation). Accept only these exact differences until
-// the corrected Graph guide is released.
-// Strict parity can be required when validating the corrected Graph revision.
+// The pinned Graph revision (entire-graph#392's current head) already carries
+// the remember --path rule and no longer includes the obsolete MCP sentences.
+// It still predates the COR-2308 memories-first wording (precedent anchors,
+// history search as explicit escalation). Accept only those exact differences
+// until Graph carries that wording. Strict parity can be required when
+// validating a Graph revision that also has it.
 func compareGuideText(brain, graph []byte, requireParity bool) error {
 	if bytes.Equal(brain, graph) {
 		return nil
@@ -213,10 +214,6 @@ func compareGuideText(brain, graph []byte, requireParity bool) error {
 		return fmt.Errorf("Brain and Graph must render identical guide text")
 	}
 	legacy := strings.NewReplacer(
-		"agent on PATH. Retrieve with recall, and re-check anchors with verify.",
-		"agent on PATH. Over MCP the same write is the brain_remember tool, which\nrequires path. Retrieve with recall, and re-check anchors with verify.",
-		"agent on PATH; pass --path when none is guaranteed. Retrieve with recall and",
-		"agent on PATH; pass --path when none is guaranteed. Over MCP the same write is\nthe brain_remember tool, which requires path. Retrieve with recall and",
 		"Memories are the default retrieval surface. The brief's precedent section lists\neach surfaced memory's source sessions (session, transcript, commit,\ncheckpoint); follow those anchors when you need the detail behind a memory.\nThe brief does not search transcript history. Search transcripts only as an\nexplicit escalation, when memories and their anchors miss:\n\n    entire brain query --source history \"<question>\" --json\n\n",
 		"",
 		"The brief's precedent section lists each surfaced memory's source sessions.\nFollow those anchors when you need the detail behind a memory; the brief does\nnot search transcript history. Search transcripts only as an explicit\nescalation when memories and their anchors miss:\n\n    entire brain query --source history \"<question>\" --json\n\n",
@@ -229,8 +226,9 @@ func compareGuideText(brain, graph []byte, requireParity bool) error {
 }
 
 func TestGuideComparisonRejectsUnrelatedDrift(t *testing.T) {
-	brain := []byte("agent on PATH. Retrieve with recall, and re-check anchors with verify.")
-	legacy := []byte("agent on PATH. Over MCP the same write is the brain_remember tool, which\nrequires path. Retrieve with recall, and re-check anchors with verify.")
+	precedent := "The brief's precedent section lists each surfaced memory's source sessions.\nFollow those anchors when you need the detail behind a memory; the brief does\nnot search transcript history. Search transcripts only as an explicit\nescalation when memories and their anchors miss:\n\n    entire brain query --source history \"<question>\" --json\n\n"
+	brain := []byte(precedent + "Reuse useful code locations from the brief.")
+	legacy := []byte("Reuse useful code locations from the brief.")
 	if err := compareGuideText(brain, brain, true); err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +236,7 @@ func TestGuideComparisonRejectsUnrelatedDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := compareGuideText(brain, legacy, true); err == nil {
-		t.Fatal("strict parity accepted obsolete wording")
+		t.Fatal("strict parity accepted the COR-2308 wording gap")
 	}
 	if err := compareGuideText(brain, append(legacy, []byte("\nSkip required queries.")...), false); err == nil {
 		t.Fatal("accepted unrelated guide drift")
