@@ -3,9 +3,11 @@ package cli
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 )
 
 // factLocusBoost is added per shared code identifier between the query and a
@@ -48,6 +50,12 @@ type scoredFact struct {
 // the most recent facts (no scoring), which makes `recall ""` a useful "what do
 // you know about this branch" listing.
 func rankFacts(facts []factRecord, query string, limit int, includeAll bool) []factRecord {
+	return rankFactsAt(facts, query, limit, includeAll, time.Now())
+}
+
+// rankFactsAt is rankFacts with an explicit clock for the recency prior, so
+// ranking tests are not a race with the wall clock.
+func rankFactsAt(facts []factRecord, query string, limit int, includeAll bool, now time.Time) []factRecord {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -75,6 +83,11 @@ func rankFacts(facts []factRecord, query string, limit int, includeAll bool) []f
 	scored := make([]scoredFact, 0, len(candidates))
 	for i, f := range candidates {
 		if score := factBM25Score(f, corpus, i, terms, queryLocus); score > 0 {
+			// Recency prior (COR-2311): a soft multiplier, never a filter — it
+			// reorders neighbours and breaks stale-vs-current ties; a dateless
+			// fact stays neutral. Applied after the >0 match check so time
+			// never creates a match.
+			score *= retrieval.RecencyPrior(f.UpdatedAt, now)
 			scored = append(scored, scoredFact{Record: f, Score: score})
 		}
 	}
@@ -84,6 +97,9 @@ func rankFacts(facts []factRecord, query string, limit int, includeAll bool) []f
 		}
 		return scored[i].Record.UpdatedAt.After(scored[j].Record.UpdatedAt)
 	})
+	if !includeAll {
+		scored = collapseRelatedFacts(scored)
+	}
 	if len(scored) > limit {
 		scored = scored[:limit]
 	}
@@ -92,6 +108,51 @@ func rankFacts(facts []factRecord, query string, limit int, includeAll bool) []f
 		out[i] = s.Record
 	}
 	return out
+}
+
+// collapseRelatedFacts gives one top result per related_ids family
+// (COR-2311): when distill judges two facts related below the merge threshold,
+// both stay active and cross-linked (factmerge.ApplyActions), and until the
+// compaction loop (COR-2273) settles them they would surface as near-duplicate
+// neighbours. The highest-ranked member represents the family in the primary
+// ranks; linked lower-ranked members are demoted behind every unlinked result
+// rather than dropped, because a below-threshold relative can be a
+// complementary fact, not a duplicate (trail 2821 finding 01M71XZN03ZT) — so
+// an alternate still surfaces whenever the limit leaves room, and disappears
+// only by ordinary truncation. Greedy in rank order: a chain A-B, B-C with A
+// ranked first keeps A and C in the primary ranks (C is not linked to A
+// directly). Links are checked in both directions, so a one-sided related_ids
+// entry still demotes the pair's lower member.
+// ponytail: O(kept * related_ids) per candidate; fine at recall's k<=128.
+func collapseRelatedFacts(scored []scoredFact) []scoredFact {
+	if len(scored) < 2 {
+		return scored
+	}
+	kept := make([]scoredFact, 0, len(scored))
+	demoted := make([]scoredFact, 0, 2)
+	keptIDs := make(map[string]bool, len(scored))
+	claimed := make(map[string]bool)
+	for _, s := range scored {
+		linked := claimed[s.Record.ID]
+		if !linked {
+			for _, rid := range s.Record.RelatedIDs {
+				if keptIDs[rid] {
+					linked = true
+					break
+				}
+			}
+		}
+		if linked {
+			demoted = append(demoted, s)
+			continue
+		}
+		kept = append(kept, s)
+		keptIDs[s.Record.ID] = true
+		for _, rid := range s.Record.RelatedIDs {
+			claimed[rid] = true
+		}
+	}
+	return append(kept, demoted...)
 }
 
 // factQueryScore scores a fact against a query, reusing the history index's
