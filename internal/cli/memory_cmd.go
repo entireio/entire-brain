@@ -242,7 +242,7 @@ func recordMemoryLifecycleAndLaunch(brainDir, repoDir, repoKey, sessionID, branc
 	return hint, "", nil
 }
 
-func reconcileMemoryAndLaunch(ctx context.Context, opts Options, repoDir, trigger string) (int, string, error) {
+func reconcileMemoryAndLaunch(ctx context.Context, opts Options, repoDir, trigger string, launch bool) (int, string, error) {
 	perRepo := opts
 	perRepo.Env.RepoRoot = repoDir
 	storage, err := resolveSessionsBrain(ctx, perRepo)
@@ -258,9 +258,10 @@ func reconcileMemoryAndLaunch(ctx context.Context, opts Options, repoDir, trigge
 	if err != nil {
 		return created, "", err
 	}
-	// Setup also reaches this path while background work is paused. Retain
-	// the durable queue, but do not spawn a worker that can outlive setup.
-	if base.BackgroundPaused(perRepo.Env) {
+	// launch=false (`setup --no-daemon`) and a paused brain keep the durable
+	// queue but spawn no worker that can outlive the invocation; the next
+	// notify or watch tick serves the queue.
+	if !launch || base.BackgroundPaused(perRepo.Env) {
 		return created, "", nil
 	}
 	if err := memoryWorkerLaunch(repoDir); err != nil {

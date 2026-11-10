@@ -54,6 +54,14 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- A background memory worker no longer fails `refresh history` (or any other
+  history rebuild) with `memory_source_stale`. The short-term overlay left the
+  projection identity: the rebuild derives from canonical sessions only, and
+  an overlay written mid-rebuild is voided by its base-generation pin exactly
+  like one written just after publish, so only real session changes abort a
+  rebuild now. `setup --no-daemon` also stops launching the detached
+  `memory worker --once` that used to outlive setup; the durable queue keeps
+  the work for the next notify or watch tick (#582).
 - The pattern corpus now reads current Codex sessions (the cli's item path,
   in cli 0.13.1 and later). A command that failed is stored as failed, with no
   exit code since the session records none, and counts in `exit_fails`. A file
