@@ -22,6 +22,17 @@ All notable changes to `entire-brain` are recorded here. The format follows
   other seed gates: a dirty tree keeps its dirty-unindexed cause line, and a
   `--worktree` overlay built on another commit reads stale.
 
+- A dirty worktree no longer blocks the background refresh: the repository
+  context (seed) is built from a materialized committed-HEAD snapshot, so
+  permanently-dirty worktrees still get periodic full refreshes of
+  committed-state indexes. Uncommitted content stays excluded, `--worktree`
+  still opts into indexing it, and the old refusal remains only as the
+  fallback when the snapshot cannot be built (COR-2316). The snapshot is a
+  scratch-index `git checkout-index`, and its file list comes from
+  `git ls-tree`, so `export-ignore`/`export-subst` attributes and
+  denied-directory enumeration cannot make it differ from a clean worktree at
+  the same commit.
+
 - Facts ranking (recall, brief, the facts arms) changed in three ways
   (COR-2311). The flat closed-negative score bonus is gone: it boosted ~17% of
   the corpus on any match and let topically-similar closed-negatives displace
