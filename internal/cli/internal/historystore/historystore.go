@@ -235,35 +235,6 @@ func loadIndexOnce(brainDir string, source *bmanifest.HistorySource) (Index, err
 	return index, nil
 }
 
-// LoadIndexWithLegacyIdentity returns the same verified index as
-// LoadIndex plus an optional identity upgrade derived from the
-// exact byte slice that was parsed. Older manifests predate the strong source
-// identity fields required by direct FTS hydration. Keeping hashing and parsing
-// on one immutable slice prevents a path replacement from producing a hash of
-// generation A and parsed records from generation B.
-func LoadIndexWithLegacyIdentity(brainDir string, source *bmanifest.HistorySource) (Index, *LegacyIdentity, error) {
-	data, contentDigest, generationAddressed, err := readIndexBytes(brainDir, source)
-	if err != nil {
-		return Index{}, nil, err
-	}
-	index, err := DecodeIndex(data, source)
-	if err != nil {
-		return Index{}, nil, err
-	}
-	index.ContentIdentity = contentDigest
-	if generationAddressed {
-		index.StorageIdentity = source.IndexPath
-	}
-	legacyIdentity := DeriveLegacyIdentity(source, data, index)
-	if legacyIdentity != nil {
-		// The direct/index-backed FTS freshness check consumes this private
-		// identity. It is derived from the parsed truth, not trusted from a
-		// legacy manifest, and avoids recomputing it later in this same request.
-		index.RecordsFingerprint = legacyIdentity.RecordsFingerprint
-	}
-	return index, legacyIdentity, nil
-}
-
 func DecodeIndex(data []byte, source *bmanifest.HistorySource) (Index, error) {
 	if source.IndexBytes > 0 && int64(len(data)) != source.IndexBytes {
 		return Index{}, fmt.Errorf("history index size mismatch: got %d bytes, manifest declares %d; run `"+clibase.BrainInvocation(os.LookupEnv, "refresh history")+"` to rebuild it", len(data), source.IndexBytes)

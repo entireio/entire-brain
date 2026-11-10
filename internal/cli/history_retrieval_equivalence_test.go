@@ -1,12 +1,8 @@
 package cli
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
@@ -121,70 +117,6 @@ func canonicalHistoryRecords(t testing.TB, records []historyRecord) []string {
 	}
 	sort.Strings(canonical)
 	return canonical
-}
-
-// TestRawHistoryFallbackRetainsFallbackOnlyMatch names the safety property for
-// future negative-result optimizations: an indexed miss is not proof of
-// absence while raw exported history can still contain a valid match.
-//
-// Mutation proof: overlay agent_surface.go and replace
-//
-//	rawMatches, rawErr := rawHistoryMatcher(status.Brain.Path, task, nil, briefOpts.limit, rawProfile)
-//
-// with `_ = rawProfile` followed by
-// `rawMatches, rawErr := []brainTextMatch(nil), error(nil)`. This test fails
-// with "end-to-end brief lost fallback-only match"; the production file is
-// never modified.
-func TestRawHistoryFallbackRetainsFallbackOnlyMatch(t *testing.T) {
-	t.Parallel()
-	const marker = "FALLBACK_ONLY_HISTORY_MARKER"
-	fixture := newBrainBriefRawHistoryEndToEndFixture(t)
-	storage, err := repoStoragePaths(context.Background(), fixture.opts.Runner, fixture.opts.Env, fixture.opts.Env.RepoRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	brainDir := storage.BrainDir
-	generatedAt := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	index := historyIndex{GeneratedAt: generatedAt, Records: []historyRecord{{
-		ID: "indexed-unrelated", Kind: "decision", Path: "sessions/main/old.jsonl",
-		Line: 1, Summary: "an unrelated indexed decision",
-	}}}
-	if got := rankHistoryRecordsScored(index, "history", marker, 8, 0); len(got) != 0 {
-		t.Fatalf("fixture marker unexpectedly appeared in the index: %+v", got)
-	}
-	source := &historySourceManifest{
-		GeneratedAt: generatedAt,
-		IndexPath:   historystore.IndexPath,
-		Records:     len(index.Records),
-	}
-	if err := publishHistoryComparisonIndex(brainDir, index, source); err != nil {
-		t.Fatal(err)
-	}
-
-	// Add the marker only after the unrelated nonempty index was persisted.
-	// The real brief orchestration must execute the raw-history fallback.
-	fallbackPath := filepath.Join(brainDir, "notes", "fallback.md")
-	if err := os.MkdirAll(filepath.Dir(fallbackPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(fallbackPath, []byte("decision evidence "+marker+" remains available\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	fixture.task = marker
-	var out bytes.Buffer
-	if err := runBrainBriefRawHistoryEndToEndInto(&out, fixture, brainBriefRawHistoryMatchesObserved); err != nil {
-		t.Fatal(err)
-	}
-	var report brainBriefJSONReport
-	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
-		t.Fatalf("decode brief: %v\n%s", err, out.String())
-	}
-	if !report.Status.Sources.History {
-		t.Fatal("fixture did not expose the persisted history source")
-	}
-	if len(report.History.Matches) != 1 || report.History.Matches[0].Path != "notes/fallback.md" {
-		t.Fatalf("end-to-end brief lost fallback-only match: %+v; warnings=%v; packet=%s", report.History.Matches, report.Warnings, out.String())
-	}
 }
 
 var historyRetrievalEquivalenceSink []scoredHistoryRecord

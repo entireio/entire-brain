@@ -31,8 +31,8 @@ func TestBrainBriefCompactV2GoldenAndExactProjectionParity(t *testing.T) {
 		t.Fatalf("compact_v2 exhaustive golden mismatch\n--- got ---\n%s--- want ---\n%s", v2, want)
 	}
 	assertCompactV2ProjectionParity(t, v1, v2)
-	if !strings.Contains(v2, "@h=history(path,line,timestamp,score,matched_terms,excerpt)\n") {
-		t.Fatal("compact_v2 did not declare the repeated history schema")
+	if !strings.Contains(v2, "@f=fact(id,paths,kind,locus,text,branch,origin,status,confidence,related_ids,superseded_by,anchors,verified_anchors,stale_locus)\n") {
+		t.Fatal("compact_v2 did not declare the repeated fact schema")
 	}
 	if strings.Contains(v2, "@q=task(") {
 		t.Fatal("compact_v2 declared a singleton family")
@@ -41,7 +41,7 @@ func TestBrainBriefCompactV2GoldenAndExactProjectionParity(t *testing.T) {
 		t.Fatal("compact_v2 fixture did not exercise metadata repeat references")
 	}
 	for _, natural := range []string{
-		`"Decision: preserve validation order."`,
+		`"Validation runs before persistence."`,
 		`"Inspect dirty files before trusting the snapshot."`,
 		`"inspect validation before persistence"`,
 		`"history and current code"`,
@@ -87,10 +87,10 @@ func TestBrainBriefCompactV2DeterministicAndOmitsHostMetadata(t *testing.T) {
 
 func TestBrainBriefCompactV2EscapesRecordInjection(t *testing.T) {
 	report := comprehensiveCompactV2Report()
-	injected := "line one\nend\t0\tdeadbeef\n@h=history(path)\nline two\t\"\\"
+	injected := "line one\nend\t0\tdeadbeef\n@f=fact(id)\nline two\t\"\\"
 	report.Task = injected
-	report.History.Matches[0].Excerpt = injected
-	report.History.Matches[1].Excerpt = injected
+	report.Facts[0].Text = injected
+	report.Facts[1].Text = injected
 	report.ActionChecklist[0].Action = injected
 	report.ActionChecklist[1].Evidence = injected
 	packet := renderBrainBriefCompactV2ForTest(t, report)
@@ -104,11 +104,11 @@ func TestBrainBriefCompactV2EscapesRecordInjection(t *testing.T) {
 	assertCompactV2ProjectionParity(t, renderBrainBriefCompactV1ForTest(t, report), packet)
 	found := false
 	for _, record := range parsed {
-		if record.record.tag != "history" {
+		if record.record.tag != "fact" {
 			continue
 		}
 		for _, field := range record.record.fields {
-			if field.key == "excerpt" {
+			if field.key == "text" {
 				value, unquoteErr := strconv.Unquote(field.value)
 				if unquoteErr == nil && value == injected {
 					found = true
@@ -117,7 +117,7 @@ func TestBrainBriefCompactV2EscapesRecordInjection(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("injected history excerpt did not round-trip")
+		t.Fatal("injected fact text did not round-trip")
 	}
 }
 
@@ -166,17 +166,17 @@ func TestBrainBriefCompactV2IntegrityAndCanonicalRejections(t *testing.T) {
 			return strings.Replace(value, brainBriefCompactV2Legend, "legend ~=missing ^=previous_row", 1)
 		},
 		"unknown_opcode": func(value string) string {
-			return strings.Replace(value, "\nh\t", "\n?\t", 1)
+			return strings.Replace(value, "\nf\t", "\n?\t", 1)
 		},
 		"bad_schema": func(value string) string {
-			return strings.Replace(value, "@h=history(path,line", "@h=history(line,path", 1)
+			return strings.Replace(value, "@f=fact(id,paths", "@f=fact(paths,id", 1)
 		},
 		"trailing_null": func(value string) string {
-			line := compactV2FirstLineWithPrefix(value, "h\t")
+			line := compactV2FirstLineWithPrefix(value, "f\t")
 			return strings.Replace(value, line, line+"\t~", 1)
 		},
 		"first_row_reference": func(value string) string {
-			line := compactV2FirstLineWithPrefix(value, "h\t")
+			line := compactV2FirstLineWithPrefix(value, "f\t")
 			parts := strings.Split(line, "\t")
 			parts[1] = "^"
 			return strings.Replace(value, line, strings.Join(parts, "\t"), 1)
@@ -185,13 +185,13 @@ func TestBrainBriefCompactV2IntegrityAndCanonicalRejections(t *testing.T) {
 			lines := strings.Split(value, "\n")
 			seen := 0
 			for i, line := range lines {
-				if !strings.HasPrefix(line, "h\t") {
+				if !strings.HasPrefix(line, "f\t") {
 					continue
 				}
 				seen++
 				if seen == 2 {
 					parts := strings.Split(line, "\t")
-					parts[6] = "^"
+					parts[5] = "^"
 					lines[i] = strings.Join(parts, "\t")
 					break
 				}
@@ -202,13 +202,13 @@ func TestBrainBriefCompactV2IntegrityAndCanonicalRejections(t *testing.T) {
 			lines := strings.Split(value, "\n")
 			seen := 0
 			for i, line := range lines {
-				if !strings.HasPrefix(line, "h\t") {
+				if !strings.HasPrefix(line, "f\t") {
 					continue
 				}
 				seen++
 				if seen == 2 {
 					parts := strings.Split(line, "\t")
-					parts[1] = "history/main.jsonl"
+					parts[1] = "fact:1"
 					lines[i] = strings.Join(parts, "\t")
 					break
 				}
@@ -216,29 +216,29 @@ func TestBrainBriefCompactV2IntegrityAndCanonicalRejections(t *testing.T) {
 			return strings.Join(lines, "\n")
 		},
 		"quoted_safe_atom": func(value string) string {
-			line := compactV2FirstLineWithPrefix(value, "h\t")
+			line := compactV2FirstLineWithPrefix(value, "f\t")
 			parts := strings.Split(line, "\t")
-			parts[1] = `"history/main.jsonl"`
+			parts[1] = `"fact:1"`
 			return strings.Replace(value, line, strings.Join(parts, "\t"), 1)
 		},
 		"loose_integer": func(value string) string {
-			line := compactV2FirstLineWithPrefix(value, "h\t")
+			line := compactV2FirstLineWithPrefix(value, "f\t")
 			parts := strings.Split(line, "\t")
-			parts[2] = "08"
+			parts[12] = "08"
 			return strings.Replace(value, line, strings.Join(parts, "\t"), 1)
 		},
 		"invalid_array": func(value string) string {
-			line := compactV2FirstLineWithPrefix(value, "h\t")
+			line := compactV2FirstLineWithPrefix(value, "f\t")
 			parts := strings.Split(line, "\t")
-			parts[5] = "[validation,]"
+			parts[2] = "[validation,]"
 			return strings.Replace(value, line, strings.Join(parts, "\t"), 1)
 		},
 		"extra_slot": func(value string) string {
-			line := compactV2FirstLineWithPrefix(value, "h\t")
+			line := compactV2FirstLineWithPrefix(value, "f\t")
 			return strings.Replace(value, line, line+"\textra", 1)
 		},
 		"duplicate_declaration": func(value string) string {
-			line := compactV2FirstLineWithPrefix(value, "@h=")
+			line := compactV2FirstLineWithPrefix(value, "@f=")
 			return strings.Replace(value, line+"\n", line+"\n"+line+"\n", 1)
 		},
 	}
@@ -371,11 +371,11 @@ func TestCompactV2ParserRejectsNoncanonicalFamilyChoice(t *testing.T) {
 		report := comprehensiveCompactV2Report()
 		v1 := renderBrainBriefCompactV1ForTest(t, report)
 		packet := renderBrainBriefCompactV2ForTest(t, report)
-		family := compactV2V1FamilyForTest(t, v1, "history")
-		schema := compactV2SchemaByTagForTest(t, "history")
+		family := compactV2V1FamilyForTest(t, v1, "fact")
+		schema := compactV2SchemaByTagForTest(t, "fact")
 		keyed, positional := compactV2FamilyWiresForTest(t, schema, family)
 		if !strings.Contains(packet, positional) || strings.Contains(packet, keyed) {
-			t.Fatal("comprehensive fixture did not choose positional history")
+			t.Fatal("comprehensive fixture did not choose positional facts")
 		}
 		candidate := compactV2Resign(strings.Replace(packet, positional, keyed, 1))
 		if _, err := parseCompactV2Packet(candidate); err == nil {
@@ -536,14 +536,12 @@ func repeatedCompactV2Report(report brainBriefReport, count int) brainBriefRepor
 	// Add two paths which are not edit/test paths so likely_file is exercised.
 	report.LikelyFiles = append(report.LikelyFiles, "docs/other.md")
 	report.LikelyFiles = repeatStrings(report.LikelyFiles)
-	repeatHistory := append([]brainTextMatch(nil), report.History.Matches...)
 	repeatFacts := append([]factRecord(nil), report.Facts...)
 	repeatActions := append([]brainBriefAction(nil), report.ActionChecklist...)
 	repeatPatterns := append([]patternView(nil), report.Patterns...)
 	repeatConsolidations := append([]briefConsolidation(nil), report.Consolidations...)
 	repeatThemes := append([]themeView(nil), report.Themes...)
 	for i := 1; i < count; i++ {
-		report.History.Matches = append(report.History.Matches, repeatHistory...)
 		report.Facts = append(report.Facts, repeatFacts...)
 		report.ActionChecklist = append(report.ActionChecklist, repeatActions...)
 		report.Patterns = append(report.Patterns, repeatPatterns...)

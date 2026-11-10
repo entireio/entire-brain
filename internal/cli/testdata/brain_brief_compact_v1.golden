@@ -24,7 +24,6 @@ runtime_trace index=0 id="runtime:1" type="RUNTIME_TRACE" from="sym:validate" to
 runtime_trace_evidence owner_index=0 index=0 kind="trace" file="trace.ndjson" start=2 end=2 detail="captured locally"
 test_root id="test:root" kind="function" name="TestValidate" file="internal/a_test.go" start=10 end=30
 test_suggestion id="test:suggestion" kind="function" name="TestValidateOrder" file="internal/a_test.go" start=32 end=44 suggestion_reason="covers the boundary"
-history path="history/main.jsonl" line=8 timestamp="2026-07-01" score=12 matched_terms=["validation","order"] excerpt="Decision: preserve validation order."
 fact id="fact:1" paths=["architecture.validation.order"] kind="invariant" locus=["pkg.Validate"] text="Validation runs before persistence." branch="feature" origin="distilled" status="active" confidence="high" related_ids=["fact:2"] anchors=1 verified_anchors=1 stale_locus=["OldValidate"]
 fact_drift id="fact:orphan" stale_locus=["GoneSymbol"]
 action file="internal/a.go" symbol="pkg.Validate" action="inspect validation before persistence" evidence="history and current code"
@@ -35,4 +34,4 @@ guidance text="Inspect dirty files before trusting the snapshot."
 warning source="status" text="status warning"
 warning source="live" text="live warning"
 warning source="brief" text="brief warning"
-end symbols=1 relations=1 neighbors=1 runtime_traces=1 test_roots=1 test_suggestions=1 history=1 facts=1 actions=1 patterns=1 consolidations=1 themes=1 guidance=1 warnings=7 body_records=36 body_sha256="sha256:578cc094700707ebec337627334d4d46b4062be3337e69283311f97653beed11"
+end symbols=1 relations=1 neighbors=1 runtime_traces=1 test_roots=1 test_suggestions=1 facts=1 actions=1 patterns=1 consolidations=1 themes=1 guidance=1 warnings=7 body_records=35 body_sha256="sha256:1933c49ccad40f2bd111cb7138f6cf870962f70e58ad44818f7d3baa8f6eac38"

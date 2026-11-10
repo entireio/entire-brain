@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"os"
@@ -76,9 +75,6 @@ func TestBrainBriefProfilePreservesPacketAndWritesCompletePrivateSidecar(t *test
 	fixture := newBrainBriefProfileFixture(t)
 	profilePath := filepath.Join(t.TempDir(), "brief-profile.json")
 	task := "ValidateToken PRIVATE_TASK_PAYLOAD PRIVATE_FACT_PAYLOAD ALPHA_ONE BETA_TWO GAMMA_THREE DELTA_FOUR EPSILON_FIVE ZETA_SIX ETA_SEVEN THETA_EIGHT IOTA_NINE"
-	if got := len(brainBriefRawHistoryQueries(task)); got != 8 {
-		t.Fatalf("raw history query cap = %d, want 8", got)
-	}
 
 	withoutProfile, err := execute(t, NewRootCommand(fixture.opts), "brief", task, "--json")
 	if err != nil {
@@ -125,9 +121,6 @@ func TestBrainBriefProfilePreservesPacketAndWritesCompletePrivateSidecar(t *test
 	if !profile.Semantic.Context.Invoked || !profile.Semantic.RuntimeTraces.Invoked || !profile.Semantic.Tests.Invoked {
 		t.Fatalf("semantic stages incomplete: %+v", profile.Semantic)
 	}
-	if profile.History.IndexLoad.Invoked || !profile.History.IndexedRank.Invoked || !profile.History.RawFallback.Invoked {
-		t.Fatalf("history stages incomplete: %+v", profile.History)
-	}
 	if !profile.Facts.Load.Invoked || !profile.Facts.Rank.Invoked {
 		t.Fatalf("facts stages incomplete: %+v", profile.Facts)
 	}
@@ -143,26 +136,23 @@ func TestBrainBriefProfilePreservesPacketAndWritesCompletePrivateSidecar(t *test
 	if profile.Packet.Counts.SemanticSymbols == 0 || profile.Packet.Counts.Facts == 0 {
 		t.Fatalf("packet counts missing semantic/fact outputs: %+v", profile.Packet.Counts)
 	}
-	if profile.History.RawFallback.QueryCount != 8 || len(profile.History.RawFallback.Queries) != 8 {
-		t.Fatalf("raw fallback did not record eight scans: %+v", profile.History.RawFallback)
-	}
-	assertRawHistoryProfileAggregates(t, profile.History.RawFallback)
-
 	var shape map[string]json.RawMessage
 	if err := json.Unmarshal(data, &shape); err != nil {
 		t.Fatalf("parse profile shape: %v", err)
 	}
-	for _, field := range []string{"schema_version", "duration_unit", "total_brief", "status_build_state", "semantic", "history", "facts", "synthesis", "knowledge", "packet"} {
+	for _, field := range []string{"schema_version", "duration_unit", "total_brief", "status_build_state", "semantic", "facts", "synthesis", "knowledge", "packet"} {
 		if _, ok := shape[field]; !ok {
 			t.Errorf("profile missing top-level field %q", field)
 		}
+	}
+	if _, ok := shape["history"]; ok {
+		t.Errorf("profile still has a history stage; the brief no longer searches history")
 	}
 	var object map[string]any
 	if err := json.Unmarshal(data, &object); err != nil {
 		t.Fatal(err)
 	}
 	assertProfileObjectFields(t, object, "semantic", "context", "runtime_traces", "tests")
-	assertProfileObjectFields(t, object, "history", "index_load", "indexed_rank", "raw_fallback")
 	assertProfileObjectFields(t, object, "facts", "load", "vector_cache_load", "embed", "rank", "cache_flush")
 	assertProfileObjectFields(t, object, "synthesis", "likely_files", "action_checklist")
 	assertProfileObjectFields(t, object, "knowledge", "patterns", "consolidations", "themes")
@@ -170,8 +160,6 @@ func TestBrainBriefProfilePreservesPacketAndWritesCompletePrivateSidecar(t *test
 	assertProfileObjectFields(t, object, "status_build_state", "invoked", "duration_ns", "input_count", "output_count", "error_count")
 	semanticObject := object["semantic"].(map[string]any)
 	assertProfileObjectFields(t, semanticObject, "context", "invoked", "duration_ns", "input_count", "output_count", "error_count")
-	historyObject := object["history"].(map[string]any)
-	assertProfileObjectFields(t, historyObject, "raw_fallback", "invoked", "duration_ns", "query_count", "scanned_file_count", "scanned_byte_count", "match_count", "truncation_count", "error_count", "queries")
 	factsObject := object["facts"].(map[string]any)
 	assertProfileObjectFields(t, factsObject, "vector_cache_load", "invoked", "duration_ns", "input_count", "output_count", "error_count")
 	assertProfileObjectFields(t, factsObject, "embed", "invoked", "duration_ns", "query_call_count", "fact_call_count", "valid_vector_count", "invalid_vector_count")
@@ -208,56 +196,6 @@ func TestBrainBriefProfilePreservesTextPacket(t *testing.T) {
 	}
 	if strings.Contains(string(data), task) || strings.Contains(string(data), fixture.repoDir) {
 		t.Fatalf("text packet profile leaked private content:\n%s", data)
-	}
-}
-
-func TestBrainBriefRawHistoryProfileAggregatesAndCountsTruncation(t *testing.T) {
-	brainDir := t.TempDir()
-	sessionDir := filepath.Join(brainDir, "sessions", "main")
-	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	task := "ALPHA_ONE BETA_TWO GAMMA_THREE DELTA_FOUR EPSILON_FIVE ZETA_SIX ETA_SEVEN THETA_EIGHT IOTA_NINE"
-	queries := brainBriefRawHistoryQueries(task)
-	if len(queries) != 8 {
-		t.Fatalf("queries = %+v, want eight", queries)
-	}
-	if err := os.WriteFile(filepath.Join(sessionDir, "history.jsonl"), []byte("unrelated payload\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	brokenLink := filepath.Join(sessionDir, "broken.txt")
-	brokenLinkCreated := os.Symlink(filepath.Join(sessionDir, "missing-target"), brokenLink) == nil
-
-	profile := brainBriefProfileRawHistory{Queries: make([]brainBriefProfileRawHistoryQuery, 0)}
-	matches, err := brainBriefRawHistoryMatchesObserved(brainDir, task, nil, 8, &profile)
-	if err != nil {
-		t.Fatalf("raw matches: %v", err)
-	}
-	if len(matches) != 0 || profile.QueryCount != 8 || len(profile.Queries) != 8 {
-		t.Fatalf("unexpected raw aggregate: matches=%d profile=%+v", len(matches), profile)
-	}
-	expectedFiles := 1
-	if brokenLinkCreated {
-		expectedFiles++
-	}
-	if profile.ScannedFileCount != expectedFiles || profile.ScannedByteCount <= 0 {
-		t.Fatalf("raw scan counts missing: %+v", profile)
-	}
-	if brokenLinkCreated && profile.ErrorCount != 1 {
-		t.Fatalf("broken input error count = %d, want one physical open failure", profile.ErrorCount)
-	}
-	assertRawHistoryProfileAggregates(t, profile)
-
-	if err := os.WriteFile(filepath.Join(sessionDir, "history.jsonl"), []byte(queries[0]+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	truncated := brainBriefProfileRawHistory{Queries: make([]brainBriefProfileRawHistoryQuery, 0)}
-	matches, err = brainBriefRawHistoryMatchesObserved(brainDir, task, nil, 1, &truncated)
-	if err != nil {
-		t.Fatalf("truncated raw matches: %v", err)
-	}
-	if len(matches) != 1 || truncated.QueryCount != 8 || truncated.TruncationCount != 1 || !truncated.Queries[0].Truncated {
-		t.Fatalf("truncation not recorded: matches=%d profile=%+v", len(matches), truncated)
 	}
 }
 
@@ -298,30 +236,6 @@ func TestBrainBriefProfileRejectsHandoffWithoutWriting(t *testing.T) {
 		t.Fatalf("rejected handoff wrote profile: %v", statErr)
 	}
 }
-func assertRawHistoryProfileAggregates(t *testing.T, profile brainBriefProfileRawHistory) {
-	t.Helper()
-	var files, matches, truncations, errors int
-	var bytes int64
-	for i, query := range profile.Queries {
-		if query.Ordinal != i+1 || query.DurationNS < 0 {
-			t.Errorf("bad per-query ordinal/duration at %d: %+v", i, query)
-		}
-		files += query.ScannedFileCount
-		bytes += query.ScannedByteCount
-		matches += query.MatchCount
-		if query.Truncated {
-			truncations++
-		}
-		errors += query.ErrorCount
-	}
-	if profile.QueryCount != len(profile.Queries) || (!profile.SharedScan && (profile.ScannedFileCount != files || profile.ScannedByteCount != bytes || profile.ErrorCount != errors)) || profile.MatchCount != matches || profile.TruncationCount != truncations {
-		t.Fatalf("raw aggregate does not equal per-query sums: aggregate=%+v sums={queries:%d files:%d bytes:%d matches:%d truncations:%d errors:%d}", profile, len(profile.Queries), files, bytes, matches, truncations, errors)
-	}
-	if strings.Contains(fmt.Sprintf("%+v", profile), "ALPHA_ONE") {
-		t.Fatalf("raw profile retained query text: %+v", profile)
-	}
-}
-
 func assertProfileObjectFields(t *testing.T, parent map[string]any, objectName string, fields ...string) {
 	t.Helper()
 	value, ok := parent[objectName]

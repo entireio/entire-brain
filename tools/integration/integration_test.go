@@ -200,8 +200,10 @@ func TestRealProductsPreserveSharedAgentInstructions(t *testing.T) {
 	}
 }
 
-// The pinned Graph release still includes two obsolete MCP sentences. Accept
-// only these exact legacy differences until its guide correction is released.
+// The pinned Graph release still includes two obsolete MCP sentences and
+// predates the COR-2308 memories-first wording (precedent anchors, history
+// search as explicit escalation). Accept only these exact differences until
+// the corrected Graph guide is released.
 // Strict parity can be required when validating the corrected Graph revision.
 func compareGuideText(brain, graph []byte, requireParity bool) error {
 	if bytes.Equal(brain, graph) {
@@ -215,9 +217,13 @@ func compareGuideText(brain, graph []byte, requireParity bool) error {
 		"agent on PATH. Over MCP the same write is the brain_remember tool, which\nrequires path. Retrieve with recall, and re-check anchors with verify.",
 		"agent on PATH; pass --path when none is guaranteed. Retrieve with recall and",
 		"agent on PATH; pass --path when none is guaranteed. Over MCP the same write is\nthe brain_remember tool, which requires path. Retrieve with recall and",
+		"Memories are the default retrieval surface. The brief's precedent section lists\neach surfaced memory's source sessions (session, transcript, commit,\ncheckpoint); follow those anchors when you need the detail behind a memory.\nThe brief does not search transcript history. Search transcripts only as an\nexplicit escalation, when memories and their anchors miss:\n\n    entire brain query --source history \"<question>\" --json\n\n",
+		"",
+		"The brief's precedent section lists each surfaced memory's source sessions.\nFollow those anchors when you need the detail behind a memory; the brief does\nnot search transcript history. Search transcripts only as an explicit\nescalation when memories and their anchors miss:\n\n    entire brain query --source history \"<question>\" --json\n\n",
+		"",
 	).Replace(string(brain))
 	if string(graph) != legacy {
-		return fmt.Errorf("Brain and Graph guide text differs beyond the pinned legacy MCP wording")
+		return fmt.Errorf("Brain and Graph guide text differs beyond the pinned legacy wording")
 	}
 	return nil
 }
