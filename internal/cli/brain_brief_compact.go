@@ -235,17 +235,6 @@ func emitBrainBriefCompactV1(cmd *cobra.Command, report brainBriefReport) error 
 			compactV1StringAlways("suggestion_reason", suggestion.Reason))
 	}
 
-	for _, match := range report.History.Matches {
-		compactV1Record(&out, "history",
-			compactV1StringAlways("path", match.Path),
-			compactV1IntAlways("line", match.Line),
-			compactV1String("timestamp", match.Timestamp),
-			compactV1Int("score", match.Score),
-			compactV1Strings("matched_terms", match.MatchedTerms),
-			compactV1StringAlways("excerpt", match.Excerpt),
-		)
-	}
-
 	seenFacts := make(map[string]struct{}, len(report.Facts))
 	for _, fact := range report.Facts {
 		verifiedAnchors := 0
@@ -386,7 +375,6 @@ func emitBrainBriefCompactV1(cmd *cobra.Command, report brainBriefReport) error 
 		compactV1IntAlways("runtime_traces", len(report.Semantic.RuntimeTraces)),
 		compactV1IntAlways("test_roots", len(report.Semantic.Tests.Roots)),
 		compactV1IntAlways("test_suggestions", len(report.Semantic.Tests.Suggestions)),
-		compactV1IntAlways("history", len(report.History.Matches)),
 		compactV1IntAlways("facts", len(report.Facts)),
 		compactV1IntAlways("actions", len(report.ActionChecklist)),
 		compactV1IntAlways("patterns", len(report.Patterns)),

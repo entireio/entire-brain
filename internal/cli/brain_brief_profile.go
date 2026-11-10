@@ -26,7 +26,6 @@ type brainBriefProfile struct {
 	TotalBrief       brainBriefProfileDuration  `json:"total_brief"`
 	StatusBuildState brainBriefProfileStage     `json:"status_build_state"`
 	Semantic         brainBriefProfileSemantic  `json:"semantic"`
-	History          brainBriefProfileHistory   `json:"history"`
 	Facts            brainBriefProfileFacts     `json:"facts"`
 	Synthesis        brainBriefProfileSynthesis `json:"synthesis"`
 	Knowledge        brainBriefProfileKnowledge `json:"knowledge"`
@@ -51,35 +50,6 @@ type brainBriefProfileSemantic struct {
 	Context       brainBriefProfileStage `json:"context"`
 	RuntimeTraces brainBriefProfileStage `json:"runtime_traces"`
 	Tests         brainBriefProfileStage `json:"tests"`
-}
-
-type brainBriefProfileHistory struct {
-	IndexLoad   brainBriefProfileStage      `json:"index_load"`
-	IndexedRank brainBriefProfileStage      `json:"indexed_rank"`
-	RawFallback brainBriefProfileRawHistory `json:"raw_fallback"`
-}
-
-type brainBriefProfileRawHistory struct {
-	SharedScan       bool                               `json:"shared_scan,omitempty"`
-	Invoked          bool                               `json:"invoked"`
-	DurationNS       int64                              `json:"duration_ns"`
-	QueryCount       int                                `json:"query_count"`
-	ScannedFileCount int                                `json:"scanned_file_count"`
-	ScannedByteCount int64                              `json:"scanned_byte_count"`
-	MatchCount       int                                `json:"match_count"`
-	TruncationCount  int                                `json:"truncation_count"`
-	ErrorCount       int                                `json:"error_count"`
-	Queries          []brainBriefProfileRawHistoryQuery `json:"queries"`
-}
-
-type brainBriefProfileRawHistoryQuery struct {
-	Ordinal          int   `json:"ordinal"`
-	DurationNS       int64 `json:"duration_ns"`
-	ScannedFileCount int   `json:"scanned_file_count"`
-	ScannedByteCount int64 `json:"scanned_byte_count"`
-	MatchCount       int   `json:"match_count"`
-	Truncated        bool  `json:"truncated"`
-	ErrorCount       int   `json:"error_count"`
 }
 
 type brainBriefProfileFacts struct {
@@ -124,7 +94,6 @@ type brainBriefProfileCounts struct {
 	RuntimeTraces       int `json:"runtime_traces"`
 	TestRoots           int `json:"test_roots"`
 	TestSuggestions     int `json:"test_suggestions"`
-	HistoryMatches      int `json:"history_matches"`
 	Facts               int `json:"facts"`
 	FactsWithLocusDrift int `json:"facts_with_locus_drift"`
 	Actions             int `json:"actions"`
@@ -143,12 +112,7 @@ func newBrainBriefProfiler() *brainBriefProfile {
 	return &brainBriefProfile{
 		SchemaVersion: brainBriefProfileSchemaVersion,
 		DurationUnit:  brainBriefProfileDurationUnit,
-		History: brainBriefProfileHistory{
-			RawFallback: brainBriefProfileRawHistory{
-				Queries: make([]brainBriefProfileRawHistoryQuery, 0),
-			},
-		},
-		started: now,
+		started:       now,
 	}
 }
 
@@ -199,7 +163,6 @@ func brainBriefProfilePacketCounts(report brainBriefReport, packetFormat brainBr
 		RuntimeTraces:       len(report.Semantic.RuntimeTraces),
 		TestRoots:           len(report.Semantic.Tests.Roots),
 		TestSuggestions:     len(report.Semantic.Tests.Suggestions),
-		HistoryMatches:      len(report.History.Matches),
 		Facts:               len(report.Facts),
 		FactsWithLocusDrift: len(report.FactsLocusDrift),
 		Actions:             len(report.ActionChecklist),

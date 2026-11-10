@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -196,28 +195,6 @@ func TestHistoryAuditReplacementEligibilityBeforeLimit(t *testing.T) {
 		t.Fatalf("payload eligibility lost match: %+v %t %v", got, used, err)
 	}
 
-}
-
-func TestHistoryAuditProfilingMeasuresOnePhysicalScan(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "sessions", "main", "s.jsonl")
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		t.Fatal(err)
-	}
-	data := []byte("unrelated payload\n")
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		t.Fatal(err)
-	}
-	task := "ALPHA_ONE BETA_TWO GAMMA_THREE DELTA_FOUR EPSILON_FIVE ZETA_SIX ETA_SEVEN THETA_EIGHT"
-	var profile brainBriefProfileRawHistory
-	got, err := brainBriefRawHistoryMatchesObserved(dir, task, nil, 8, &profile)
-	want, werr := brainBriefRawHistoryMatchesObserved(dir, task, nil, 8, nil)
-	if err != nil || werr != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("profiling changed output: %v %v %v %v", got, want, err, werr)
-	}
-	if profile.ScannedFileCount != 1 || profile.ScannedByteCount != int64(len(data)) {
-		t.Fatalf("profile measured repeated scans: %+v", profile)
-	}
 }
 
 func TestHistoryAuditScanCacheCompressedBound(t *testing.T) {

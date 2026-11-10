@@ -186,25 +186,23 @@ func TestBrainBriefSemanticFreshnessPrecisionRecallAndRank(t *testing.T) {
 	t.Log("current-record precision 62.5% -> 100%; current recall 100%; stale-removal precision/recall 100%; current symbol rank 2 -> 1")
 }
 
-func TestBrainBriefSemanticFreshnessKeepsLiveDeletionAndHistoryCreate(t *testing.T) {
+func TestBrainBriefSemanticFreshnessKeepsLiveDeletion(t *testing.T) {
 	repoDir := t.TempDir()
 	deleted := "packages/store/deleted_query.ts"
-	planned := "packages/store/new_query.ts"
 	report := brainBriefReport{
 		Status: brainStatusReport{Live: brainLiveState{ChangedFiles: []string{deleted}}},
 		Semantic: brainBriefSemantic{Context: semanticContextResult{Symbols: []semanticRecord{
 			{ID: "live-delete", FilePath: deleted},
 			{ID: "departed", FilePath: "packages/store/old_query.ts"},
 		}}},
-		History: brainBriefHistory{Matches: []brainTextMatch{{Excerpt: "Create ./" + planned + " for the replacement query."}}},
 	}
 	stats := brainBriefFilterDepartedSemantic(repoDir, report.Status.Live, &report.Semantic)
 	if stats.KeptRecords != 1 || stats.RemovedRecords != 1 || len(report.Semantic.Context.Symbols) != 1 || report.Semantic.Context.Symbols[0].ID != "live-delete" {
 		t.Fatalf("live deletion was not authoritative: stats=%+v symbols=%+v", stats, report.Semantic.Context.Symbols)
 	}
 	editFiles, _, _ := brainBriefLikelyFileGroups(repoDir, report, "restore the deleted query and create its replacement")
-	if !slices.Contains(editFiles, deleted) || !slices.Contains(editFiles, planned) {
-		t.Fatalf("live deletion/history intended-create context was erased: %+v", editFiles)
+	if !slices.Contains(editFiles, deleted) {
+		t.Fatalf("live deletion context was erased: %+v", editFiles)
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -100,8 +99,12 @@ func TestBriefOutputRootProvenanceOrderingDedupAndBudgets(t *testing.T) {
 	if err := json.Unmarshal([]byte(fullPacket), &full); err != nil {
 		t.Fatal(err)
 	}
-	if len(full.History.Matches) < 3 {
-		t.Fatalf("fixture produced %d history matches, want >=3: %#v", len(full.History.Matches), full.History.Matches)
+	var fullShape map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(fullPacket), &fullShape); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fullShape["history"]; ok {
+		t.Fatalf("brief emitted the removed history section: %s", fullPacket)
 	}
 	packet, err := execute(t, NewRootCommand(fixture.opts), "brief", task, "--json", "--limit", "2")
 	if err != nil {
@@ -111,11 +114,8 @@ func TestBriefOutputRootProvenanceOrderingDedupAndBudgets(t *testing.T) {
 	if err := json.Unmarshal([]byte(packet), &report); err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Semantic.Context.Symbols) > 2 || len(report.Semantic.Tests.Suggestions) > 2 || len(report.History.Matches) > 2 {
-		t.Fatalf("limit not honored: symbols=%d suggestions=%d history=%d", len(report.Semantic.Context.Symbols), len(report.Semantic.Tests.Suggestions), len(report.History.Matches))
-	}
-	if len(report.History.Matches) != 2 || !reflect.DeepEqual(report.History.Matches, full.History.Matches[:2]) {
-		t.Fatalf("history budget/order mismatch\nlimited=%#v\nfull=%#v", report.History.Matches, full.History.Matches)
+	if len(report.Semantic.Context.Symbols) > 2 || len(report.Semantic.Tests.Suggestions) > 2 {
+		t.Fatalf("limit not honored: symbols=%d suggestions=%d", len(report.Semantic.Context.Symbols), len(report.Semantic.Tests.Suggestions))
 	}
 	if len(report.LikelyEditFiles) > 8 || len(report.LikelyTestFiles) > 6 || len(report.LikelyFiles) > 12 {
 		t.Fatalf("file budgets exceeded: edit=%d test=%d all=%d", len(report.LikelyEditFiles), len(report.LikelyTestFiles), len(report.LikelyFiles))
@@ -123,17 +123,6 @@ func TestBriefOutputRootProvenanceOrderingDedupAndBudgets(t *testing.T) {
 	assertBriefOutputUniqueStrings(t, "likely_edit_files", report.LikelyEditFiles)
 	assertBriefOutputUniqueStrings(t, "likely_test_files", report.LikelyTestFiles)
 	assertBriefOutputUniqueStrings(t, "likely_files", report.LikelyFiles)
-	seenHistory := map[string]struct{}{}
-	for _, match := range report.History.Matches {
-		if match.Path == "" || match.Line <= 0 || match.Excerpt == "" {
-			t.Fatalf("history match lost provenance: %#v", match)
-		}
-		key := match.Path + "\x00" + match.Excerpt
-		if _, duplicate := seenHistory[key]; duplicate {
-			t.Fatalf("duplicate history evidence: %#v", report.History.Matches)
-		}
-		seenHistory[key] = struct{}{}
-	}
 	for i, file := range report.LikelyEditFiles {
 		if i >= len(report.LikelyFiles) || report.LikelyFiles[i] != file {
 			t.Fatalf("combined likely-file order does not preserve edit order: edits=%#v all=%#v", report.LikelyEditFiles, report.LikelyFiles)
@@ -152,10 +141,11 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("missing optional indexes: %v\n%s", err, out)
 		}
-		for _, warning := range []string{"code context unavailable", "history index missing"} {
-			if !strings.Contains(out, warning) {
-				t.Fatalf("missing input warning %q absent: %s", warning, out)
-			}
+		if !strings.Contains(out, "code context unavailable") {
+			t.Fatalf("missing input warning absent: %s", out)
+		}
+		if strings.Contains(out, "history index missing") {
+			t.Fatalf("brief still warns about the removed history stage: %s", out)
 		}
 	})
 	t.Run("malformed derived corpus fails closed", func(t *testing.T) {
@@ -225,7 +215,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 			t.Fatalf("fact warning absent: %s", out)
 		}
 	})
-	t.Run("malformed history stores degrade with public warning", func(t *testing.T) {
+	t.Run("malformed history stores do not affect the brief", func(t *testing.T) {
 		fixture := newBrainBriefOutputFixture(t)
 		manifest, err := bmanifest.Load(fixture.brainDir)
 		if err != nil {
@@ -239,10 +229,10 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 		profile := filepath.Join(t.TempDir(), "profile.json")
 		out, err := execute(t, NewRootCommand(fixture.opts), "brief", "ValidateToken", "--json", "--limit", "3", "--profile-json", profile)
 		if err != nil {
-			t.Fatalf("corrupt history should degrade: %v\n%s", err, out)
+			t.Fatalf("corrupt history must not reach the brief: %v\n%s", err, out)
 		}
-		if !strings.Contains(out, "history context unavailable") {
-			t.Fatalf("history warning absent: %s", out)
+		if strings.Contains(out, "history context unavailable") {
+			t.Fatalf("brief read the removed history stores: %s", out)
 		}
 	})
 	t.Run("invalid budget is rejected", func(t *testing.T) {
@@ -263,59 +253,6 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 			t.Fatalf("stale input not explicit: %s", out)
 		}
 	})
-}
-
-func TestBriefOutputRawHistoryFailureIsPublicWarning(t *testing.T) {
-	t.Parallel()
-	fixture := newBrainBriefOutputFixture(t)
-	cmd := &cobra.Command{}
-	var out strings.Builder
-	cmd.SetOut(&out)
-	matcher := func(string, string, []brainTextMatch, int, *brainBriefProfileRawHistory) ([]brainTextMatch, error) {
-		return nil, errors.New("synthetic raw history failure")
-	}
-	// The limit must exceed the indexed match count: a filled budget skips
-	// the raw fallback, and this test needs the fallback to run and fail.
-	err := runBrainBriefWithRawHistoryMatcher(context.Background(), cmd, fixture.opts, brainBriefOptions{limit: 50, json: true}, "ValidateToken", matcher)
-	if err != nil {
-		t.Fatalf("raw history fallback should degrade: %v", err)
-	}
-	if !strings.Contains(out.String(), "raw history fallback unavailable: synthetic raw history failure") {
-		t.Fatalf("raw history warning absent: %s", out.String())
-	}
-}
-
-func TestBriefOutputCurrentOverlaySupersedesLongTermHistory(t *testing.T) {
-	t.Parallel()
-	fixture := newBrainBriefOutputFixture(t)
-	manifest, err := bmanifest.Load(fixture.brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const rel = "sessions/main/overlay-current.jsonl"
-	overlay := shortTermIndex{
-		ReconcilerVersion: historyShortTermReconcilerVersion,
-		BaseGeneratedAt:   manifest.Sources.History.GeneratedAt,
-		Files: map[string]shortTermFile{rel: {Records: []historyRecord{{
-			ID: "overlay-current", Kind: "learning", Branch: "main", Path: rel, Line: 7,
-			Summary: "OVERLAY_CURRENT_CANARY preserve current history", Terms: []string{"overlay", "current", "canary"},
-		}}},
-		},
-	}
-	if err := saveHistoryShortTerm(fixture.brainDir, overlay); err != nil {
-		t.Fatal(err)
-	}
-	packet, err := execute(t, NewRootCommand(fixture.opts), "brief", "OVERLAY_CURRENT_CANARY", "--json", "--limit", "3")
-	if err != nil {
-		t.Fatalf("overlay brief: %v\n%s", err, packet)
-	}
-	var report brainBriefJSONReport
-	if err := json.Unmarshal([]byte(packet), &report); err != nil {
-		t.Fatal(err)
-	}
-	if len(report.History.Matches) == 0 || report.History.Matches[0].Path != rel || report.History.Matches[0].Line != 7 || !strings.Contains(report.History.Matches[0].Excerpt, "OVERLAY_CURRENT_CANARY") {
-		t.Fatalf("current overlay absent or lost provenance: %#v", report.History.Matches)
-	}
 }
 
 // The root tests above prove these scanner results reach the public packet.
@@ -545,11 +482,10 @@ func TestBriefOutputLikelyFileGroupingUsesEveryPublicEvidenceLane(t *testing.T) 
 			RuntimeTraces: []semanticRecord{{FilePath: "src/runtime.go", Evidence: []semanticEvidence{{FilePath: "src/evidence.go"}}}},
 			Tests:         semanticTestsResult{Roots: []semanticRecord{{FilePath: "src/root.go"}}, Suggestions: []semanticTestSuggestion{{Symbol: semanticRecord{FilePath: "src/suggested.go"}, Reason: "direct"}}},
 		},
-		Status:  brainStatusReport{Live: brainLiveState{ChangedFiles: []string{"src/changed.go", "../hidden.go"}}},
-		History: brainBriefHistory{Matches: []brainTextMatch{{Excerpt: "Edit src/history.go and ../secret.go"}}},
+		Status: brainStatusReport{Live: brainLiveState{ChangedFiles: []string{"src/changed.go", "../hidden.go"}}},
 	}
 	edits, tests, all := brainBriefLikelyFileGroupsForRepoAndFilenameCounts(repo, report, "context runtime", []string{"context", "runtime"}, map[string]int{"src/named.go": 50, "../../escape.go": 999})
-	for _, want := range []string{"src/context.go", "src/neighbor.go", "src/relation.go", "src/runtime.go", "src/root.go", "src/suggested.go", "src/history.go", "src/named.go", "src/context_test.go"} {
+	for _, want := range []string{"src/context.go", "src/neighbor.go", "src/relation.go", "src/runtime.go", "src/root.go", "src/suggested.go", "src/named.go", "src/context_test.go"} {
 		if !slices.Contains(edits, want) && !slices.Contains(all, want) {
 			t.Fatalf("evidence lane omitted %q: edits=%#v tests=%#v all=%#v", want, edits, tests, all)
 		}

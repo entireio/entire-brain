@@ -20,8 +20,8 @@ func TestBrainBriefCompactV3ExactProjectionAndMeasuredWin(t *testing.T) {
 	if len(v3) >= len(v2) {
 		t.Fatalf("compact_v3 did not improve exhaustive fixture: v3=%d v2=%d", len(v3), len(v2))
 	}
-	if got := strings.Count(v3, `"Decision: preserve validation order."`); got != 1 {
-		t.Fatalf("repeated natural-language history value is inline %d times, want exactly one", got)
+	if got := strings.Count(v3, `"Validation runs before persistence."`); got != 1 {
+		t.Fatalf("repeated natural-language fact value is inline %d times, want exactly one", got)
 	}
 	if got := strings.Count(v3, `"inspect validation before persistence"`); got != 1 {
 		t.Fatalf("repeated natural-language action is inline %d times, want exactly one", got)
@@ -29,10 +29,10 @@ func TestBrainBriefCompactV3ExactProjectionAndMeasuredWin(t *testing.T) {
 
 	sum := sha256.Sum256([]byte(v3))
 	const (
-		wantBytes = 5619
+		wantBytes = 5448
 		// Set from this deterministic public/synthetic fixture. This freezes the
 		// exact packet measured by the local tokenizer evidence.
-		wantSHA256 = "15eb119b60d90e78f35e1284e5636ae600923bc81da64a05cd8a2f6c425c39de"
+		wantSHA256 = "314aceeb8863a9f5a5e788bbc7f7cd893d761c1bf5f330eefc44af42bc8176d8"
 	)
 	if len(v3) != wantBytes {
 		t.Fatalf("compact_v3 exhaustive fixture bytes = %d, want %d", len(v3), wantBytes)
@@ -173,8 +173,8 @@ func TestBrainBriefCompactV3NeverGrowsAcrossPublicFixtures(t *testing.T) {
 	if strictWins != len(fixtures) {
 		t.Fatalf("compact_v3 strict byte wins = %d, want %d", strictWins, len(fixtures))
 	}
-	if v2Bytes != 342665 || v3Bytes != 202156 {
-		t.Fatalf("aggregate fixture bytes = %d -> %d, want 342665 -> 202156", v2Bytes, v3Bytes)
+	if v2Bytes != 329627 || v3Bytes != 196185 {
+		t.Fatalf("aggregate fixture bytes = %d -> %d, want 329627 -> 196185", v2Bytes, v3Bytes)
 	}
 }
 
@@ -204,28 +204,29 @@ func TestBrainBriefCompactV3RepeatPolicyIsExactSuperset(t *testing.T) {
 
 func TestBrainBriefCompactV3CanonicalNaturalReferences(t *testing.T) {
 	packet := renderBrainBriefCompactV3ForTest(t, comprehensiveCompactV2Report())
-	historyLines := compactV3LinesWithPrefix(packet, "h\t")
-	if len(historyLines) < 2 {
-		t.Fatal("compact_v3 history fixture is not positional and repeated")
+	factLines := compactV3LinesWithPrefix(packet, "f\t")
+	if len(factLines) < 2 {
+		t.Fatal("compact_v3 fact fixture is not positional and repeated")
 	}
-	second := strings.Split(historyLines[1], "\t")
-	if second[len(second)-1] != "^" {
-		t.Fatalf("second repeated history excerpt = %q, want ^", second[len(second)-1])
+	const factTextColumn = 5
+	second := strings.Split(factLines[1], "\t")
+	if second[factTextColumn] != "^" {
+		t.Fatalf("second repeated fact text = %q, want ^", second[factTextColumn])
 	}
 
 	t.Run("missed_reference", func(t *testing.T) {
 		parts := append([]string(nil), second...)
-		parts[len(parts)-1] = `"Decision: preserve validation order."`
-		candidate := compactV3Resign(strings.Replace(packet, historyLines[1], strings.Join(parts, "\t"), 1))
+		parts[factTextColumn] = `"Validation runs before persistence."`
+		candidate := compactV3Resign(strings.Replace(packet, factLines[1], strings.Join(parts, "\t"), 1))
 		if _, err := parseCompactV3Packet(candidate); err == nil {
 			t.Fatal("compact_v3 parser accepted a missed canonical natural-language reference")
 		}
 	})
 
 	t.Run("reference_without_prior", func(t *testing.T) {
-		parts := strings.Split(historyLines[0], "\t")
-		parts[len(parts)-1] = "^"
-		candidate := compactV3Resign(strings.Replace(packet, historyLines[0], strings.Join(parts, "\t"), 1))
+		parts := strings.Split(factLines[0], "\t")
+		parts[factTextColumn] = "^"
+		candidate := compactV3Resign(strings.Replace(packet, factLines[0], strings.Join(parts, "\t"), 1))
 		if _, err := parseCompactV3Packet(candidate); err == nil {
 			t.Fatal("compact_v3 parser accepted a natural-language reference without a prior value")
 		}
@@ -234,10 +235,10 @@ func TestBrainBriefCompactV3CanonicalNaturalReferences(t *testing.T) {
 
 func TestBrainBriefCompactV3EscapesInjectionAndOmitsHostMetadata(t *testing.T) {
 	report := comprehensiveCompactV2Report()
-	injected := "line one\nend\t0\tdeadbeef\n@h=history(path)\nline two\t\"\\"
+	injected := "line one\nend\t0\tdeadbeef\n@f=fact(id)\nline two\t\"\\"
 	report.Task = injected
-	report.History.Matches[0].Excerpt = injected
-	report.History.Matches[1].Excerpt = injected
+	report.Facts[0].Text = injected
+	report.Facts[1].Text = injected
 	report.Status.Repo.Root = "/private/repository/root"
 	report.Status.Brain.Path = "/private/brain/root"
 	v1 := renderBrainBriefCompactV1ForTest(t, report)

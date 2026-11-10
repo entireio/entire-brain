@@ -104,9 +104,9 @@ var manifestBrainWrite = regexp.MustCompile(`(?i)write[A-Za-z]*\(\s*(outputDir|b
 // strict reader.
 //
 // The tolerant reader exists for the ~280 call sites that only consume the
-// manifest, but three writers used bmanifest.Load's strictness as their write
-// guard and two of them are nowhere near writeBrainManifestAndReadme. Making the
-// reader tolerant silently disarmed those two: the bytes they write are
+// manifest, but writers used bmanifest.Load's strictness as their write
+// guard and some of them are nowhere near writeBrainManifestAndReadme. Making the
+// reader tolerant silently disarmed those: the bytes they write are
 // marshalled from a struct, so a field the reader dropped would be erased. This
 // discovers writers by scanning, so a new one cannot quietly inherit the wrong
 // reader.
@@ -137,8 +137,8 @@ func TestEveryManifestWriterGatesOnTheStrictReader(t *testing.T) {
 				"gated on the tolerant bmanifest.Load erases fields another build wrote", name)
 		}
 	}
-	if writers < 3 {
-		t.Fatalf("found %d manifest writers, want at least the 3 known ones; the detection pattern has drifted", writers)
+	if writers < 2 {
+		t.Fatalf("found %d manifest writers, want at least the 2 known ones (brain.go, history.go); the detection pattern has drifted", writers)
 	}
 }
 

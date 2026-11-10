@@ -402,10 +402,10 @@ func TestPartialTranscriptFailureSignalsIncompleteExport(t *testing.T) {
 	}
 }
 
-// TestBriefRawScanSkipsDerivedStores locks the raw walk against DERIVED state:
-// generation and staging directories hold projection copies of the same
+// TestInspectRawScanSkipsDerivedStores locks the raw walk against DERIVED
+// state: generation and staging directories hold projection copies of the same
 // transcripts, so a walk that reads derived state would duplicate every hit.
-func TestBriefRawScanSkipsDerivedStores(t *testing.T) {
+func TestInspectRawScanSkipsDerivedStores(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
 	// Derived stores carry session content under their own filenames.
 	derived := map[string]string{
@@ -428,12 +428,6 @@ func TestBriefRawScanSkipsDerivedStores(t *testing.T) {
 	}
 
 	for name, scan := range map[string]func() ([]brainTextMatch, error){
-		"single scan": func() ([]brainTextMatch, error) {
-			return brainBriefRawHistoryMatchesSingleScan(brainDir, privacyCanary, nil, 50)
-		},
-		"multi scan": func() ([]brainTextMatch, error) {
-			return brainBriefRawHistoryMatchesMultiScan(brainDir, privacyCanary, nil, 50, &brainBriefProfileRawHistory{})
-		},
 		"inspect": func() ([]brainTextMatch, error) {
 			report, err := inspectBrainRawText(brainDir, "all", privacyCanary, 50)
 			return report.Matches, err
@@ -579,12 +573,6 @@ func TestRawScansSkipLeftoverSessionFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	scans := map[string]func() ([]brainTextMatch, error){
-		"single scan": func() ([]brainTextMatch, error) {
-			return brainBriefRawHistoryMatchesSingleScan(brainDir, leftoverCanary, nil, 50)
-		},
-		"multi scan": func() ([]brainTextMatch, error) {
-			return brainBriefRawHistoryMatchesMultiScan(brainDir, leftoverCanary, nil, 50, &brainBriefProfileRawHistory{})
-		},
 		"inspect": func() ([]brainTextMatch, error) {
 			report, err := inspectBrainRawText(brainDir, "all", leftoverCanary, 50)
 			return report.Matches, err
