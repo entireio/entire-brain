@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,12 +23,21 @@ func TestPrecedentSourcesDegradeAndDedupe(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	outside := filepath.Join(t.TempDir(), "outside.jsonl")
+	if err := os.WriteFile(outside, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(brainDir, "sessions", "main", "link.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+
 	anchors := []factAnchor{
 		{SessionID: "sess-a", Commit: "commit-a", CheckpointID: "cp-a"},
 		{SessionID: "sess-a", Commit: "commit-a", CheckpointID: "cp-a", Transcript: transcript, Line: 7},
 		{SessionID: "sess-a", Commit: "commit-a", CheckpointID: "cp-a", Transcript: transcript, Line: 7},
 		{SessionID: "sess-b", Commit: "commit-b", Transcript: "sessions/main/missing.jsonl", Line: 3},
 		{SessionID: "sess-c", Transcript: "../outside.jsonl", Line: 1},
+		{SessionID: "sess-d", Transcript: "sessions/main/link.jsonl", Line: 1},
 		{},
 	}
 	sources := precedentSources(brainDir, anchors)
@@ -35,6 +45,7 @@ func TestPrecedentSourcesDegradeAndDedupe(t *testing.T) {
 		{SessionID: "sess-a", Commit: "commit-a", CheckpointID: "cp-a", Transcript: transcript, Line: 7},
 		{SessionID: "sess-b", Commit: "commit-b"},
 		{SessionID: "sess-c"},
+		{SessionID: "sess-d"},
 	}
 	if len(sources) != len(want) {
 		t.Fatalf("sources = %+v, want %+v", sources, want)
@@ -43,6 +54,43 @@ func TestPrecedentSourcesDegradeAndDedupe(t *testing.T) {
 		if sources[i] != want[i] {
 			t.Fatalf("source[%d] = %+v, want %+v", i, sources[i], want[i])
 		}
+	}
+}
+
+func BenchmarkBrainBriefPrecedents(b *testing.B) {
+	// Worst realistic anchor shape per fact: a bare duplicate, two pointers
+	// into an existing transcript, and a missing transcript. 6 is the current
+	// brief cap (brainBriefFactsLimit); the larger sizes chart how the cost
+	// scales if the cap moves.
+	for _, size := range []int{brainBriefFactsLimit, 12, 25, 50} {
+		b.Run(fmt.Sprintf("facts=%d", size), func(b *testing.B) {
+			brainDir := b.TempDir()
+			if err := os.MkdirAll(filepath.Join(brainDir, "sessions", "main"), 0o700); err != nil {
+				b.Fatal(err)
+			}
+			facts := make([]factRecord, size)
+			for i := range facts {
+				transcript := filepath.ToSlash(filepath.Join("sessions", "main", fmt.Sprintf("t%d.jsonl", i)))
+				if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(transcript)), []byte("{}\n"), 0o600); err != nil {
+					b.Fatal(err)
+				}
+				facts[i] = factRecord{
+					ID: "fact:bench",
+					Provenance: []factAnchor{
+						{SessionID: "sess", Commit: "commit", CheckpointID: "cp"},
+						{SessionID: "sess", Commit: "commit", CheckpointID: "cp", Transcript: transcript, Line: 7},
+						{SessionID: "sess", Commit: "commit", CheckpointID: "cp", Transcript: transcript, Line: 634},
+						{SessionID: "sess2", Transcript: "sessions/main/missing.jsonl", Line: 3},
+					},
+				}
+			}
+			b.ResetTimer()
+			for b.Loop() {
+				if got := brainBriefPrecedents(brainDir, facts); len(got) != len(facts) {
+					b.Fatalf("precedents = %d, want %d", len(got), len(facts))
+				}
+			}
+		})
 	}
 }
 
