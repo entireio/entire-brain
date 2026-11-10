@@ -2855,17 +2855,19 @@ func precedentSources(brainDir string, anchors []factAnchor) []brainBriefPrecede
 
 // precedentTranscriptExists treats the anchor's transcript as a brain-relative
 // path. Synced facts can carry arbitrary anchor strings, so a path that would
-// escape the brain directory is treated as absent rather than resolved.
+// escape the brain directory — lexically or through a symlink — is treated as
+// absent rather than resolved, through the same containment guard the other
+// brain-relative readers in this package use.
 func precedentTranscriptExists(brainDir, transcript string) bool {
-	if brainDir == "" || transcript == "" || filepath.IsAbs(transcript) {
+	if brainDir == "" || transcript == "" {
 		return false
 	}
 	clean := filepath.Clean(filepath.FromSlash(transcript))
-	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	if err := clibase.RejectSymlinkPathComponents(brainDir, clean); err != nil {
 		return false
 	}
-	info, err := os.Stat(filepath.Join(brainDir, clean))
-	return err == nil && !info.IsDir()
+	info, err := os.Lstat(filepath.Join(brainDir, clean))
+	return err == nil && info.Mode().IsRegular()
 }
 
 func brainBriefLikelyFileGroups(repoRoot string, report brainBriefReport, task string) ([]string, []string, []string) {
