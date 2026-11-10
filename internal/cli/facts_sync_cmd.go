@@ -20,7 +20,10 @@ const (
 	// factsBackendHTTP is the hosted per-fact wire (factsync perfact.go) —
 	// the only sync backend.
 	factsBackendHTTP = "http"
-	// envFactsBackend selects the backend when --memories-backend is unset.
+	// envMemoriesBackend selects the backend when --memories-backend is unset.
+	envMemoriesBackend = "ENTIRE_BRAIN_MEMORIES_BACKEND"
+	// envFactsBackend is the pre-rename spelling, honored as a fallback the
+	// same way legacyFlagAlias keeps --facts-backend working (COR-2193).
 	envFactsBackend = "ENTIRE_BRAIN_FACTS_BACKEND"
 )
 
@@ -82,7 +85,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 	case "", factsBackendHTTP:
 	case factsBackendLocalGitmeta:
 		return fmt.Errorf("memories sync: the %q backend was removed (COR-2236): memory sync is hosted-only; run '%s' to sync with the team, or drop --memories-backend/%s (memories stay local otherwise)",
-			factsBackendLocalGitmeta, base.BrainInvocation(os.LookupEnv, "connect"), envFactsBackend)
+			factsBackendLocalGitmeta, base.BrainInvocation(os.LookupEnv, "connect"), envMemoriesBackend)
 	default:
 		return fmt.Errorf("unknown --memories-backend %q: only %q (the hosted per-fact wire) is supported; the local-gitmeta backend was removed (COR-2236)", backend, factsBackendHTTP)
 	}
@@ -209,6 +212,9 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
 // the caller requires a connected repo and syncs hosted.
 func resolveFactsBackendName(flagVal string) string {
 	if v := strings.TrimSpace(flagVal); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(os.Getenv(envMemoriesBackend)); v != "" {
 		return v
 	}
 	return strings.TrimSpace(os.Getenv(envFactsBackend))

@@ -29,7 +29,7 @@ func newHostedSyncCmdFixture(t *testing.T, fake *hostedFake) (verifyFixture, str
 	}
 	f.opts.Env.PluginCacheDir = t.TempDir()
 	f.runner.responses[fakeCommandKey("entire", "auth", "token")] = fakeCommandResponse{stdout: fakeJWT + "\n"}
-	for _, env := range []string{"ENTIRE_BRAIN_NO_EGRESS", "ENTIRE_BRAIN_LOCAL_ONLY", "ENTIRE_BRAIN_ALLOW_HOSTED", "ENTIRE_API_URL", "ENTIRE_API_TOKEN", "ENTIRE_REPO_ID", envFactsBackend} {
+	for _, env := range []string{"ENTIRE_BRAIN_NO_EGRESS", "ENTIRE_BRAIN_LOCAL_ONLY", "ENTIRE_BRAIN_ALLOW_HOSTED", "ENTIRE_API_URL", "ENTIRE_API_TOKEN", "ENTIRE_REPO_ID", envMemoriesBackend, envFactsBackend} {
 		t.Setenv(env, "")
 	}
 	return f, srv.URL
@@ -168,7 +168,7 @@ func TestMemoriesSyncUnconnectedFailsGracefully(t *testing.T) {
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	f := newVerifyFixture(t)
 	f.opts.Env.PluginCacheDir = t.TempDir()
-	for _, env := range []string{"ENTIRE_BRAIN_NO_EGRESS", "ENTIRE_BRAIN_LOCAL_ONLY", "ENTIRE_BRAIN_ALLOW_HOSTED", envFactsBackend} {
+	for _, env := range []string{"ENTIRE_BRAIN_NO_EGRESS", "ENTIRE_BRAIN_LOCAL_ONLY", "ENTIRE_BRAIN_ALLOW_HOSTED", envMemoriesBackend, envFactsBackend} {
 		t.Setenv(env, "")
 	}
 	f.writeFacts(t, "main", []factRecord{hostedSyncTestFact("local fact A", now)})
@@ -213,6 +213,12 @@ func TestMemoriesSyncLocalGitmetaBackendIsRemoved(t *testing.T) {
 		run(t, f, "memories", "sync", "--facts-backend", "local-gitmeta")
 	})
 	t.Run("env spelling", func(t *testing.T) {
+		fake := &hostedFake{}
+		f, _ := newHostedSyncCmdFixture(t, fake)
+		t.Setenv(envMemoriesBackend, "local-gitmeta")
+		run(t, f, "memories", "sync")
+	})
+	t.Run("legacy env spelling still honored", func(t *testing.T) {
 		fake := &hostedFake{}
 		f, _ := newHostedSyncCmdFixture(t, fake)
 		t.Setenv(envFactsBackend, "local-gitmeta")
