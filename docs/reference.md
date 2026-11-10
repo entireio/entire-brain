@@ -711,11 +711,15 @@ Distillation is the egress-gated agent step that turns captured sessions into
 durable project knowledge: decisions, constraints, preferences, gotchas,
 conventions, and invariants.
 
+`memories` is the canonical command group; the pre-rename `facts` spellings
+(`entire brain facts …`, `--facts-backend`, `ENTIRE_BRAIN_FACTS_BACKEND`)
+remain as compatibility aliases.
+
 ```sh
 entire brain distill --dry-run --json                                  # estimate cost first
 entire brain distill --agent codex --model gpt-5.4-mini --effort low   # extract
-entire brain facts status --json
-entire brain facts tree --depth 1
+entire brain memories status --json
+entire brain memories tree --depth 1
 ```
 
 Distillation sends redacted transcript chunks to the selected agent unless you
@@ -1161,8 +1165,8 @@ Retract facts that are no longer true, then garbage-collect eligible retractions
 ```sh
 entire brain remember "Prefer table-driven tests for parser edge cases" --path preferences.tests
 entire brain distill --agent codex --model gpt-5.4-mini --effort low
-entire brain facts retract <fact-id>
-entire brain facts gc --force
+entire brain memories retract <memory-id>
+entire brain memories gc --force
 entire brain inspect blame <fact-id> --json
 ```
 
@@ -1198,9 +1202,9 @@ retriever or fact layer is actually helping — not required for everyday use, b
 the right surface before claiming a quality lift.
 
 ```sh
-entire brain facts eval-gen > facts-tasks.json
-entire brain facts eval --tasks facts-tasks.json --retriever facts --json > facts-eval.json
-entire brain facts eval-compare --a <before.json> --b <after.json>
+entire brain memories eval-gen > memories-tasks.json
+entire brain memories eval --tasks memories-tasks.json --retriever facts --json > memories-eval.json
+entire brain memories eval-compare --a <before.json> --b <after.json>
 entire brain bench index .
 entire brain status --json --details
 ```
@@ -1234,16 +1238,16 @@ and recording them in one repo's brain makes them invisible from the next.
 
 ```sh
 entire brain remember "We deploy on Thursdays." --global
-entire brain facts global                     # list them
-entire brain facts global --all --json
-entire brain facts retract <fact-id> --global
+entire brain memories global                  # list them
+entire brain memories global --all --json
+entire brain memories retract <memory-id> --global
 ```
 
 `global` cannot be combined with `branch`: a fact that applies everywhere has no
 branch to belong to.
 
 Global facts live in their own store beside the per-repo ones — `global/` next
-to `repos/` under the plugin data directory, which `entire brain facts global`
+to `repos/` under the plugin data directory, which `entire brain memories global`
 prints. They are ordinary facts: the same format, the same taxonomy, the same
 retraction and garbage collection.
 

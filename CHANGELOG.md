@@ -7,6 +7,12 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Changed
 
+- `ENTIRE_BRAIN_MEMORIES_BACKEND` is the canonical spelling of the memories
+  sync backend variable; `ENTIRE_BRAIN_FACTS_BACKEND` keeps working as a
+  fallback, like the `--facts-backend` flag alias. `docs/reference.md` now
+  teaches the `memories` command group with a note that the `facts` spellings
+  remain aliases (COR-2193).
+
 - Facts ranking (recall, brief, the facts arms) changed in three ways
   (COR-2311). The flat closed-negative score bonus is gone: it boosted ~17% of
   the corpus on any match and let topically-similar closed-negatives displace
