@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M73J699KK5AFNEDD0WTRDATB",
+  "strategy": "manual-commit",
+  "branch": "evisdren/cor-2315-seed-freshness",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "CHANGELOG.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/setup_status_output_truth_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 42,
+    "cache_creation_tokens": 113263,
+    "cache_read_tokens": 2237369,
+    "output_tokens": 13143,
+    "api_call_count": 21
+  },
+  "redaction": {
+    "replacements": 26,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 24,
+      "key_context": 2,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
