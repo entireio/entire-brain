@@ -7,6 +7,18 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Changed
 
+- Facts ranking (recall, brief, the facts arms) changed in three ways
+  (COR-2311). The flat closed-negative score bonus is gone: it boosted ~17% of
+  the corpus on any match and let topically-similar closed-negatives displace
+  the decision fact; kind no longer affects ranking. A gentle recency prior
+  (±15%, 90-day half-life) now applies by default: it breaks stale-vs-current
+  ties between near-duplicate facts and leaves dateless facts neutral. Facts
+  cross-linked via `related_ids` collapse to one result — the highest-ranked
+  member represents the family, its `related_ids` field names the alternates,
+  and the freed slots backfill; `--all` skips the collapse. Each change was
+  gated on a 60-task provenance-labeled `memories eval` comparison with no
+  significant relevance regression.
+
 - Building from source needs Go 1.27.3 or newer (was 1.27). Brain now reads
   compact transcripts with the CLI's own `transcript` package
   (`github.com/entireio/cli` v0.13.1), whose module requires it. The source
