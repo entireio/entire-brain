@@ -185,6 +185,13 @@ func TestBrainBriefStoreUnavailableWarningCarriesGraphRemedy(t *testing.T) {
 				if strings.Contains(warning, "semantic index missing") {
 					t.Fatalf("stale brain-side advice survived: %q", warning)
 				}
+				// The probe's wrapped error must not leak: it re-prefixes the
+				// detail and appends a second remedy, and with an empty detail
+				// it renders "Graph store unavailable: ; run ..." instead of
+				// brainBriefCodeContextWarning's designed fallback.
+				if strings.Contains(warning, "Graph store unavailable") {
+					t.Fatalf("store-probe error text leaked into the warning: %q", warning)
+				}
 				if strings.Contains(warning, "code context unavailable") && strings.Contains(warning, c.want) {
 					carried = true
 				}
@@ -230,5 +237,31 @@ func TestBrainBriefSkipsGraphContextWhenStoreProbeAlreadyRefused(t *testing.T) {
 	}
 	if !carried {
 		t.Fatalf("store-probe remedy not carried into warnings: %v", report.Warnings)
+	}
+}
+
+// TestBrainBriefCustomGraphBinaryStillAskedAfterDefaultProbeRefusal pins the
+// skip's binary scope: the status build's store probe always runs the default
+// `entire` binary, so its refusal says nothing about a CLI named with
+// --graph-binary. Delegation must still ask that binary.
+func TestBrainBriefCustomGraphBinaryStillAskedAfterDefaultProbeRefusal(t *testing.T) {
+	t.Cleanup(func() { graphAncestorSupport.Delete("mycli") })
+	opts, repoDir, _ := commandRegressionFixture(t)
+	runner := opts.Runner.(*fakeCommandRunner)
+	// The default-binary store probe stays unscripted, so it answers
+	// store_unavailable; the custom binary answers context with real symbols.
+	runner.responses[fakeCommandKey("mycli", "graph", "context", "--repo", repoDir,
+		"--task", "metadata", "--limit", "3", "--tests-limit", "3")] = fakeCommandResponse{stdout: graphContextFixtureResponse()}
+
+	out, err := execute(t, NewRootCommand(opts), "brief", "metadata", "--json", "--limit", "3", "--graph-binary", "mycli")
+	if err != nil {
+		t.Fatalf("brief: %v\n%s", err, out)
+	}
+	var report brainBriefJSONReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Semantic.Source != "graph-context" {
+		t.Fatalf("semantic source = %q, want graph-context: the default probe's refusal suppressed the custom binary (warnings: %v)", report.Semantic.Source, report.Warnings)
 	}
 }
