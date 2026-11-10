@@ -1921,7 +1921,11 @@ func materializeHeadSnapshot(ctx context.Context, runner CommandRunner, repoDir 
 		cleanup()
 		return "", "", nil, fmt.Errorf("read committed tree %s: %w", commit, runErr)
 	}
-	if _, _, runErr := envRunner.RunWithEnv(ctx, repoDir, env, "git", "checkout-index", "--all", "--force", "--prefix="+dir+string(filepath.Separator)); runErr != nil {
+	// attr.tree pins attribute lookup (text/eol/ident) to the committed tree:
+	// checkout-index otherwise reads .gitattributes from the dirty worktree,
+	// letting uncommitted attribute edits rewrite snapshot bytes. Git older
+	// than 2.43 ignores the unknown key and keeps the worktree lookup.
+	if _, _, runErr := envRunner.RunWithEnv(ctx, repoDir, env, "git", "-c", "attr.tree="+commit, "checkout-index", "--all", "--force", "--prefix="+dir+string(filepath.Separator)); runErr != nil {
 		cleanup()
 		return "", "", nil, fmt.Errorf("extract committed tree %s: %w", commit, runErr)
 	}

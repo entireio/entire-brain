@@ -47,13 +47,22 @@ func TestDirtyWorktreeSeedsFromCommittedHead(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "build", "tool.txt"), []byte("generated\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	gitAt(t, repo, "add", "README.md", ".gitattributes", "docs/guide.md", "build/tool.txt")
+	if err := os.WriteFile(filepath.Join(repo, "ident.txt"), []byte("$Id$\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitAt(t, repo, "add", "README.md", ".gitattributes", "docs/guide.md", "build/tool.txt", "ident.txt")
 	gitAt(t, repo, "commit", "-qm", "initial")
 	// Dirty the tracked file and add an untracked one.
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("UNCOMMITTED edits\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(repo, "scratch.txt"), []byte("untracked\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Uncommitted attribute edits must not rewrite snapshot bytes (PR #631
+	// Bugbot): without attr.tree pinning, this dirty ident attribute would
+	// expand $Id$ during checkout-index.
+	if err := os.WriteFile(filepath.Join(repo, ".gitattributes"), []byte("docs/ export-ignore\nident.txt ident\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,6 +91,10 @@ func TestDirtyWorktreeSeedsFromCommittedHead(t *testing.T) {
 	doc, err := os.ReadFile(filepath.Join(dir, "docs", "guide.md"))
 	if err != nil || normalizeEOL(doc) != "export-ignored doc\n" {
 		t.Fatalf("export-ignored committed file must reach the snapshot, err=%v body=%q", err, doc)
+	}
+	ident, err := os.ReadFile(filepath.Join(dir, "ident.txt"))
+	if err != nil || normalizeEOL(ident) != "$Id$\n" {
+		t.Fatalf("dirty worktree attributes must not rewrite snapshot bytes, err=%v body=%q", err, ident)
 	}
 
 	// The scan in snapshot mode reads committed bytes and stamps the snapshot
