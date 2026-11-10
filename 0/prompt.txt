@@ -1,0 +1,9 @@
+where are the trail links for those 2 PRs
+
+---
+
+this si now merged: https://github.com/entireio/entire-brain/pull/630
+
+---
+
+bugbot passed but sasy there is still the old issue open: https://github.com/entireio/entire-brain/pull/631
