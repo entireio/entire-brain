@@ -153,7 +153,9 @@ func assertInternalSemanticServed(t *testing.T, report brainBriefJSONReport) {
 // internal semantic source exists either, the brief's warning must carry
 // graph's own remedy (build the graph-owned store) instead of advising a full
 // `brain refresh`, which rebuilds the brain-side snapshot the architecture
-// retired with COR-2217.
+// retired with COR-2217. Since COR-2314 the refusal that reaches the warning
+// is the status build's store probe (`graph store`), the one graph call the
+// brief still makes in this state.
 func TestBrainBriefStoreUnavailableWarningCarriesGraphRemedy(t *testing.T) {
 	detail := "search store not built for this commit: run `entire graph index --head` with ENTIRE_GRAPH_SEARCH_STORE=1"
 	for name, c := range map[string]struct{ detail, want string }{
@@ -163,12 +165,12 @@ func TestBrainBriefStoreUnavailableWarningCarriesGraphRemedy(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			opts, repoDir, _ := commandRegressionFixture(t)
 			runner := opts.Runner.(*fakeCommandRunner)
-			response, err := json.Marshal(graphTaskContext{SchemaVersion: "1.1", StoreUnavailable: true, Detail: c.detail})
+			response, err := json.Marshal(map[string]any{"contract_version": 1, "store_unavailable": true, "detail": c.detail})
 			if err != nil {
 				t.Fatal(err)
 			}
-			runner.responses[fakeCommandKey("entire", "graph", "context", "--repo", repoDir,
-				"--task", "metadata", "--limit", "3", "--tests-limit", "3")] = fakeCommandResponse{stdout: string(response)}
+			runner.responses[fakeCommandKey("entire", "graph", "store", "--repo", repoDir,
+				"--profile", "full")] = fakeCommandResponse{stdout: string(response)}
 
 			out, err := execute(t, NewRootCommand(opts), "brief", "metadata", "--json", "--limit", "3")
 			if err != nil {
@@ -191,5 +193,42 @@ func TestBrainBriefStoreUnavailableWarningCarriesGraphRemedy(t *testing.T) {
 				t.Fatalf("graph remedy not carried into warnings: %v", report.Warnings)
 			}
 		})
+	}
+}
+
+// TestBrainBriefSkipsGraphContextWhenStoreProbeAlreadyRefused pins COR-2314's
+// no-repeat rule: the status build's store probe already heard "no store for
+// this commit" from the provider. Without ancestor support a `graph context`
+// subprocess can only repeat that refusal, so the brief must not spawn it —
+// and the warning must still carry the provider's remedy.
+func TestBrainBriefSkipsGraphContextWhenStoreProbeAlreadyRefused(t *testing.T) {
+	t.Cleanup(func() { graphAncestorSupport.Delete("entire") })
+	opts, repoDir, _ := commandRegressionFixture(t)
+	runner := opts.Runner.(*fakeCommandRunner)
+	// No graphStoreFixtures entry: the fake provider answers `graph store` with
+	// store_unavailable, and the unscripted capabilities probe fails closed
+	// (no ancestor answers), so delegation has nothing left to ask.
+
+	out, err := execute(t, NewRootCommand(opts), "brief", "metadata", "--json", "--limit", "3")
+	if err != nil {
+		t.Fatalf("brief: %v\n%s", err, out)
+	}
+	for _, call := range runner.calls {
+		if len(call.args) > 1 && call.args[0] == "graph" && call.args[1] == "context" {
+			t.Fatalf("brief spawned graph context for %s after the store probe already refused", repoDir)
+		}
+	}
+	var report brainBriefJSONReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatal(err)
+	}
+	carried := false
+	for _, warning := range report.Warnings {
+		if strings.Contains(warning, "code context unavailable") && strings.Contains(warning, "refresh index") {
+			carried = true
+		}
+	}
+	if !carried {
+		t.Fatalf("store-probe remedy not carried into warnings: %v", report.Warnings)
 	}
 }

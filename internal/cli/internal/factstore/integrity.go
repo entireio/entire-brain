@@ -293,11 +293,32 @@ func Inspect(brainDir string, source *bmanifest.FactSource) Integrity {
 	if brainDir == "" || source == nil {
 		return Integrity{}
 	}
-	report := Integrity{Declared: source.Facts, Pending: source.PendingReconcile}
-
 	combined, err := loadCombined(brainDir)
+	return inspectLoaded(combined, err, source)
+}
+
+// LoadWithIntegrity is Load plus Inspect from ONE read of the store, for read
+// surfaces that need both the records and the verdict. source follows
+// Inspect's contract: nil means nothing is declared, so the verdict is
+// healthy. The records fail closed exactly like Load; the Integrity mirrors
+// Inspect even then, so a caller may degrade the error to a warning.
+func LoadWithIntegrity(brainDir string, source *bmanifest.FactSource) ([]factmerge.Record, Integrity, error) {
+	combined, err := loadCombined(brainDir)
+	integrity := Integrity{}
+	if brainDir != "" && source != nil {
+		integrity = inspectLoaded(combined, err, source)
+	}
 	if err != nil {
-		report.ParseError = err.Error()
+		return nil, integrity, err
+	}
+	return combined.sorted(), integrity, nil
+}
+
+// inspectLoaded is Inspect's cross-check over an already-performed store read.
+func inspectLoaded(combined combinedRecords, loadErr error, source *bmanifest.FactSource) Integrity {
+	report := Integrity{Declared: source.Facts, Pending: source.PendingReconcile}
+	if loadErr != nil {
+		report.ParseError = loadErr.Error()
 		report.Mode = DefectUnreadable
 		return report
 	}
