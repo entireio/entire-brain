@@ -4717,7 +4717,30 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		case live.Head == "":
 			axes["seed"] = staleAxis{State: "unsafe", Detail: "current HEAD unavailable, so repository context freshness cannot be compared", Remedy: "run `git rev-parse HEAD` here to see why HEAD is unreadable", Indexed: seed.Commit}
 		case seed.Commit != live.Head:
-			axes["seed"] = seedCommitDriftAxis(ctx, runner, repoDir, seed.Commit, live.Head)
+			drift := seedCommitDriftAxis(ctx, runner, repoDir, seed.Commit, live.Head)
+			// Near drift reads ok only for a clean committed-HEAD seed. The
+			// dirty and worktree-overlay gates below assume seed == HEAD, so a
+			// drifted seed applies them here: the dirty tree that earns a cause
+			// line at the seed commit must not read fresh a few commits away,
+			// and a worktree overlay is tied to the commit it was built on.
+			switch {
+			case drift.State != "ok":
+				axes["seed"] = drift
+			case seed.WorktreeMode == "worktree" && live.Dirty:
+				axes["seed"] = staleAxis{State: "dirty-stale", Detail: "dirty worktree moved to a different commit since its repository context snapshot (built at " + seed.Commit + ")", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --worktree` to re-index the current changes", Current: live.Head, Indexed: seed.Commit}
+			case seed.WorktreeMode == "worktree":
+				axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "repository context was built from dirty content at " + seed.Commit + " but the worktree is now clean on a different commit", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild from committed HEAD", Current: live.Head, Indexed: seed.Commit}
+			case live.Dirty:
+				axes["seed"] = staleAxis{
+					State:   dirtyUnindexedAxisState,
+					Detail:  drift.Detail + "; uncommitted changes are excluded",
+					Remedy:  setupDirtyWorktreeHint(clibase.SetupCommandPrefix(os.LookupEnv)),
+					Current: live.Head,
+					Indexed: seed.Commit,
+				}
+			default:
+				axes["seed"] = drift
+			}
 		case seed.WorktreeMode != "worktree" && live.Dirty:
 			// CAUSE only, no remedy. This axis is rendered as the `Cause`
 			// line directly under the status verdict, which prints the one

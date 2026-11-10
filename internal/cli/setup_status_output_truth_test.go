@@ -656,16 +656,23 @@ func TestQueryabilityClauseNeverOverclaims(t *testing.T) {
 // state of all but one of them; these tests pin which drifts warn.
 func driftSeedAxis(t *testing.T, revListOut string, withResponse bool) staleAxis {
 	t.Helper()
+	return driftSeedAxisLive(t, revListOut, withResponse, false, "commit")
+}
+
+func driftSeedAxisLive(t *testing.T, revListOut string, withResponse, dirty bool, mode string) staleAxis {
+	t.Helper()
 	repoDir := t.TempDir()
 	responses := map[string]fakeCommandResponse{}
 	if withResponse {
 		responses[fakeCommandKey("git", "rev-list", "--count", "--left-right", "seedsha...headsha")] = fakeCommandResponse{stdout: revListOut}
 	}
 	runner := &fakeCommandRunner{responses: responses}
-	live := brainLiveState{Branch: "main", Head: "headsha", Dirty: false}
-	manifest := &exportManifest{Sources: &brainSources{
-		Seed: &seedSourceManifest{Commit: "seedsha", WorktreeMode: "commit", GeneratedAt: setupTestNow},
-	}}
+	live := brainLiveState{Branch: "main", Head: "headsha", Dirty: dirty}
+	seed := &seedSourceManifest{Commit: "seedsha", WorktreeMode: mode, GeneratedAt: setupTestNow}
+	if mode == "worktree" {
+		seed.WorktreeHash = "overlayhash"
+	}
+	manifest := &exportManifest{Sources: &brainSources{Seed: seed}}
 	status := buildBrainRetrievalStatus(context.Background(), runner, t.TempDir(), repoDir, manifest, live, false)
 	return status.Freshness.Axes["seed"]
 }
@@ -694,5 +701,25 @@ func TestSeedFarOrDivergedDriftStillWarns(t *testing.T) {
 	// An unreadable comparison must not read as fresh.
 	if axis := driftSeedAxis(t, "", false); axis.State != "stale" {
 		t.Fatalf("an unreadable drift comparison must keep the stale verdict, got %+v", axis)
+	}
+}
+
+// Near drift must not skip the gates an exact-match seed gets (PR #630
+// Bugbot): a dirty tree keeps its cause line, and a worktree overlay is tied
+// to the commit it was built on.
+func TestSeedNearDriftKeepsDirtyAndOverlayGates(t *testing.T) {
+	t.Parallel()
+	axis := driftSeedAxisLive(t, "0\t3\n", true, true, "commit")
+	if axis.State != dirtyUnindexedAxisState || !strings.Contains(axis.Detail, "uncommitted changes are excluded") {
+		t.Fatalf("a dirty tree near the seed commit must stay %s, got %+v", dirtyUnindexedAxisState, axis)
+	}
+	if !strings.Contains(axis.Detail, "3 commit(s) behind HEAD") {
+		t.Fatalf("the dirty near-drift detail must keep the built-from distance, got %+v", axis)
+	}
+	if axis := driftSeedAxisLive(t, "0\t3\n", true, true, "worktree"); axis.State != "dirty-stale" {
+		t.Fatalf("a dirty worktree overlay built on another commit must read dirty-stale, got %+v", axis)
+	}
+	if axis := driftSeedAxisLive(t, "0\t3\n", true, false, "worktree"); axis.State != "worktree-overlay-stale" {
+		t.Fatalf("a clean tree with an overlay built on another commit must read worktree-overlay-stale, got %+v", axis)
 	}
 }
