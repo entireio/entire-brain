@@ -39,7 +39,7 @@ func NewRemember(cfg Config) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&rememberOpts.Path, "path", "", "Taxonomy path(s), comma-separated (e.g. preferences.coding.style). If omitted, the agent classifies the memory")
-	cmd.Flags().StringVar(&rememberOpts.Kind, "kind", "", "Memory kind: decision|invariant|gotcha|preference|convention. If omitted, it is inferred")
+	cmd.Flags().StringVar(&rememberOpts.Kind, "kind", "", "Memory kind: decision|invariant|gotcha|preference|convention|closed-negative. If omitted, it is inferred")
 	cmd.Flags().StringVar(&rememberOpts.Branch, "branch", "", "Branch to store the memory on (default: current branch)")
 	cmd.Flags().StringVar(&rememberOpts.Session, "session", "", "Session id the memory was authored in (default: $"+RememberSessionEnv+"); agent and hook callers pass it so the memory carries session provenance")
 	cmd.Flags().StringVar(&rememberOpts.Agent, "agent", "auto", "Agent used to classify when --path is omitted: auto, codex, claude-code, ollama, command, or none")
@@ -289,7 +289,9 @@ func ResolveRememberPaths(ctx context.Context, cfg Config, rememberOpts Remember
 	if strings.TrimSpace(rememberOpts.Path) != "" {
 		paths := factmerge.NormalizePaths(strings.Split(rememberOpts.Path, ","))
 		if len(paths) == 0 {
-			return nil, fmt.Errorf("--path %q is not a valid taxonomy path (category.subcategory.type)", rememberOpts.Path)
+			return nil, fmt.Errorf(
+				"--path %q is not a valid taxonomy path: it must be exactly three dot-separated levels of lowercase letters, digits and underscores, as in architecture.retrieval.rationale — HYPHENS are not allowed in any level, and the third level is a topic label rather than a memory kind (set the kind with --kind)",
+				rememberOpts.Path)
 		}
 		// Explicit paths must all sit under a known top-level category, exactly
 		// like agent-classified ones — otherwise --path can mint

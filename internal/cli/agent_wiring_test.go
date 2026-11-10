@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -102,7 +104,7 @@ func TestSetupAgentWiringIsIdempotent(t *testing.T) {
 	preEdits := 0
 	for _, matcher := range settings.Hooks["PreToolUse"] {
 		for _, hook := range matcher.Hooks {
-			if commandInvokesPreEditHook(hook.Command) {
+			if commandInvokesHookVerb(hook.Command, "pre-edit") {
 				preEdits++
 			}
 		}
@@ -260,9 +262,9 @@ func TestInitAgentsMergesPreToolUseHookPreservingOtherSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path, changed, err := installPreEditHook(repo)
+	path, changed, err := installBrainHooks(repo)
 	if err != nil {
-		t.Fatalf("installPreEditHook: %v", err)
+		t.Fatalf("installBrainHooks: %v", err)
 	}
 	if !changed || path != settingsPath {
 		t.Fatalf("expected a change at %s, got changed=%v path=%s", settingsPath, changed, path)
@@ -278,7 +280,7 @@ func TestInitAgentsMergesPreToolUseHookPreservingOtherSettings(t *testing.T) {
 	}
 
 	// Second call is a no-op: an entry already invokes the hook.
-	if _, changed, err := installPreEditHook(repo); err != nil || changed {
+	if _, changed, err := installBrainHooks(repo); err != nil || changed {
 		t.Fatalf("second merge must be a no-op, got changed=%v err=%v", changed, err)
 	}
 	if again := readFileString(t, settingsPath); again != merged {
@@ -303,7 +305,7 @@ func TestInstallPreEditHookRefusesSettingsItCannotUnderstand(t *testing.T) {
 		if err := os.WriteFile(settingsPath, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := installPreEditHook(repo); err == nil {
+		if _, _, err := installBrainHooks(repo); err == nil {
 			t.Fatalf("%s: expected a refusal", name)
 		}
 		if got := readFileString(t, settingsPath); got != body {
@@ -348,7 +350,7 @@ func TestPreEditHookCommandSurvivesAManagedPluginInstall(t *testing.T) {
 	} else if !strings.Contains(command, "exit 0") {
 		t.Fatalf("a missing binary fails the hook instead of exiting clean: %s", command)
 	}
-	if !commandInvokesPreEditHook(command) {
+	if !commandInvokesHookVerb(command, "pre-edit") {
 		t.Fatalf("the command we write is not recognised by our own idempotence check: %s", command)
 	}
 }
@@ -357,13 +359,13 @@ func TestPreEditHookCommandSurvivesAManagedPluginInstall(t *testing.T) {
 // the session-end hook wired must not be read as having the pre-edit hook, or
 // setup would claim a delivery path nothing calls.
 func TestCommandInvokesPreEditHookRejectsOtherEntireHooks(t *testing.T) {
-	if commandInvokesPreEditHook("entire hooks claude-code session-end") {
+	if commandInvokesHookVerb("entire hooks claude-code session-end", "pre-edit") {
 		t.Fatal("the session-end hook was accepted as the pre-edit hook")
 	}
-	if commandInvokesPreEditHook("some-other-tool hook pre-edit") {
+	if commandInvokesHookVerb("some-other-tool hook pre-edit", "pre-edit") {
 		t.Fatal("another tool's pre-edit hook was accepted as ours")
 	}
-	if !commandInvokesPreEditHook("/opt/bin/entire-brain hook pre-edit --claude-hook") {
+	if !commandInvokesHookVerb("/opt/bin/entire-brain hook pre-edit --claude-hook", "pre-edit") {
 		t.Fatal("our own hook spelled absolutely was rejected")
 	}
 }
@@ -588,12 +590,12 @@ func TestAConcurrentSettingsEditIsNotOverwritten(t *testing.T) {
 
 	// Another writer lands between our read and our rename.
 	original := []byte(`{"model":"opus","permissions":{"allow":["Bash(ls:*)"]}}`)
-	installPreEditHookRaceHook = func() {
+	installBrainHooksRaceHook = func() {
 		_ = os.WriteFile(settings, original, 0o644)
 	}
-	defer func() { installPreEditHookRaceHook = nil }()
+	defer func() { installBrainHooksRaceHook = nil }()
 
-	_, changed, err := installPreEditHook(repo)
+	_, changed, err := installBrainHooks(repo)
 	if err == nil {
 		t.Fatal("a settings file that moved under us must be refused, not overwritten")
 	}
@@ -660,7 +662,7 @@ func assertPreEditHookCommand(t *testing.T, goos, command string) {
 	if !strings.Contains(command, base.SetupBrainBinaryName+" hook pre-edit") {
 		t.Errorf("%s: never tries the brain binary directly: %s", goos, command)
 	}
-	if !commandInvokesPreEditHook(command) {
+	if !commandInvokesHookVerb(command, "pre-edit") {
 		t.Errorf("%s: our own idempotence check does not recognise it, so setup would rewire it every run: %s", goos, command)
 	}
 	if goos == "windows" {
@@ -739,5 +741,156 @@ func TestSetupStrictModePersistsAcrossBareReruns(t *testing.T) {
 	runSetupForTest(t, f, opts, &recordedSetup{})
 	if guide := readFileString(t, guidePath); strings.Contains(guide, `"mode":"strict"`) {
 		t.Fatalf("--normal did not reset the saved mode:\n%s", guide)
+	}
+}
+
+// TestPreEditHookCommandFallsThroughAPresentButFailingBinary EXECUTES the
+// generated POSIX command against a fabricated PATH, because every other
+// assertion in this file is a substring check and a substring check is exactly
+// what missed the bug this covers.
+//
+// The bug: the first spelling ran under `exec`, which replaces the shell, so a
+// binary that was PRESENT but FAILED took the hook down and the plugin
+// fallback was never reached. `command -v` proves a name resolves, never that
+// the build behind it understands --claude-hook. On this machine a v0.1.0
+// `entire-brain` in ~/.local/bin shadowed the managed v0.4.0 plugin and exited
+// 1 on every edit for eight days for precisely that reason.
+func TestPreEditHookCommandFallsThroughAPresentButFailingBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the POSIX branch is what this executes; the windows branch chains with || and always recovered")
+	}
+	t.Parallel()
+	bin := t.TempDir()
+	marker := filepath.Join(t.TempDir(), "fallback-ran")
+	// Stands in for the stale standalone binary: on PATH, and fails the way a
+	// build predating --claude-hook fails.
+	writeFakeBin(t, bin, base.SetupBrainBinaryName, "#!/bin/sh\necho 'unknown flag: --claude-hook' >&2\nexit 1\n")
+	// Stands in for the host CLI, whose plugin dispatch reaches a current brain.
+	writeFakeBin(t, bin, base.SetupEntireBinaryName, "#!/bin/sh\nprintf '%s' \"$*\" >"+marker+"\nexit 0\n")
+
+	cmd := exec.Command("sh", "-c", posixHookScript(t))
+	cmd.Env = append(os.Environ(), "PATH="+bin)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("the hook must never fail the edit it was trying to inform: %v (%s)", err, out)
+	}
+	got, readErr := os.ReadFile(marker)
+	if readErr != nil {
+		t.Fatalf("the plugin fallback never ran, so a present-but-failing binary still silences memory delivery: %v (hook output: %s)", readErr, out)
+	}
+	wantArgs := base.SetupBrainPluginVerb + " hook pre-edit --claude-hook"
+	if string(got) != wantArgs {
+		t.Fatalf("the fallback ran with the wrong arguments: %q, want %q", got, wantArgs)
+	}
+}
+
+// TestPreEditHookCommandStaysSilentWhenNoBinaryIsInstalled is the other half of
+// the contract: an environment problem is silence, never noise, and never a
+// non-zero exit that interrupts the edit.
+func TestPreEditHookCommandStaysSilentWhenNoBinaryIsInstalled(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX branch only")
+	}
+	t.Parallel()
+	cmd := exec.Command("sh", "-c", posixHookScript(t))
+	cmd.Env = append(os.Environ(), "PATH="+t.TempDir())
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("a machine with neither binary gets a failing hook on every edit: %v", err)
+	}
+	if len(strings.TrimSpace(string(out))) != 0 {
+		t.Fatalf("a machine with neither binary gets noise on every edit: %q", out)
+	}
+}
+
+// writeFakeBin installs an executable shell stub under dir.
+func writeFakeBin(t *testing.T, dir, name, script string) {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// posixHookScript peels the `sh -c '...'` wrapper off the generated command so
+// the script inside can be handed to a real shell.
+func posixHookScript(t *testing.T) string {
+	t.Helper()
+	const prefix = "sh -c '"
+	command := preEditHookCommandFor("linux")
+	if !strings.HasPrefix(command, prefix) || !strings.HasSuffix(command, "'") {
+		t.Fatalf("the generated command is not a single-quoted sh script, so this test cannot run it: %s", command)
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(command, prefix), "'")
+}
+
+// TestInstallingTheHookDoesNotRewriteOtherCommands.
+//
+// The merge's stated contract is that it preserves every other key
+// byte-for-value. json.MarshalIndent broke it: it escapes <, > and & for
+// safety inside a <script> tag, which a settings file is never read in. Every
+// real hook command contains `>/dev/null 2>&1`, so merging ONE entry rewrote
+// every unrelated command into `>/dev/null 2>&1`.
+//
+// The JSON stays equivalent and the hooks still run, which is exactly why it
+// survived. What it costs is the reader's diff: measured on this repository, a
+// one-line addition arrived as 58 insertions and 49 deletions in a file the
+// reader is expected to review and commit.
+func TestInstallingTheHookDoesNotRewriteOtherCommands(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	const existing = "sh -c 'if ! command -v entire >/dev/null 2>&1; then exit 0; fi; exec entire hooks claude-code session-end'"
+	body := `{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ` + strconv.Quote(existing) + `
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+	if err := os.MkdirAll(filepath.Join(repo, claudeSettingsDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(repo, claudeSettingsDir, claudeSettingsFile)
+	if err := os.WriteFile(settingsPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, changed, err := installBrainHooks(repo); err != nil || !changed {
+		t.Fatalf("install: changed=%v err=%v", changed, err)
+	}
+
+	got := readFileString(t, settingsPath)
+	// The needles are assembled from parts rather than written literally. A
+	// source file that spells the escape it is looking for is one text filter
+	// away from spelling the character instead, and the assertion then passes
+	// against exactly the bug it exists to catch.
+	for _, hex := range []string{"003c", "003e", "0026"} {
+		if escape := `\u` + hex; strings.Contains(got, escape) {
+			t.Errorf("merging one entry wrote %s into unrelated commands, so the reader's diff buries the change:\n%s", escape, got)
+		}
+	}
+	if !strings.Contains(got, existing) {
+		t.Errorf("the untouched session-end command did not survive byte-for-value:\n%s", got)
+	}
+	// And the file must still parse, with both hooks present.
+	var settings struct {
+		Hooks map[string][]struct {
+			Hooks []struct{ Command string } `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(got), &settings); err != nil {
+		t.Fatalf("the merged file does not parse: %v\n%s", err, got)
+	}
+	if len(settings.Hooks["SessionEnd"]) != 1 || len(settings.Hooks["PreToolUse"]) != 1 {
+		t.Fatalf("merge lost or duplicated an event: %+v", settings.Hooks)
 	}
 }

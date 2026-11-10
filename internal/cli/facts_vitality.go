@@ -106,6 +106,27 @@ type vitalityFactRollup struct {
 	LastHead    string         `json:"last_head,omitempty"`
 	LastTaskSHA string         `json:"last_task_sha256,omitempty"`
 	Surfaces    map[string]int `json:"surfaces,omitempty"`
+	// SurfaceSpans is the first and last serve per surface. Additive: an older
+	// rollup decodes this as nil, which costs the reuse metric its history for
+	// already-compacted events and nothing else.
+	SurfaceSpans map[string]vitalitySurfaceSpan `json:"surface_spans,omitempty"`
+}
+
+// vitalitySurfaceSpan is the first and last time one surface served a memory.
+// Two timestamps answer "more than one distinct day" exactly, and unlike a set
+// of dates they do not grow with usage.
+type vitalitySurfaceSpan struct {
+	First time.Time `json:"first"`
+	Last  time.Time `json:"last"`
+}
+
+// MultiDay reports whether this surface served the memory on more than one
+// distinct calendar day (UTC) — the reasoning-capture exit test, per surface.
+func (s vitalitySurfaceSpan) MultiDay() bool {
+	if s.First.IsZero() || s.Last.IsZero() {
+		return false
+	}
+	return s.First.UTC().Format(time.DateOnly) != s.Last.UTC().Format(time.DateOnly)
 }
 
 type vitalityLogMarker struct {
@@ -439,6 +460,37 @@ func mergeVitalityEvents(rollup *vitalityRollup, events []vitalityEvent) {
 				entry.Surfaces = map[string]int{}
 			}
 			entry.Surfaces[event.Surface]++
+			// Per-surface FIRST and LAST, because the reasoning-capture exit
+			// test is "a memory served on more than one distinct day BY A
+			// DELIVERY SURFACE", and the only durable way to answer that is to
+			// keep the span here.
+			//
+			// The per-event log cannot answer it for long: an append past
+			// factsVitalityLogMaxBytes folds the log into this rollup and
+			// TRUNCATES it, so the timestamps a day-counting query needs are
+			// destroyed. Measured 2026-10-31 on this repo: the log was 178.8KiB
+			// of a 1MiB cap at 666 events, so compaction fires at roughly 3,900
+			// — days away once the hooks are delivering, which is exactly when
+			// the metric is supposed to show its result. The measurement would
+			// have silently undercounted the moment it started mattering.
+			//
+			// A span is sufficient and not an approximation: a memory was
+			// served on more than one distinct day through a surface exactly
+			// when that surface's first and last serve fall on different dates.
+			// Two serves on one day leave first and last on that date; any
+			// serve on a later date moves last. Storing a set of dates would
+			// grow without bound for the same answer.
+			if entry.SurfaceSpans == nil {
+				entry.SurfaceSpans = map[string]vitalitySurfaceSpan{}
+			}
+			span := entry.SurfaceSpans[event.Surface]
+			if span.First.IsZero() || at.Before(span.First) {
+				span.First = at
+			}
+			if at.After(span.Last) {
+				span.Last = at
+			}
+			entry.SurfaceSpans[event.Surface] = span
 		}
 	}
 	evictVitalityOverflow(rollup.Facts, factsVitalityRollupMaxFacts)

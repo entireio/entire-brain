@@ -66,6 +66,21 @@ type brainBriefOptions struct {
 	noSemantic  bool
 	graphBinary string
 	profileJSON string
+	// branch overrides the branch the packet reads. Empty means the
+	// checked-out branch.
+	//
+	// This flag was added because facts were partitioned per branch and a
+	// branch's file was a fork-time copy, so a brief run from a worktree read
+	// a partition that was usually empty. The store is flat per repository
+	// now, so that blind spot is closed by the store rather than by this flag
+	// and the flag no longer changes which memories a brief can reach.
+	//
+	// It still has to exist. recall has taken --branch since it shipped and
+	// the agent guide tells agents to pass it to BOTH verbs; brief rejecting
+	// it meant every agent that followed the written instruction got
+	// `unknown flag: --branch` and no packet at all, because cobra refuses an
+	// unknown flag before RunE.
+	branch string
 	// packetFormat selects an experimental compact serialization; the CLI
 	// "brief" verb selects between its text and JSON renderers with json above,
 	// and only the profiling path renders the compact packets.
@@ -808,6 +823,7 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section; raise only when the compact packet is insufficient")
 	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Accepted for compatibility: semantic retrieval was removed, memory ranking is always BM25 lexical")
+	cmd.Flags().StringVar(&briefOpts.branch, "branch", "", "Branch whose memories the packet reads (default: current branch)")
 	cmd.Flags().StringVar(&briefOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().StringVar(&briefOpts.profileJSON, "profile-json", "", "Atomically write a privacy-safe performance profile sidecar (mode 0600)")
 	cmd.Flags().BoolVar(&handoff, "handoff", false, "Emit a session-resumption packet (recent sessions' requests, decisions, validations) instead of a task packet")
@@ -1626,7 +1642,10 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 		briefGlobalFacts = globalFacts
 	}
 	if status.Sources.Facts || len(briefGlobalFacts) > 0 {
-		branch := status.Live.Branch
+		branch := briefOpts.branch
+		if branch == "" {
+			branch = status.Live.Branch
+		}
 		if branch == "" {
 			branch = distillDefaultBranch
 		}
