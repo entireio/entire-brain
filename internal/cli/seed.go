@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -9,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -378,14 +376,17 @@ func (s seedScanResult) contentRoot() string {
 }
 
 // scanSeedRepository reads file content from contentDir when it is non-empty
-// (a materialized snapshot of contentCommit); enumeration then walks the
-// snapshot instead of asking git, because the snapshot IS the committed list.
+// (a materialized snapshot of contentCommit); enumeration then asks git for
+// the committed file list, so the included set under --max-files matches a
+// clean worktree at the same commit. Walking the snapshot instead would
+// SkipDir denied names before the cap, while the clean path lists every
+// tracked file and denies later in inspectSeedFile.
 func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, contentDir, contentCommit, repoKey string, opts seedCommandOptions) (seedScanResult, error) {
 	contentRoot := repoDir
 	var paths, warnings []string
 	if contentDir != "" {
 		contentRoot = contentDir
-		paths, warnings = walkSeedFiles(contentDir)
+		paths, warnings = listCommittedSeedFiles(ctx, runner, repoDir, contentCommit, contentDir)
 	} else {
 		paths, warnings = listSeedFiles(ctx, runner, repoDir, opts)
 	}
@@ -466,7 +467,7 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, cont
 }
 
 // walkSeedFiles enumerates files under root on disk: the fallback when git
-// cannot list files, and the whole enumeration for a materialized snapshot.
+// cannot list files, for the repository and for a materialized snapshot alike.
 func walkSeedFiles(root string) ([]string, []string) {
 	var paths []string
 	var warnings []string
@@ -495,6 +496,21 @@ func walkSeedFiles(root string) ([]string, []string) {
 	}
 	sort.Strings(paths)
 	return paths, warnings
+}
+
+// listCommittedSeedFiles enumerates the files of commit for a materialized
+// snapshot: `git ls-tree` is the committed counterpart of the clean path's
+// `git ls-files`, so denied paths still reach inspectSeedFile (and the
+// --max-files cap) instead of vanishing in a directory walk. The walk remains
+// the fallback when git cannot answer.
+func listCommittedSeedFiles(ctx context.Context, runner CommandRunner, repoDir, commit, contentDir string) ([]string, []string) {
+	stdout, _, err := runner.Run(ctx, repoDir, "git", "ls-tree", "-r", "--name-only", commit)
+	if err != nil {
+		return walkSeedFiles(contentDir)
+	}
+	paths := splitNonEmptyLines(stdout)
+	sort.Strings(paths)
+	return compactSortedStrings(paths), nil
 }
 
 func listSeedFiles(ctx context.Context, runner CommandRunner, repoDir string, opts seedCommandOptions) ([]string, []string) {
@@ -1870,65 +1886,41 @@ func bytesFingerprint(data []byte) string {
 }
 
 // materializeHeadSnapshot extracts the committed HEAD tree into a temporary
-// directory (`git archive`, extracted in-process — no tar binary needed) so a
-// dirty worktree can still seed from committed state (COR-2316). Only regular
-// files are written; a committed symlink is skipped, matching the caution the
-// on-disk scan applies through its symlink rejection. The caller owns cleanup.
+// directory so a dirty worktree can still seed from committed state
+// (COR-2316). A scratch index plus `git checkout-index` writes every committed
+// file verbatim. `git archive` was rejected here: it applies export-ignore and
+// export-subst, so the snapshot could silently omit committed files (docs are
+// commonly export-ignored) or rewrite their bytes. Committed symlinks are
+// materialized as symlinks and excluded later by the scan's symlink rejection,
+// exactly as on the clean path. The caller owns cleanup.
 func materializeHeadSnapshot(ctx context.Context, runner CommandRunner, repoDir string) (dir, commit string, cleanup func(), err error) {
+	envRunner, ok := runner.(EnvironmentCommandRunner)
+	if !ok {
+		return "", "", nil, errors.New("command runner cannot set GIT_INDEX_FILE for the snapshot checkout")
+	}
 	commit, err = clibase.GitScalar(ctx, runner, repoDir, "rev-parse", "HEAD")
 	if err != nil {
 		return "", "", nil, fmt.Errorf("resolve HEAD for committed snapshot: %w", err)
-	}
-	archive, _, err := runner.Run(ctx, repoDir, "git", "archive", "--format=tar", commit)
-	if err != nil {
-		return "", "", nil, fmt.Errorf("archive committed tree %s: %w", commit, err)
 	}
 	dir, err = os.MkdirTemp("", "entire-brain-seed-head-")
 	if err != nil {
 		return "", "", nil, fmt.Errorf("create snapshot directory: %w", err)
 	}
-	cleanup = func() { _ = os.RemoveAll(dir) }
-	reader := tar.NewReader(bytes.NewReader(archive))
-	for {
-		header, nextErr := reader.Next()
-		if errors.Is(nextErr, io.EOF) {
-			break
-		}
-		if nextErr != nil {
-			cleanup()
-			return "", "", nil, fmt.Errorf("read committed tree archive: %w", nextErr)
-		}
-		rel := filepath.FromSlash(header.Name)
-		// git emits safe names; the check is a belt against a hostile archive.
-		if !filepath.IsLocal(rel) {
-			continue
-		}
-		target := filepath.Join(dir, rel)
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if mkErr := os.MkdirAll(target, 0o755); mkErr != nil {
-				cleanup()
-				return "", "", nil, fmt.Errorf("extract committed tree: %w", mkErr)
-			}
-		case tar.TypeReg:
-			if mkErr := os.MkdirAll(filepath.Dir(target), 0o755); mkErr != nil {
-				cleanup()
-				return "", "", nil, fmt.Errorf("extract committed tree: %w", mkErr)
-			}
-			f, openErr := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-			if openErr != nil {
-				cleanup()
-				return "", "", nil, fmt.Errorf("extract committed tree: %w", openErr)
-			}
-			_, copyErr := io.Copy(f, reader)
-			closeErr := f.Close()
-			if copyErr != nil || closeErr != nil {
-				cleanup()
-				return "", "", nil, fmt.Errorf("extract committed tree %s: copy=%v close=%v", rel, copyErr, closeErr)
-			}
-		default:
-			// Symlinks, hardlinks, devices: not content the seed reads.
-		}
+	// The scratch index lives next to dir, not inside it, so the content scan
+	// never sees it; it also keeps the repository's real index untouched.
+	indexFile := dir + ".index"
+	cleanup = func() {
+		_ = os.Remove(indexFile)
+		_ = os.RemoveAll(dir)
+	}
+	env := map[string]string{"GIT_INDEX_FILE": indexFile}
+	if _, _, runErr := envRunner.RunWithEnv(ctx, repoDir, env, "git", "read-tree", commit); runErr != nil {
+		cleanup()
+		return "", "", nil, fmt.Errorf("read committed tree %s: %w", commit, runErr)
+	}
+	if _, _, runErr := envRunner.RunWithEnv(ctx, repoDir, env, "git", "checkout-index", "--all", "--force", "--prefix="+dir+string(filepath.Separator)); runErr != nil {
+		cleanup()
+		return "", "", nil, fmt.Errorf("extract committed tree %s: %w", commit, runErr)
 	}
 	return dir, commit, cleanup, nil
 }
