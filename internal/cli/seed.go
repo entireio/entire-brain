@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -8,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -100,15 +102,20 @@ type seedFileIndexEntry struct {
 type seedScanResult struct {
 	MaxFileBytes int
 	RepoDir      string
-	RepoKey      string
-	Commit       string
-	Files        []seedFileIndexEntry
-	Docs         []seedDocument
-	Entrypoints  []string
-	Commands     []seedCommand
-	Coverage     *seedHistoryCoverage
-	Warnings     []string
-	Fingerprint  string
+	// ContentDir, when set, is the directory file CONTENT is read from — a
+	// materialized committed-HEAD snapshot when the worktree is dirty
+	// (COR-2316). RepoDir stays the real repository for git commands,
+	// identity, and display; only reads of file bytes go through here.
+	ContentDir  string
+	RepoKey     string
+	Commit      string
+	Files       []seedFileIndexEntry
+	Docs        []seedDocument
+	Entrypoints []string
+	Commands    []seedCommand
+	Coverage    *seedHistoryCoverage
+	Warnings    []string
+	Fingerprint string
 }
 
 func newSeedCommand(opts Options) *cobra.Command {
@@ -181,6 +188,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if !local {
 		return fmt.Errorf("seed target must be an existing local path: %s", target)
 	}
+	contentDir, contentCommit := "", ""
 	if !seedOpts.worktree {
 		gateIgnore, err := worktreeGateIgnore(repoDir)
 		if err != nil {
@@ -191,7 +199,18 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("check worktree before repository context refresh: %w", err))
 		}
 		if dirty {
-			return dirtyWorktreeRefusal("build repository context from", dirtyPaths)
+			// A dirty tree is a reason to exclude uncommitted content, not to
+			// skip the whole seed: permanently-dirty worktrees (every Conductor
+			// workspace) otherwise never get a background refresh (COR-2316).
+			// Build from a materialized committed-HEAD snapshot; the refusal
+			// survives only as the fallback when that snapshot cannot be built.
+			dir, commit, cleanup, snapErr := materializeHeadSnapshot(ctx, opts.Runner, repoDir)
+			if snapErr != nil {
+				return fmt.Errorf("%w (committed-snapshot fallback failed: %v)", dirtyWorktreeRefusal("build repository context from", dirtyPaths), snapErr)
+			}
+			defer cleanup()
+			contentDir, contentCommit = dir, commit
+			seedOpts.reportProgress(fmt.Sprintf("uncommitted changes excluded; building from committed HEAD %.12s", commit))
 		}
 	}
 
@@ -239,7 +258,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		}
 	}
 
-	scan, err := scanSeedRepository(ctx, opts.Runner, repoDir, storage.Key, seedOpts)
+	scan, err := scanSeedRepository(ctx, opts.Runner, repoDir, contentDir, contentCommit, storage.Key, seedOpts)
 	if err != nil {
 		return err
 	}
@@ -349,8 +368,27 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	return nil
 }
 
-func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repoKey string, opts seedCommandOptions) (seedScanResult, error) {
-	paths, warnings := listSeedFiles(ctx, runner, repoDir, opts)
+// contentRoot is where a scan's file bytes live: the materialized snapshot in
+// committed-content mode, the repository otherwise.
+func (s seedScanResult) contentRoot() string {
+	if s.ContentDir != "" {
+		return s.ContentDir
+	}
+	return s.RepoDir
+}
+
+// scanSeedRepository reads file content from contentDir when it is non-empty
+// (a materialized snapshot of contentCommit); enumeration then walks the
+// snapshot instead of asking git, because the snapshot IS the committed list.
+func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, contentDir, contentCommit, repoKey string, opts seedCommandOptions) (seedScanResult, error) {
+	contentRoot := repoDir
+	var paths, warnings []string
+	if contentDir != "" {
+		contentRoot = contentDir
+		paths, warnings = walkSeedFiles(contentDir)
+	} else {
+		paths, warnings = listSeedFiles(ctx, runner, repoDir, opts)
+	}
 	if len(paths) > opts.maxFiles {
 		// Name what was dropped, not just the ceiling that dropped it. "file
 		// scan capped at 2000 files" is true of a 2,001-file repository and of
@@ -361,8 +399,11 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 		warnings = append(warnings, fmt.Sprintf("file scan capped at %d of %d files; %d files were not read (raise with --max-files)", opts.maxFiles, len(paths), len(paths)-opts.maxFiles))
 		paths = paths[:opts.maxFiles]
 	}
-	commit := strings.TrimSpace(string(clibase.GitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
-	result := seedScanResult{MaxFileBytes: opts.maxFileBytes, RepoDir: repoDir, RepoKey: repoKey, Commit: commit, Warnings: warnings}
+	commit := contentCommit
+	if commit == "" {
+		commit = strings.TrimSpace(string(clibase.GitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
+	}
+	result := seedScanResult{MaxFileBytes: opts.maxFileBytes, RepoDir: repoDir, ContentDir: contentDir, RepoKey: repoKey, Commit: commit, Warnings: warnings}
 	// Reserve source paths and their directories before allocating derived
 	// names: spec.pdf.md may itself be an authored document (or a directory).
 	reserved := map[string]bool{}
@@ -374,7 +415,7 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 		}
 	}
 	for _, rel := range paths {
-		entry := inspectSeedFile(repoDir, rel, opts)
+		entry := inspectSeedFile(contentRoot, rel, opts)
 		result.Files = append(result.Files, entry)
 		if !entry.Included {
 			continue
@@ -402,14 +443,14 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 			result.Entrypoints = append(result.Entrypoints, filepath.ToSlash(rel))
 		}
 		if filepath.Base(rel) == "package.json" {
-			commands, err := packageJSONCommands(filepath.Join(repoDir, rel), rel)
+			commands, err := packageJSONCommands(filepath.Join(contentRoot, rel), rel)
 			if err != nil {
 				result.Warnings = append(result.Warnings, err.Error())
 			}
 			result.Commands = append(result.Commands, commands...)
 		}
 		if filepath.Base(rel) == "mise.toml" {
-			commands, err := miseCommands(filepath.Join(repoDir, rel), rel)
+			commands, err := miseCommands(filepath.Join(contentRoot, rel), rel)
 			if err != nil {
 				result.Warnings = append(result.Warnings, err.Error())
 			}
@@ -422,6 +463,38 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 	sort.Slice(result.Commands, func(i, j int) bool { return result.Commands[i].Name < result.Commands[j].Name })
 	result.Fingerprint = seedFingerprint(result)
 	return result, nil
+}
+
+// walkSeedFiles enumerates files under root on disk: the fallback when git
+// cannot list files, and the whole enumeration for a materialized snapshot.
+func walkSeedFiles(root string) ([]string, []string) {
+	var paths []string
+	var warnings []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			warnings = append(warnings, err.Error())
+			return nil
+		}
+		if path == root {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		if d.IsDir() && isDeniedSeedDir(rel) {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() {
+			paths = append(paths, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		warnings = append(warnings, "walk repository: "+err.Error())
+	}
+	sort.Strings(paths)
+	return paths, warnings
 }
 
 func listSeedFiles(ctx context.Context, runner CommandRunner, repoDir string, opts seedCommandOptions) ([]string, []string) {
@@ -441,33 +514,7 @@ func listSeedFiles(ctx context.Context, runner CommandRunner, repoDir string, op
 		sort.Strings(paths)
 		return compactSortedStrings(paths), nil
 	}
-	var paths []string
-	var warnings []string
-	err = filepath.WalkDir(repoDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			warnings = append(warnings, err.Error())
-			return nil
-		}
-		if path == repoDir {
-			return nil
-		}
-		rel, relErr := filepath.Rel(repoDir, path)
-		if relErr != nil {
-			return nil
-		}
-		if d.IsDir() && isDeniedSeedDir(rel) {
-			return filepath.SkipDir
-		}
-		if !d.IsDir() {
-			paths = append(paths, filepath.ToSlash(rel))
-		}
-		return nil
-	})
-	if err != nil {
-		warnings = append(warnings, "walk repository: "+err.Error())
-	}
-	sort.Strings(paths)
-	return paths, warnings
+	return walkSeedFiles(repoDir)
 }
 
 func splitNonEmptyLines(data []byte) []string {
@@ -874,7 +921,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			dropSeedDocument(scan, doc, "unsafe source path")
 			continue
 		}
-		if err := clibase.RejectSymlinkPathComponents(scan.RepoDir, cleanSrc); err != nil {
+		if err := clibase.RejectSymlinkPathComponents(scan.contentRoot(), cleanSrc); err != nil {
 			dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 			continue
 		}
@@ -888,7 +935,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 				return fmt.Errorf("validate seed document directory %s: %w", dir, err)
 			}
 		}
-		src := filepath.Join(scan.RepoDir, cleanSrc)
+		src := filepath.Join(scan.contentRoot(), cleanSrc)
 		if err := clibase.RejectExistingSymlinkPathComponents(outputDir, cleanDst); err != nil {
 			return fmt.Errorf("validate seed document path %s: %w", cleanDst, err)
 		}
@@ -1820,4 +1867,68 @@ func writeAgentArtifacts(outputDir string, artifacts map[string]string) ([]strin
 func bytesFingerprint(data []byte) string {
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// materializeHeadSnapshot extracts the committed HEAD tree into a temporary
+// directory (`git archive`, extracted in-process — no tar binary needed) so a
+// dirty worktree can still seed from committed state (COR-2316). Only regular
+// files are written; a committed symlink is skipped, matching the caution the
+// on-disk scan applies through its symlink rejection. The caller owns cleanup.
+func materializeHeadSnapshot(ctx context.Context, runner CommandRunner, repoDir string) (dir, commit string, cleanup func(), err error) {
+	commit, err = clibase.GitScalar(ctx, runner, repoDir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", "", nil, fmt.Errorf("resolve HEAD for committed snapshot: %w", err)
+	}
+	archive, _, err := runner.Run(ctx, repoDir, "git", "archive", "--format=tar", commit)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("archive committed tree %s: %w", commit, err)
+	}
+	dir, err = os.MkdirTemp("", "entire-brain-seed-head-")
+	if err != nil {
+		return "", "", nil, fmt.Errorf("create snapshot directory: %w", err)
+	}
+	cleanup = func() { _ = os.RemoveAll(dir) }
+	reader := tar.NewReader(bytes.NewReader(archive))
+	for {
+		header, nextErr := reader.Next()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			cleanup()
+			return "", "", nil, fmt.Errorf("read committed tree archive: %w", nextErr)
+		}
+		rel := filepath.FromSlash(header.Name)
+		// git emits safe names; the check is a belt against a hostile archive.
+		if !filepath.IsLocal(rel) {
+			continue
+		}
+		target := filepath.Join(dir, rel)
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if mkErr := os.MkdirAll(target, 0o755); mkErr != nil {
+				cleanup()
+				return "", "", nil, fmt.Errorf("extract committed tree: %w", mkErr)
+			}
+		case tar.TypeReg:
+			if mkErr := os.MkdirAll(filepath.Dir(target), 0o755); mkErr != nil {
+				cleanup()
+				return "", "", nil, fmt.Errorf("extract committed tree: %w", mkErr)
+			}
+			f, openErr := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+			if openErr != nil {
+				cleanup()
+				return "", "", nil, fmt.Errorf("extract committed tree: %w", openErr)
+			}
+			_, copyErr := io.Copy(f, reader)
+			closeErr := f.Close()
+			if copyErr != nil || closeErr != nil {
+				cleanup()
+				return "", "", nil, fmt.Errorf("extract committed tree %s: copy=%v close=%v", rel, copyErr, closeErr)
+			}
+		default:
+			// Symlinks, hardlinks, devices: not content the seed reads.
+		}
+	}
+	return dir, commit, cleanup, nil
 }

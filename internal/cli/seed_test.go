@@ -400,6 +400,10 @@ func TestSeedWorktreeIncludesSelectedUntrackedDocs(t *testing.T) {
 	}
 }
 
+// A dirty tree normally seeds from a materialized committed-HEAD snapshot
+// (COR-2316); this runner cannot serve `git archive`, so the test pins the
+// FALLBACK: when the snapshot cannot be built, the machine-readable
+// dirty_worktree refusal survives for watch's deferral handling.
 func TestSeedRejectsDirtyWorktreeWithoutWorktreeFlag(t *testing.T) {
 	repoDir := seedFixtureRepo(t)
 	runner := seedFixtureRunner(repoDir)

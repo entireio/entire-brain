@@ -571,7 +571,10 @@ func gitHardenAssertCommandsRunNoHook(t *testing.T, repo, log, vector string) {
 		wantErr string
 	}{
 		{argv: []string{"refresh", "--worktree", "--agent", "none"}},
-		{argv: []string{"refresh", "--agent", "none"}, wantErr: "dirty_worktree"},
+		// A dirty tree no longer refuses: refresh seeds from a materialized
+		// committed-HEAD snapshot (COR-2316), so this row now proves the
+		// snapshot path (rev-parse + archive + extraction) also runs no hooks.
+		{argv: []string{"refresh", "--agent", "none"}},
 		{argv: []string{"status"}},
 		{argv: []string{"status", "--verbose"}},
 		{argv: []string{"overview"}},
