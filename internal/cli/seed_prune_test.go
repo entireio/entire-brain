@@ -963,6 +963,36 @@ func TestRemovalTakesNoOtherSpellingAfterAnIncompleteWalk(t *testing.T) {
 	assertSeedDoc(t, outputDir, "docs/guide.md", true)
 }
 
+// TestRemovalTakesNoSpellingThroughASymlinkedDirectory: a recorded document
+// whose directory is now a symlink to another directory names, through the
+// link, a file there that no seed recorded. On a case-sensitive filesystem
+// Docs -> docs makes seed/docs/Docs/guide.md and the walked
+// seed/docs/docs/guide.md fold to the same name and share an identity, and
+// the prune must still leave the user's file. Windows needs a privilege for
+// symlinks, and on a case-insensitive filesystem the two names are one entry.
+func TestRemovalTakesNoSpellingThroughASymlinkedDirectory(t *testing.T) {
+	t.Parallel()
+	outputDir := t.TempDir()
+	docs := filepath.Join(outputDir, seedDirName, seedDocsDirName)
+	writeSeedPruneFiles(t, docs, map[string]string{"docs/guide.md": "# Mine\n"})
+	if _, err := os.Lstat(filepath.Join(docs, "Docs")); err == nil {
+		t.Skip("filesystem is case-insensitive")
+	}
+	if err := os.Symlink("docs", filepath.Join(docs, "Docs")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	scan := &seedScanResult{}
+	ownership := seedDocsOwnership{recorded: map[string]bool{"seed/docs/Docs/guide.md": true}}
+	if pruneSeedDocs(outputDir, scan, map[string]bool{}, ownership) {
+		t.Errorf("a prune that left a symlink and an unrecorded file asked for a retry: %q", scan.Warnings)
+	}
+	assertSeedDoc(t, outputDir, "docs/guide.md", true)
+	if _, err := os.Lstat(filepath.Join(docs, "Docs")); err != nil {
+		t.Errorf("the symlink was not left: %v", err)
+	}
+}
+
 // TestPruneSeedDocsLeavesWhatItCannotSafelyRemove: a symlink is reported and
 // left, never followed; a second name for the file just written (what a
 // case-insensitive filesystem gives a document renamed only in case) is kept;

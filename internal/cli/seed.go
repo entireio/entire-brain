@@ -1439,9 +1439,12 @@ func (p *seedDocsPrune) removeEmptiedDirs() {
 // spelling: for a name that is not itself listed (a listed name is an entry
 // of its own), and a file whose name folds to the same (strings.EqualFold,
 // which also folds Σ, σ and ς together). Another file with that identity is
-// a hard link, a second entry that names never made one of names. A
-// filesystem that folds more than Go does leaves a file, which is the safe
-// way to miss.
+// a hard link, a second entry that names never made one of names. A name
+// reached through a symlinked directory lends no identity either: os.Lstat
+// follows every component but the last, so the name would stand for whatever
+// file the link points at, which the walk lists under its own path and no
+// seed recorded. A filesystem that folds more than Go does leaves a file,
+// which is the safe way to miss.
 func seedDocsMatcher(outputDir string, names, listed map[string]bool) func(rel string) bool {
 	type spelling struct {
 		name string
@@ -1452,9 +1455,14 @@ func seedDocsMatcher(outputDir string, names, listed map[string]bool) func(rel s
 		if listed[name] {
 			continue
 		}
-		if info, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(name))); err == nil {
-			others = append(others, spelling{name: name, info: info})
+		info, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(name)))
+		if err != nil {
+			continue
 		}
+		if listed != nil && clibase.RejectExistingSymlinkPathComponents(outputDir, filepath.FromSlash(name)) != nil {
+			continue
+		}
+		others = append(others, spelling{name: name, info: info})
 	}
 	return func(rel string) bool {
 		if names[rel] {
