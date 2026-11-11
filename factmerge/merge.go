@@ -62,8 +62,8 @@ func ApplyActions(active []Record, actions []Action, threshold float64, now time
 			if action.Confidence < threshold {
 				// Low confidence: never silently rewrite. Keep both active,
 				// cross-linked, for the compaction loop to settle.
-				candidate.RelatedIDs = appendUniqueString(candidate.RelatedIDs, active[ti].ID)
-				active[ti].RelatedIDs = appendUniqueString(active[ti].RelatedIDs, candidate.ID)
+				candidate = AddConflictLink(candidate, active[ti].ID)
+				active[ti] = AddConflictLink(active[ti], candidate.ID)
 				active = Upsert(active, candidate)
 				continue
 			}
@@ -81,7 +81,7 @@ func ApplyActions(active []Record, actions []Action, threshold float64, now time
 			active[ti].Status = StatusSuperseded
 			active[ti].SupersededBy = candidate.ID
 			active[ti].UpdatedAt = now
-			candidate.RelatedIDs = appendUniqueString(candidate.RelatedIDs, action.TargetID)
+			candidate = AddConflictLink(candidate, action.TargetID)
 			active = Upsert(active, candidate)
 		default:
 			active = Upsert(active, candidate)
