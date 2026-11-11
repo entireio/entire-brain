@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -464,13 +466,19 @@ func TestUpdateIntoTheRepositoryKeepsItsOwnSeedDocs(t *testing.T) {
 // its own under seed/docs. Only the documents an earlier seed of that output
 // recorded in its manifest are a seed's to remove there; the rest, and an
 // empty directory no removal emptied, stay, and are reported. That holds on
-// every later --update too, not only on the first.
+// every later --update too, not only on the first, for a hard link to a
+// document the seed recorded, and for the directory's own file named like the
+// pending marker, which the seed neither reads as a list nor replaces.
 func TestUpdateIntoAnotherDirectoryRemovesOnlyWhatASeedThereRecorded(t *testing.T) {
 	repoDir := seedPruneRepo(t, map[string]string{
 		"README.md":   "# readme\n",
 		"docs/old.md": "# Old guide\n",
 	})
-	outputDir := seedPruneRepo(t, map[string]string{"seed/docs/notes/theirs.md": "# Not a seed's\n"})
+	theirs := map[string]string{
+		"seed/docs/notes/theirs.md": "# Not a seed's\n",
+		seedPrunePendingPath:        "seed/docs/notes/theirs.md is this repository's own\n",
+	}
+	outputDir := seedPruneRepo(t, theirs)
 	if err := os.MkdirAll(filepath.Join(outputDir, seedDirName, seedDocsDirName, "empty"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -478,6 +486,8 @@ func TestUpdateIntoAnotherDirectoryRemovesOnlyWhatASeedThereRecorded(t *testing.
 	assertSeedDoc(t, outputDir, "docs/old.md", true)
 	assertSeedDoc(t, outputDir, "notes/theirs.md", true)
 	assertSeedWarns(t, outputDir, "seed/docs/notes/theirs.md")
+	docs := filepath.Join(outputDir, seedDirName, seedDocsDirName)
+	linked := os.Link(filepath.Join(docs, "docs", "old.md"), filepath.Join(docs, "notes", "linked.md")) == nil
 
 	gitAt(t, repoDir, "rm", "-q", "docs/old.md")
 	gitAt(t, repoDir, "commit", "-q", "-m", "drop old doc")
@@ -485,60 +495,183 @@ func TestUpdateIntoAnotherDirectoryRemovesOnlyWhatASeedThereRecorded(t *testing.
 	assertSeedDoc(t, outputDir, "docs/old.md", false)
 	assertSeedDoc(t, outputDir, "docs", false)
 	assertSeedDoc(t, outputDir, "README.md", true)
-	got, err := os.ReadFile(filepath.Join(outputDir, "seed", "docs", "notes", "theirs.md"))
-	if err != nil || string(got) != "# Not a seed's\n" {
-		t.Errorf("the output's own seed/docs/notes/theirs.md = %q, %v; want it untouched", got, err)
-	}
 	assertSeedDoc(t, outputDir, "empty", true)
+	if linked {
+		assertSeedDoc(t, outputDir, "notes/linked.md", true)
+	}
+	for rel, want := range theirs {
+		if got, err := os.ReadFile(filepath.Join(outputDir, filepath.FromSlash(rel))); err != nil || string(got) != want {
+			t.Errorf("the output's own %s = %q, %v; want it untouched", rel, got, err)
+		}
+	}
 }
 
 // TestAPruneThatCouldNotRemoveADocumentStaysPending: a stale document the
-// prune could not remove, for a reason that can pass, keeps the brain store's
-// pending marker, so refresh reseeds (TestRefreshReseedsWhileAPruneIsPending)
-// instead of skipping a seed whose manifest counts as current, and the seed
-// that can remove the document clears it. Root removes files from a
-// read-only directory, so the test cannot fail the removal there.
+// prune could not remove, for a reason that can pass, keeps the pending
+// marker. In the brain store refresh then reseeds
+// (TestRefreshReseedsWhileAPruneIsPending) instead of skipping a seed whose
+// manifest counts as current; in any other --output the marker keeps the
+// document the seed's to remove, although the new manifest no longer lists
+// it. Either way the seed that can remove the document clears the marker.
+// Root removes files from a read-only directory, and Windows does not stop
+// it, so the test cannot fail the removal there.
 func TestAPruneThatCouldNotRemoveADocumentStaysPending(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod read-only directory semantics are not portable on Windows")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root removes files from a read-only directory")
 	}
+	t.Run("brain store", func(t *testing.T) {
+		removalFailureLeavesThePrunePending(t, false)
+	})
+	t.Run("another output", func(t *testing.T) {
+		removalFailureLeavesThePrunePending(t, true)
+	})
+}
+
+func removalFailureLeavesThePrunePending(t *testing.T, explicit bool) {
+	t.Helper()
 	repoDir := seedPruneRepo(t, map[string]string{
 		"README.md":       "# readme\n",
 		"docs/old/old.md": "# Old guide\n\nDeploy with the retired zebra pipeline.\n",
 	})
-	opts, brainDir := seedPruneBrainStore(t, repoDir)
-	seed := func() string {
+	opts, outputDir := seedPruneBrainStore(t, repoDir)
+	args := []string{"refresh", "seed", "--agent", "none"}
+	pending := func() bool { return seedPrunePending(outputDir) }
+	if explicit {
+		outputDir = filepath.Join(t.TempDir(), "out")
+		args = append(args, "--update", "--output", outputDir)
+		pending = func() bool {
+			listed, marker := readSeedPruneMarker(outputDir)
+			return marker == seedPruneMarkerOurs && slices.Contains(listed, "seed/docs/docs/old/old.md")
+		}
+	}
+	seed := func() {
 		t.Helper()
-		out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", repoDir)
-		if err != nil {
+		if out, err := execute(t, NewRootCommand(opts), append(slices.Clone(args), repoDir)...); err != nil {
 			t.Fatalf("seed: %v\n%s", err, out)
 		}
-		return out
 	}
 	seed()
-	assertSeedDoc(t, brainDir, "docs/old/old.md", true)
+	assertSeedDoc(t, outputDir, "docs/old/old.md", true)
 	gitAt(t, repoDir, "rm", "-q", "docs/old/old.md")
 	gitAt(t, repoDir, "commit", "-q", "-m", "drop old doc")
-	locked := filepath.Join(brainDir, seedDirName, seedDocsDirName, "docs", "old")
+	locked := filepath.Join(outputDir, seedDirName, seedDocsDirName, "docs", "old")
 	if err := os.Chmod(locked, 0o500); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
 
 	seed()
-	assertSeedDoc(t, brainDir, "docs/old/old.md", true)
-	if !seedPrunePending(brainDir) {
-		t.Fatal("a prune that could not remove a document cleared its pending marker")
+	assertSeedDoc(t, outputDir, "docs/old/old.md", true)
+	if !pending() {
+		t.Fatal("a prune that could not remove a document did not leave it pending")
 	}
 
 	if err := os.Chmod(locked, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	seed()
-	assertSeedDoc(t, brainDir, "docs/old/old.md", false)
-	assertDocIndexLacks(t, brainDir, "zebra pipeline")
-	if seedPrunePending(brainDir) {
-		t.Error("the prune is still marked pending after a refresh finished it")
+	assertSeedDoc(t, outputDir, "docs/old/old.md", false)
+	assertDocIndexLacks(t, outputDir, "zebra pipeline")
+	if _, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(seedPrunePendingPath))); err == nil {
+		t.Error("the prune is still marked pending after a seed finished it")
+	}
+}
+
+// TestReadmeFailureInAnotherOutputKeepsItsOldDocumentOwned: in an --output
+// other than the brain store, a seed whose README write fails has saved a
+// manifest that no longer lists the old document, without pruning it. The
+// marker lists it, so the next seed there still removes it.
+func TestReadmeFailureInAnotherOutputKeepsItsOldDocumentOwned(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{
+		"README.md":   "# readme\n",
+		"docs/old.md": "# Old guide\n",
+	})
+	outputDir := filepath.Join(t.TempDir(), "out")
+	seedPruneRun(t, repoDir, outputDir)
+	gitAt(t, repoDir, "rm", "-q", "docs/old.md")
+	gitAt(t, repoDir, "commit", "-q", "-m", "drop old doc")
+	readme := filepath.Join(outputDir, exportReadmeFileName)
+	if err := os.Remove(readme); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(readme, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: ExecRunner{}}
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--output", outputDir, "--update", repoDir); err == nil {
+		t.Fatalf("seed succeeded with a README it cannot write:\n%s", out)
+	}
+	if listed, marker := readSeedPruneMarker(outputDir); marker != seedPruneMarkerOurs || !slices.Contains(listed, "seed/docs/docs/old.md") {
+		t.Fatalf("the marker = %q, %v; want it to list the old document", listed, marker)
+	}
+
+	if err := os.Remove(readme); err != nil {
+		t.Fatal(err)
+	}
+	seedPruneRun(t, repoDir, outputDir, "--update")
+	assertSeedDoc(t, outputDir, "docs/old.md", false)
+	if _, marker := readSeedPruneMarker(outputDir); marker != seedPruneMarkerAbsent {
+		t.Errorf("the marker is still there after a seed removed what it listed (%v)", marker)
+	}
+}
+
+// TestReadSeedPruneMarkerTakesOnlyItsOwnList: a file named like the marker is
+// a list only in the form a seed writes, naming files under seed/docs.
+func TestReadSeedPruneMarkerTakesOnlyItsOwnList(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, text string
+		listed     []string
+		want       seedPruneMarker
+	}{
+		{name: "absent", want: seedPruneMarkerAbsent},
+		{name: "list", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/a.md") + "\n" + strconv.Quote("seed/docs/b c/d.md") + "\n", listed: []string{"seed/docs/a.md", "seed/docs/b c/d.md"}, want: seedPruneMarkerOurs},
+		{name: "empty list", text: seedPrunePendingListHeader, want: seedPruneMarkerOurs},
+		{name: "brain store text", text: seedPrunePendingText, want: seedPruneMarkerForeign},
+		{name: "someone else's file", text: "tracked\n", want: seedPruneMarkerForeign},
+		{name: "no header", text: strconv.Quote("seed/docs/a.md") + "\n", want: seedPruneMarkerForeign},
+		{name: "unquoted path", text: seedPrunePendingListHeader + "seed/docs/a.md\n", want: seedPruneMarkerForeign},
+		{name: "outside seed/docs", text: seedPrunePendingListHeader + strconv.Quote("seed/risks.md") + "\n", want: seedPruneMarkerForeign},
+		{name: "climbs out", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/../../x.md") + "\n", want: seedPruneMarkerForeign},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			outputDir := t.TempDir()
+			if tc.text != "" {
+				writeSeedPruneFiles(t, outputDir, map[string]string{seedPrunePendingPath: tc.text})
+			}
+			listed, marker := readSeedPruneMarker(outputDir)
+			if marker != tc.want || !slices.Equal(listed, tc.listed) {
+				t.Errorf("readSeedPruneMarker = %q, %v; want %q, %v", listed, marker, tc.listed, tc.want)
+			}
+		})
+	}
+}
+
+// TestPruneRetriesWhenItCannotCheckSeedDocs: a filesystem error while
+// checking the seed/docs path, unlike a symlink there, may pass, so the prune
+// asks for a retry. Root reads any directory, and Windows does not stop it.
+func TestPruneRetriesWhenItCannotCheckSeedDocs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod read-only directory semantics are not portable on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a directory without permission")
+	}
+	t.Parallel()
+	outputDir := t.TempDir()
+	writeSeedPruneFiles(t, outputDir, map[string]string{"seed/docs/old.md": "# Old\n"})
+	seedDir := filepath.Join(outputDir, seedDirName)
+	if err := os.Chmod(seedDir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(seedDir, 0o700) })
+	scan := &seedScanResult{}
+	if !pruneSeedDocs(outputDir, scan, map[string]bool{}, seedDocsOwnership{all: true}) {
+		t.Errorf("a prune that could not check seed/docs did not ask for a retry: %q", scan.Warnings)
 	}
 }
 
