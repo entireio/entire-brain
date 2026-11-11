@@ -50,45 +50,28 @@ func TestShellQuotedRepoDirQuotesPathsForSuggestedCommands(t *testing.T) {
 	}
 }
 
-// END-TO-END: the nested-repo warning the command actually prints must say the
-// inner repository is a legitimate target, and must carry the quoted outer
-// path. The helper being correct is not the same as the call site using it.
-func TestNestedRepoWarningSaysStayingPutIsFineAndQuotesThePath(t *testing.T) {
+// A nested repository is NOT warned about: a valid git repository is a valid
+// setup target wherever it sits (product decision on trail 2851 — the warning
+// fired on normal layouts like repos cloned under a repo-tracked parent; the
+// build-from-source caution lives in the README).
+func TestSetupDoesNotWarnAboutNestedRepositories(t *testing.T) {
 	t.Setenv("ENTIRE_CLI_VERSION", "")
-	outer := filepath.Join(t.TempDir(), "My Projects", "outer")
+	outer := filepath.Join(t.TempDir(), "outer")
 	inner := filepath.Join(outer, "inner")
 	for _, d := range []string{filepath.Join(outer, ".git"), filepath.Join(inner, ".git")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// Non-vacuity: the outer path must actually contain a space, or nothing is
-	// being tested.
-	if !strings.Contains(outer, " ") {
-		t.Fatalf("fixture path has no space: %s", outer)
-	}
 
 	var out bytes.Buffer
 	cmd := NewRootCommand(Options{Version: "test", Env: EntireEnv{RepoRoot: inner}, Now: time.Now})
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	// NO positional arg: the warning fires only when no explicit path is
-	// given. The fixture's bare .git directories are not real repositories, so
-	// setup refuses later — the warning must already have printed by then.
 	cmd.SetArgs([]string{"setup"})
 	_ = cmd.Execute()
 
-	got := out.String()
-	if !strings.Contains(got, "git repository inside") {
-		t.Fatalf("the nested-repo warning did not fire, so this guard measures nothing:\n%s", got)
-	}
-	if !strings.Contains(got, "If this repository is the one you meant, ignore this warning.") {
-		t.Fatalf("the warning must say the inner repository is a legitimate target:\n%s", got)
-	}
-	if strings.Contains(got, "setup "+outer+"\n") {
-		t.Errorf("the suggested command carries the path unquoted:\n%s", got)
-	}
-	if !strings.Contains(got, "setup '"+outer+"'") {
-		t.Errorf("the suggested command must carry the quoted path:\n%s", got)
+	if strings.Contains(out.String(), "git repository inside") {
+		t.Fatalf("setup must not warn about a nested repository:\n%s", out.String())
 	}
 }
