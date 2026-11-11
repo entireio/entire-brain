@@ -59,7 +59,9 @@ All notable changes to `entire-brain` are recorded here. The format follows
   `refresh --worktree` copied while it was untracked, used to keep its copy, and
   `query` kept returning it although `file-index.json` no longer listed it. A
   file that cannot be removed safely, such as a symlink, is left and reported
-  as a seed warning (#608).
+  as a seed warning, and so is a file under an `--output` directory that no
+  earlier seed there recorded. A removal that fails for a reason that can
+  pass is tried again by the next `refresh` (#608).
 - The pattern corpus now reads current Codex sessions (the cli's item path,
   in cli 0.13.1 and later). A command that failed is stored as failed, with no
   exit code since the session records none, and counts in `exit_fails`. A file

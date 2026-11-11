@@ -285,6 +285,9 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	}
 	var seedManifest *seedSourceManifest
 	commitSeed := func() error {
+		// Read before the new manifest replaces the one that says which
+		// documents under seed/docs an earlier seed there wrote.
+		ownership := seedDocsOwnershipOf(outputDir, inBrainStore)
 		if err := writeSeedArtifacts(outputDir, &scan); err != nil {
 			return err
 		}
@@ -340,11 +343,14 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		// leaves old documents behind a manifest that counts as current. The
 		// pending marker covers that: it is written before the manifest and
 		// removed last, and while it is there refresh reseeds
-		// (seedPrunePending). Only the brain store gets one, including when an
-		// explicit --output names it. Refresh skips a current seed only there,
-		// and any other --output, which --update can point at the repository
-		// itself, may hold a file of that name that is not this seed's to
-		// replace or delete.
+		// (seedPrunePending). A prune that could not remove a document for a
+		// reason that may pass keeps the marker too, so the next refresh
+		// tries again instead of leaving the document searchable behind a
+		// current manifest once the cause is put right. Only the brain store
+		// gets one, including when an explicit --output names it. Refresh
+		// skips a current seed only there, and any other --output, which
+		// --update can point at the repository itself, may hold a file of
+		// that name that is not this seed's to replace or delete.
 		if inBrainStore {
 			if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, seedPrunePendingPath, []byte(seedPrunePendingText), 0o600); err != nil {
 				return err
@@ -356,7 +362,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		// A document the prune could not remove is reported by writing the
 		// manifest and seed/risks.md again.
 		pruned := len(scan.Warnings)
-		pruneSeedDocs(outputDir, &scan, scan.writtenDocs)
+		retryPrune := pruneSeedDocs(outputDir, &scan, scan.writtenDocs, ownership)
 		if pruneWarnings := scan.Warnings[pruned:]; len(pruneWarnings) > 0 {
 			seedManifest.Warnings = append(seedManifest.Warnings, pruneWarnings...)
 			if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
@@ -366,7 +372,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 				return err
 			}
 		}
-		if inBrainStore {
+		if inBrainStore && !retryPrune {
 			if err := brainstore.RemoveBrainRelativeFile(outputDir, seedPrunePendingPath); err != nil {
 				return err
 			}
@@ -1091,93 +1097,179 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 	return nil
 }
 
+// seedDocsOwnership says which files under seed/docs a prune may remove.
+type seedDocsOwnership struct {
+	// all is set for the brain store, where nothing but a seed writes
+	// seed/docs.
+	all bool
+	// recorded holds, for any other --output, the documents the seed there
+	// before this one listed in its manifest. Only those are a seed's to
+	// remove: --update accepts any existing directory, which can hold files
+	// of its own under seed/docs (another repository's, say).
+	recorded map[string]bool
+}
+
+// seedDocsOwnershipOf reads which files under outputDir's seed/docs a prune
+// may remove. It runs before the new manifest replaces the one it reads.
+func seedDocsOwnershipOf(outputDir string, inBrainStore bool) seedDocsOwnership {
+	if inBrainStore {
+		return seedDocsOwnership{all: true}
+	}
+	recorded := map[string]bool{}
+	manifest, err := bmanifest.Load(outputDir)
+	if err == nil && manifest.Sources != nil && manifest.Sources.Seed != nil {
+		for _, doc := range manifest.Sources.Seed.Documents {
+			if doc.SeedPath != "" {
+				recorded[filepath.ToSlash(filepath.Clean(filepath.FromSlash(doc.SeedPath)))] = true
+			}
+		}
+	}
+	return seedDocsOwnership{recorded: recorded}
+}
+
 // pruneSeedDocs removes every file under seed/docs that this seed did not
-// write, so the directory holds exactly the documents of the current scan.
-// Without it a reseed only ever added: a document deleted from the repository,
-// or one an earlier --worktree seed copied while it was untracked, stayed on
-// disk, and the doc index (loadDocRecordsFromSeed reads every .md under seed/)
-// kept returning it although file-index.json no longer listed it.
+// write and that ownership says is a seed's, so the directory holds exactly
+// the documents of the current scan. Without it a reseed only ever added: a
+// document deleted from the repository, or one an earlier --worktree seed
+// copied while it was untracked, stayed on disk, and the doc index
+// (loadDocRecordsFromSeed reads every .md under seed/) kept returning it
+// although file-index.json no longer listed it.
 //
 // A file that cannot be removed safely is left and reported as a warning
-// rather than failing the seed, as is the whole directory when a component of
-// seed/docs is a symlink, or when seed/docs and the repository overlap: an
-// --update into the repository itself (which skips the output checks a fresh
-// or --force seed makes) would otherwise delete the repository's own files
-// under seed/docs.
-func pruneSeedDocs(outputDir string, scan *seedScanResult, written map[string]bool) {
+// rather than failing the seed, as is a file that is not a seed's, and the
+// whole directory when a component of seed/docs is a symlink, or when
+// seed/docs and the repository overlap: an --update into the repository
+// itself (which skips the output checks a fresh or --force seed makes) would
+// otherwise delete the repository's own files under seed/docs.
+//
+// It reports whether a later reseed should try again: a removal or a read of
+// the directory failed, for a reason that may pass. A symlink, a file that is
+// not a seed's and a skipped directory are left by design, and stay until
+// someone removes them, so they never ask for a retry.
+func pruneSeedDocs(outputDir string, scan *seedScanResult, written map[string]bool, ownership seedDocsOwnership) (retry bool) {
 	docsRel := filepath.Join(seedDirName, seedDocsDirName)
 	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, docsRel); err != nil {
 		scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not removed: %v", err))
-		return
+		return false
 	}
 	if docsDir := filepath.Join(outputDir, docsRel); seedDocsOverlapRepository(docsDir, scan.RepoDir) {
 		scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not removed: %s overlaps the repository, so a file there may be one of its own", docsDir))
-		return
+		return false
 	}
-	// On a case-insensitive filesystem a document renamed only in case is
-	// written over the old directory entry, which can keep the old spelling
-	// (and the filesystem's folding need not match strings.ToLower: Σ, σ and
-	// ς are one name on APFS). That file is the one just written, so a file
-	// this seed did not write by name is checked by identity against every
-	// file it did.
-	var writtenInfo []os.FileInfo
-	isWritten := func(rel string) bool {
-		if written[rel] {
-			return true
+	prune := &seedDocsPrune{
+		outputDir: outputDir,
+		docsRel:   filepath.ToSlash(docsRel),
+		scan:      scan,
+		written:   seedDocsMatcher(outputDir, written),
+		all:       ownership.all,
+		recorded:  seedDocsMatcher(outputDir, ownership.recorded),
+		emptied:   map[string]bool{},
+	}
+	if err := filepath.WalkDir(filepath.Join(outputDir, docsRel), prune.visit); err != nil {
+		prune.unchecked(err)
+	}
+	prune.removeEmptiedDirs()
+	return prune.retry
+}
+
+// seedDocsPrune is one pruneSeedDocs walk.
+type seedDocsPrune struct {
+	outputDir string
+	docsRel   string
+	scan      *seedScanResult
+	written   func(rel string) bool
+	all       bool
+	recorded  func(rel string) bool
+	// dirs lists the directories under seed/docs in walk order, and emptied
+	// those a removal took a file from, directly or below.
+	dirs    []string
+	emptied map[string]bool
+	retry   bool
+}
+
+func (p *seedDocsPrune) visit(path string, d fs.DirEntry, err error) error {
+	if err != nil {
+		p.unchecked(err)
+		return nil
+	}
+	rel, relErr := filepath.Rel(p.outputDir, path)
+	if relErr != nil {
+		return nil
+	}
+	rel = filepath.ToSlash(rel)
+	switch {
+	case d.IsDir():
+		if rel != p.docsRel {
+			p.dirs = append(p.dirs, rel)
 		}
-		if writtenInfo == nil {
-			writtenInfo = make([]os.FileInfo, 0, len(written))
-			for w := range written {
-				if info, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(w))); err == nil {
-					writtenInfo = append(writtenInfo, info)
-				}
-			}
+	case p.written(rel):
+	case !p.all && !p.recorded(rel):
+		p.scan.Warnings = append(p.scan.Warnings, fmt.Sprintf("old seed document not removed: %s: no earlier seed of this output recorded it, so it may not be a seed's", rel))
+	default:
+		if err := brainstore.RemoveBrainRelativeFile(p.outputDir, rel); err != nil {
+			p.scan.Warnings = append(p.scan.Warnings, fmt.Sprintf("old seed document not removed: %s: %v", rel, err))
+			// A symlink is refused every time; anything else may go on a
+			// later try (a permission put right, say).
+			p.retry = p.retry || d.Type()&fs.ModeSymlink == 0
+			return nil
+		}
+		for dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(rel))); dir != p.docsRel && dir != "."; dir = filepath.ToSlash(filepath.Dir(filepath.FromSlash(dir))) {
+			p.emptied[dir] = true
+		}
+	}
+	return nil
+}
+
+// unchecked records a part of seed/docs the walk could not read.
+func (p *seedDocsPrune) unchecked(err error) {
+	p.scan.Warnings = append(p.scan.Warnings, fmt.Sprintf("old seed documents not checked: %v", err))
+	p.retry = true
+}
+
+// removeEmptiedDirs removes the directories the walk left empty, deepest
+// first, so a directory emptied by removing its children goes too. In the
+// brain store that is any empty directory; elsewhere only one a removal took
+// a file from, since an empty directory there may be someone else's. A
+// directory that still holds anything is left by os.Remove.
+func (p *seedDocsPrune) removeEmptiedDirs() {
+	for i := len(p.dirs) - 1; i >= 0; i-- {
+		dir := p.dirs[i]
+		if !p.all && !p.emptied[dir] {
+			continue
+		}
+		if clibase.RejectExistingSymlinkPathComponents(p.outputDir, dir) == nil {
+			_ = os.Remove(filepath.Join(p.outputDir, filepath.FromSlash(dir)))
+		}
+	}
+}
+
+// seedDocsMatcher reports whether a file under outputDir is one of names: by
+// name, or else by filesystem identity. On a case-insensitive filesystem a
+// document renamed only in case is written over the old directory entry,
+// which can keep the old spelling (and the filesystem's folding need not
+// match strings.ToLower: Σ, σ and ς are one name on APFS), so a name alone
+// does not tell.
+func seedDocsMatcher(outputDir string, names map[string]bool) func(rel string) bool {
+	infos := make([]os.FileInfo, 0, len(names))
+	for name := range names {
+		if info, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(name))); err == nil {
+			infos = append(infos, info)
+		}
+	}
+	return func(rel string) bool {
+		if names[rel] {
+			return true
 		}
 		have, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(rel)))
 		if err != nil {
 			return false
 		}
-		for _, info := range writtenInfo {
+		for _, info := range infos {
 			if os.SameFile(have, info) {
 				return true
 			}
 		}
 		return false
-	}
-	var dirs []string
-	walkErr := filepath.WalkDir(filepath.Join(outputDir, docsRel), func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not checked: %v", err))
-			return nil
-		}
-		rel, relErr := filepath.Rel(outputDir, path)
-		if relErr != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		if d.IsDir() {
-			if rel != filepath.ToSlash(docsRel) {
-				dirs = append(dirs, rel)
-			}
-			return nil
-		}
-		if isWritten(rel) {
-			return nil
-		}
-		if err := brainstore.RemoveBrainRelativeFile(outputDir, rel); err != nil {
-			scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed document not removed: %s: %v", rel, err))
-		}
-		return nil
-	})
-	if walkErr != nil {
-		scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not checked: %v", walkErr))
-	}
-	// Deepest first, so a directory emptied by removing its children goes
-	// too. A directory that still holds anything is left by os.Remove.
-	for i := len(dirs) - 1; i >= 0; i-- {
-		if clibase.RejectExistingSymlinkPathComponents(outputDir, dirs[i]) == nil {
-			_ = os.Remove(filepath.Join(outputDir, filepath.FromSlash(dirs[i])))
-		}
 	}
 }
 
