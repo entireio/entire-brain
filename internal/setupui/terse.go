@@ -240,7 +240,7 @@ func RenderTerseNext(w io.Writer, rep TerseReport) {
 	switch {
 	case rep.Queryable && rep.OfferConnect:
 		fmt.Fprintln(w)
-		fmt.Fprintf(w, "Memories stay on this machine. To share them: %s connect\n", brainCmd)
+		fmt.Fprintf(w, "Memories will stay local. To share them, run `%s connect` to sync.\n", brainCmd)
 	case !rep.Queryable:
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "Run `%s doctor` for what went wrong.\n", brainCmd)

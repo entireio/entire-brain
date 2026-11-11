@@ -1562,7 +1562,8 @@ func runSetupHostedChoice(ctx context.Context, ui *setupSink, in io.Reader, prom
 		return nil
 	}
 	setupOpts.hostedChoice = "local"
-	ui.Note(hostedRows("memories stay local. If your team uses the hosted store, these sessions may already be distilled there — `" + connectCmd + "` joins them.")...)
+	// No result line here: the summary's closing connect offer already says
+	// memories stay local and how to sync, and saying it twice was noise.
 	return nil
 }
 
