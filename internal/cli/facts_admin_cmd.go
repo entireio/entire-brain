@@ -29,9 +29,9 @@ func newFactsCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newFactsStorageCommand(opts))
 	cmd.AddCommand(newFactsSyncCommand(opts))
 	cmd.AddCommand(newFactsVitalityCommand(opts))
-	cmd.AddCommand(newFactsEvalCommand(opts))
-	cmd.AddCommand(newFactsEvalGenCommand(opts))
-	cmd.AddCommand(newFactsEvalCompareCommand(opts))
+	for _, c := range harnessFactsCommands(opts) {
+		cmd.AddCommand(c)
+	}
 	cmd.AddCommand(newFactsRetractCommand(opts))
 	cmd.AddCommand(newFactsGlobalCommand(opts))
 	cmd.AddCommand(newFactsGCCommand(opts))
