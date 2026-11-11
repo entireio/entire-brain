@@ -1204,6 +1204,21 @@ func TestAClaimThatCannotBeCheckedIsKept(t *testing.T) {
 	}
 }
 
+// TestAPruneWithNoSeedDocsIsDone: a seed that copied no document never
+// makes seed/docs, and its prune has nothing to remove. It used to take the
+// missing directory for one it could not read and ask for a retry, which in
+// the brain store kept the pending marker, so every refresh reseeded.
+func TestAPruneWithNoSeedDocsIsDone(t *testing.T) {
+	t.Parallel()
+	for _, inBrainStore := range []bool{true, false} {
+		outputDir := t.TempDir()
+		scan := &seedScanResult{RepoDir: t.TempDir()}
+		if retry := pruneSeedDocs(outputDir, scan, map[string]bool{}, seedDocsOwnershipOf(outputDir, inBrainStore)); retry || len(scan.Warnings) > 0 {
+			t.Errorf("brain store %v: prune with no seed/docs: retry = %v, warnings = %q", inBrainStore, retry, scan.Warnings)
+		}
+	}
+}
+
 // TestPruneRetriesWhenItCannotCheckSeedDocs: a filesystem error while
 // checking the seed/docs path, unlike a symlink there, may pass, so the prune
 // asks for a retry. Root reads any directory, and Windows does not stop it.

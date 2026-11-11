@@ -1782,6 +1782,12 @@ type seedDocsFile struct {
 }
 
 func (p *seedDocsPrune) visit(path string, d fs.DirEntry, err error) error {
+	// What is not there has nothing to remove: a seed that copied no
+	// document never made seed/docs, and a retry for it would come back on
+	// every refresh.
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		p.unchecked(err)
 		return nil
