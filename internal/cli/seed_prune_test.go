@@ -720,6 +720,54 @@ func TestAStoppedSeedLeavesAFileThatWasThereBeforeIt(t *testing.T) {
 	assertSeedDoc(t, outputDir, "docs/new.md", true)
 }
 
+// TestAStoppedSeedRemovesTheCopiesNoRecordCanList: in an --output other
+// than the brain store whose pending-marker file is not a seed's, nothing
+// can record a new copy until the new manifest does, so a seed that stops
+// before that removes it rather than leave it searchable once its source is
+// gone.
+func TestAStoppedSeedRemovesTheCopiesNoRecordCanList(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
+	outputDir := seedPruneRepo(t, map[string]string{seedPrunePendingPath: "this repository's own\n"})
+	seedPruneRun(t, repoDir, outputDir, "--worktree", "--update")
+	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/new.md": "# New\n"})
+
+	refreshSeedFailingItsManifestWrite(t, repoDir, outputDir, "docs/new.md")
+	assertSeedDoc(t, outputDir, "docs/new.md", false)
+	assertSeedDoc(t, outputDir, "README.md", true)
+}
+
+// TestAnIdentityThatCannotBeCheckedAsksForARetry: a recorded name whose
+// identity cannot be read (its directory is not searchable) may be another
+// spelling of a listed file, so the matcher says so and the prune retries,
+// which keeps the pending marker and the name with it, instead of taking
+// the file for one no seed recorded for good. Root reads any directory and
+// Windows does not stop it.
+func TestAnIdentityThatCannotBeCheckedAsksForARetry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod directory search semantics are not portable on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root searches a directory without permission")
+	}
+	outputDir := t.TempDir()
+	writeSeedPruneFiles(t, outputDir, map[string]string{"seed/docs/Docs/guide.md": "# Guide\n"})
+	hidden := filepath.Join(outputDir, "seed", "docs", "Docs")
+	if err := os.Chmod(hidden, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(hidden, 0o700) })
+
+	prune := &seedDocsPrune{scan: &seedScanResult{}, uncheckedSeen: map[string]bool{}}
+	recorded := map[string]bool{"seed/docs/Docs/guide.md": true}
+	matches := seedDocsMatcher(outputDir, recorded, map[string]bool{"seed/docs/docs/guide.md": true}, prune.uncheckedIdentity)
+	if matches("seed/docs/docs/guide.md") {
+		t.Error("a name whose identity could not be read matched another spelling")
+	}
+	if !prune.retry || len(prune.scan.Warnings) != 1 || !strings.Contains(prune.scan.Warnings[0], "old seed document not checked") {
+		t.Errorf("retry = %v, warnings %q; want a retry and one warning", prune.retry, prune.scan.Warnings)
+	}
+}
+
 // TestAStoppedSeedLeavesADocumentRenamedOnlyInCase runs where the filesystem
 // folds case. A recorded docs/Guide.md renamed docs/guide.md is written
 // over the same file, so the new spelling, which no record lists, is that
@@ -828,13 +876,13 @@ func TestFailedDocumentWriteInAnotherOutputKeepsWhatItWroteOwned(t *testing.T) {
 	assertDocIndexLacks(t, outputDir, "zebra pipeline")
 }
 
-// TestSeedThatCannotRecordItsCopiesRemovesThem: in an --output other than
+// TestSeedThatCannotRecordItsCopiesLeavesNone: in an --output other than
 // the brain store whose seed/ is read-only but whose seed/docs is not, a
-// seed copies a new document, then fails to write the file index and the
-// pending marker alike. No record would list the copy, so the seed removes
-// it rather than leave it searchable once its source is gone. Root writes
-// any directory and Windows does not stop it.
-func TestSeedThatCannotRecordItsCopiesRemovesThem(t *testing.T) {
+// seed with a new document cannot write the pending marker that claims it,
+// so it copies nothing: no record would list the copy, which would stay
+// searchable once its source is gone. Root writes any directory and Windows
+// does not stop it.
+func TestSeedThatCannotRecordItsCopiesLeavesNone(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("chmod read-only directory semantics are not portable on Windows")
 	}
@@ -1119,8 +1167,9 @@ func TestRemovalMatchesAnotherSpellingNotAHardLink(t *testing.T) {
 	}
 	recorded := map[string]bool{"seed/docs/docs/Guide.md": true, "seed/docs/Σ/a.md": true}
 	listed := map[string]bool{"seed/docs/docs/guide.md": true, "seed/docs/notes/link.md": true, "seed/docs/ς/a.md": true}
-	removes := seedDocsMatcher(outputDir, recorded, listed)
-	keeps := seedDocsMatcher(outputDir, recorded, nil)
+	unchecked := func(err error) { t.Errorf("identity not checked: %v", err) }
+	removes := seedDocsMatcher(outputDir, recorded, listed, unchecked)
+	keeps := seedDocsMatcher(outputDir, recorded, nil, unchecked)
 	for rel, want := range map[string]bool{"seed/docs/docs/guide.md": true, "seed/docs/ς/a.md": true, "seed/docs/notes/link.md": false} {
 		if got := removes(rel); got != want {
 			t.Errorf("removal matcher(%s) = %v, want %v", rel, got, want)
