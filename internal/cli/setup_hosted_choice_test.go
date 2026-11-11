@@ -212,11 +212,11 @@ func TestSetupTerseReportsHostedOutcome(t *testing.T) {
 		brainstore.HostedRepoBinding{RepoID: "r", BaseURL: "https://cell.example.com"}); err != nil {
 		t.Fatal(err)
 	}
-	rec := &recordedSetup{agent: "codex", hostedSyncOutcome: hostedSyncOutcome{Attempted: true, PullSucceeded: true}}
+	rec := &recordedSetup{agent: "codex", hostedSyncOutcome: hostedSyncOutcome{Attempted: true, PullSucceeded: true, Kept: 2}}
 	opts := defaultSetupOptions()
 	opts.noDaemon, opts.noBackfill = true, true
 	out := runSetupTerseForTest(t, f, opts, rec)
-	if !strings.Contains(out, "team memories pulled") {
+	if !strings.Contains(out, "Hosted memory store synced: pulled 2 team memories") || !strings.Contains(out, "Connected to hosted memory store") {
 		t.Fatalf("the default (terse) output must report the sync result:\n%s", out)
 	}
 
@@ -298,5 +298,47 @@ func TestSetupConflictRefusalRendersAnErrorBlock(t *testing.T) {
 	want := "\nerror: --local-only and --hosted contradict each other; pass one\n\n"
 	if out.String() != want {
 		t.Fatalf("refusal block mismatch:\ngot  %q\nwant %q", out.String(), want)
+	}
+}
+
+// The sync engine's counts belong in the settled Connected line, not glued to
+// the live spinner by a raw stderr write.
+func TestSetupBoundSyncReportsPullCountsInTheConnectedLine(t *testing.T) {
+	f := newSetupTestFixture(t, "s1")
+	if err := brainstore.WriteHostedRepoBinding(f.storage.BrainDir,
+		brainstore.HostedRepoBinding{RepoID: "r", BaseURL: "https://cell.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recordedSetup{agent: "codex", hostedSyncOutcome: hostedSyncOutcome{
+		Attempted: true, PullSucceeded: true, Kept: 3544, FeedTotal: 4412, PushedAdded: 1296,
+	}}
+	opts := defaultSetupOptions()
+	opts.noDaemon, opts.noBackfill = true, true
+	out := runSetupTerseForTest(t, f, opts, rec)
+
+	if !strings.Contains(out, "pulled 3,544 team memories") || !strings.Contains(out, "pushed 1,296") {
+		t.Fatalf("the Connected line must carry the sync counts:\n%s", out)
+	}
+}
+
+// Engine stderr lines must print as their own rows, never mid-spinner, and the
+// stats line is dropped: its numbers already settle into the Connected line.
+func TestSetupNoteWriterEmitsWholeLinesAndDropsTheStatsLine(t *testing.T) {
+	t.Parallel()
+	var notes []string
+	w := &setupNoteWriter{note: func(line string) { notes = append(notes, line) }}
+	_, _ = w.Write([]byte("hosted sync: pushed added=1 changed=0 unchanged=2; feed facts=3 kept=3\npartial "))
+	_, _ = w.Write([]byte("line finished\n\n"))
+	if len(notes) != 1 || notes[0] != "partial line finished" {
+		t.Fatalf("want one note with the joined line, got %q", notes)
+	}
+}
+
+func TestFormatCountGroupsThousands(t *testing.T) {
+	t.Parallel()
+	for n, want := range map[int]string{0: "0", 42: "42", 999: "999", 3544: "3,544", 1296: "1,296", 1234567: "1,234,567"} {
+		if got := formatCount(n); got != want {
+			t.Errorf("formatCount(%d) = %q, want %q", n, got, want)
+		}
 	}
 }

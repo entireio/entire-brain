@@ -46,6 +46,12 @@ const (
 type hostedSyncOutcome struct {
 	Attempted     bool
 	PullSucceeded bool
+	// Counts from a successful exchange, so interactive callers (setup) can
+	// settle them into one result line instead of re-parsing the stderr line.
+	PushedAdded   int
+	PushedChanged int
+	FeedTotal     int
+	Kept          int
 }
 
 // hostedFactsSyncAndPull closes the hosted-memory loop on the per-fact wire
@@ -172,7 +178,11 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		}
 		fmt.Fprintf(errW, "hosted sync: pushed added=%d changed=%d unchanged=%d; feed facts=%d kept=%d\n",
 			counts.Added, counts.Changed, counts.Unchanged, total, kept)
-		return hostedSyncOutcome{Attempted: true, PullSucceeded: true}, nil
+		return hostedSyncOutcome{
+			Attempted: true, PullSucceeded: true,
+			PushedAdded: counts.Added, PushedChanged: counts.Changed,
+			FeedTotal: total, Kept: kept,
+		}, nil
 	}
 }
 

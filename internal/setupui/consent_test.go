@@ -24,8 +24,8 @@ func TestConsentCompactPromptNamesPoolBudgetAndSpend(t *testing.T) {
 			t.Errorf("missing %q: %q", want, out)
 		}
 	}
-	if !strings.HasSuffix(out, "\x1b[3A\x1b[J") {
-		t.Fatalf("compact prompt should erase exactly three rows: %q", out)
+	if !strings.HasSuffix(out, "\x1b[4A\x1b[J") {
+		t.Fatalf("compact prompt should erase exactly four rows (incl. its leading blank line): %q", out)
 	}
 }
 

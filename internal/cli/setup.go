@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -596,8 +597,11 @@ type setupSteps struct {
 	uninstall func(context.Context, daemonPlan) error
 	// establishHosted binds the repo to its hosted brain and runs the first
 	// sync (connect.Establish); a step so tests exercise the hosted-choice
-	// decision table without a host CLI.
-	establishHosted func(ctx context.Context, opts Options, stderr io.Writer) (connect.EstablishResult, error)
+	// decision table without a host CLI. The sync outcome rides along so the
+	// settled sync row can carry the pull/push counts, and onConnected fires
+	// after the binding lands and before the sync starts, so the UI can settle
+	// the Connected row and start the sync spinner at the honest moment.
+	establishHosted func(ctx context.Context, opts Options, stderr io.Writer, onConnected func()) (connect.EstablishResult, hostedSyncOutcome, error)
 	// hostedSync runs one sync for an ALREADY-bound repo. Separate from
 	// establishHosted on purpose: a live binding must never be re-resolved or
 	// re-written (a custom --repo-id binding would silently move, and the
@@ -1486,6 +1490,72 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 // clear line and never an error: a machine with no agent CLI, or a repo with no
 // captured sessions yet, is a completely valid setup — it just has no facts to
 // extract.
+// setupNoteWriter re-emits the sync engine's stderr lines through the sink, so
+// a line never lands mid-spinner (observed: "(20s)hosted sync: pushed…" glued
+// to the live task). The stats line is dropped here: its counts settle into
+// the Connected line, and printing both said the same thing twice.
+type setupNoteWriter struct {
+	note func(string)
+	buf  []byte
+}
+
+func (w *setupNoteWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		line := strings.TrimRight(string(w.buf[:i]), "\r")
+		w.buf = w.buf[i+1:]
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "hosted sync: pushed ") {
+			continue
+		}
+		w.note(line)
+	}
+}
+
+// The hosted step's two task labels and its two settled rows.
+const (
+	hostedConnectLabel = "Connecting to hosted memory store…"
+	hostedSyncLabel    = "Syncing hosted memory store…"
+	hostedConnectedRow = "Connected to hosted memory store"
+)
+
+// setupSyncedRow is the settled sync row. Kept counts THIS run's pull, so
+// zero means "nothing new", not "nothing": a quiet delta re-sync must not
+// claim an established store is empty.
+func setupSyncedRow(outcome hostedSyncOutcome) string {
+	detail := "memories up to date"
+	if outcome.Kept > 0 {
+		detail = "pulled " + formatCount(outcome.Kept) + " team memories"
+	}
+	if pushed := outcome.PushedAdded + outcome.PushedChanged; pushed > 0 {
+		detail += ", pushed " + formatCount(pushed)
+	}
+	return "Hosted memory store synced: " + detail + "; new facts sync automatically"
+}
+
+// formatCount groups thousands ("3544" reads worse than "3,544" in a sentence
+// about how much just moved).
+func formatCount(n int) string {
+	s := strconv.Itoa(n)
+	if n < 0 || len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	lead := len(s) % 3
+	if lead == 0 {
+		lead = 3
+	}
+	b.WriteString(s[:lead])
+	for i := lead; i < len(s); i += 3 {
+		b.WriteString(",")
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
+}
+
 // setupRefusal renders a pre-flight refusal as its own block — a blank line
 // each side and a painted "error:" prefix — and returns the rendered marker so
 // main.go's catch-all does not print the same text again bare. --json runs
@@ -1571,24 +1641,37 @@ func runSetupHostedChoice(ctx context.Context, ui *setupSink, in io.Reader, prom
 // setupSyncHosted runs one sync for an already-bound repo and reports the
 // outcome without failing setup.
 func setupSyncHosted(ctx context.Context, ui *setupSink, errW io.Writer, opts Options, steps setupSteps, storage repoStorage, repoDir string, report *setupReport, brainCmd string) {
+	ui.OutcomeRow(tui.MarkDone, hostedConnectedRow)
 	if base.BrainNoEgressMode() {
-		ui.Note(setupui.Line{Text: "Connected: " + storage.Key + " — nothing syncs while " + base.NoEgressToggleName() + " is set", Accent: tui.PhaseDaemon, Flush: true})
+		ui.OutcomeRow(tui.MarkSkipped, "Hosted memory sync disabled while "+base.NoEgressToggleName()+" is set")
 		return
 	}
-	ui.StartTask("Syncing with the hosted memory store…")
-	outcome, err := steps.hostedSync(ctx, errW, opts, repoDir, storage)
+	ui.StartTask(hostedSyncLabel)
+	outcome, err := steps.hostedSync(ctx, setupHostedNoteWriter(ui, errW), opts, repoDir, storage)
 	switch {
 	case err != nil:
-		setupHostedFailed(report, "hosted sync failed: "+setupui.FlattenError(err)+"; memories stay local until a sync succeeds")
+		detail := "hosted sync failed: " + setupui.FlattenError(err) + "; memories stay local until a sync succeeds"
+		setupHostedFailed(report, detail)
+		ui.OutcomeRow(tui.MarkFailed, "Hosted memory store sync failed — "+setupui.FlattenError(err)+"; memories stay local until a sync succeeds")
 	case !outcome.PullSucceeded:
 		verdict := "failed"
 		if !outcome.Attempted {
 			verdict = "did not run"
 		}
 		setupHostedFailed(report, "hosted sync "+verdict+" (details above); memories stay local until a sync succeeds")
+		ui.OutcomeRow(tui.MarkFailed, "Hosted memory store sync "+verdict+"; memories stay local until a sync succeeds")
 	default:
-		ui.Note(setupui.Line{Text: "Connected: " + storage.Key + " — team memories pulled; new facts sync automatically", Accent: tui.PhaseDaemon, Flush: true})
+		ui.OutcomeRow(tui.MarkDone, setupSyncedRow(outcome))
 	}
+}
+
+// setupHostedNoteWriter routes the sync engine's stderr through the sink. In
+// verbose mode the sink's Interject needs no live-line care and the raw writer
+// would be fine, but one path keeps the two modes identical.
+func setupHostedNoteWriter(ui *setupSink, _ io.Writer) io.Writer {
+	return &setupNoteWriter{note: func(line string) {
+		ui.Note(setupui.Line{Text: line, Accent: tui.PhaseDaemon, Flush: true})
+	}}
 }
 
 // setupHostedFailed records a hosted-step failure once, in the two places the
@@ -1605,20 +1688,31 @@ func setupHostedFailed(report *setupReport, detail string) {
 // Only a written binding records "hosted": a pre-bind failure leaves the
 // record empty so the next interactive run asks again.
 func setupEstablishHosted(ctx context.Context, ui *setupSink, errW io.Writer, opts Options, setupOpts *setupCommandOptions, steps setupSteps, report *setupReport, brainCmd string) {
-	ui.StartTask("Connecting to the hosted memory store…")
-	result, err := steps.establishHosted(ctx, opts, errW)
+	ui.StartTask(hostedConnectLabel)
+	// The binding lands first, the sync runs second; onConnected fires between
+	// the two so the Connected row settles the moment it is TRUE and the sync
+	// gets its own spinner.
+	onConnected := func() {
+		ui.OutcomeRow(tui.MarkDone, hostedConnectedRow)
+		ui.StartTask(hostedSyncLabel)
+	}
+	result, outcome, err := steps.establishHosted(ctx, opts, setupHostedNoteWriter(ui, errW), onConnected)
 	switch {
 	case err == nil && result.NoEgress:
+		// The sync never ran, so onConnected never fired; both rows land here.
 		setupOpts.hostedChoice = "hosted"
-		ui.Note(setupui.Line{Text: "Connected: " + result.StorageKey + " — binding recorded; nothing syncs while " + base.NoEgressToggleName() + " is set", Accent: tui.PhaseDaemon, Flush: true})
+		ui.OutcomeRow(tui.MarkDone, hostedConnectedRow)
+		ui.OutcomeRow(tui.MarkSkipped, "Hosted memory sync disabled while "+base.NoEgressToggleName()+" is set — binding recorded")
 	case err == nil:
 		setupOpts.hostedChoice = "hosted"
-		ui.Note(setupui.Line{Text: "Connected: " + result.StorageKey + " — team memories pulled; new facts sync automatically", Accent: tui.PhaseDaemon, Flush: true})
+		ui.OutcomeRow(tui.MarkDone, setupSyncedRow(outcome))
 	case result.Bound:
 		setupOpts.hostedChoice = "hosted"
 		setupHostedFailed(report, setupui.FlattenError(err))
+		ui.OutcomeRow(tui.MarkFailed, "Hosted memory store sync failed — memories stay local until a sync succeeds")
 	default:
 		setupHostedFailed(report, "hosted store not connected: "+setupui.FlattenError(err)+"; continuing local-only")
+		ui.OutcomeRow(tui.MarkFailed, "Could not connect to hosted memory store — continuing local-only")
 	}
 }
 
@@ -2189,8 +2283,19 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 		}
 	}
 	if steps.establishHosted == nil {
-		steps.establishHosted = func(ctx context.Context, opts Options, stderr io.Writer) (connect.EstablishResult, error) {
-			return connect.Establish(ctx, connectConfig(opts), stderr, "", "")
+		steps.establishHosted = func(ctx context.Context, opts Options, stderr io.Writer, onConnected func()) (connect.EstablishResult, hostedSyncOutcome, error) {
+			var captured hostedSyncOutcome
+			cfg := connectConfig(opts)
+			cfg.Deps.HostedFactsSyncAndPull = func(ctx context.Context, errW io.Writer, opts base.Options, repoDir string, storage base.RepoStorage) (bool, bool, error) {
+				if onConnected != nil {
+					onConnected()
+				}
+				outcome, err := hostedFactsSyncAndPull(ctx, errW, opts, repoDir, storage)
+				captured = outcome
+				return outcome.Attempted, outcome.PullSucceeded, err
+			}
+			result, err := connect.Establish(ctx, cfg, stderr, "", "")
+			return result, captured, err
 		}
 	}
 	if steps.hostedSync == nil {

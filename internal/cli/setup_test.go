@@ -199,9 +199,14 @@ func (r *recordedSetup) steps(f *setupTestFixture) setupSteps {
 			r.spawned = plan
 			return 4242, nil
 		},
-		establishHosted: func(context.Context, Options, io.Writer) (connect.EstablishResult, error) {
+		establishHosted: func(_ context.Context, _ Options, _ io.Writer, onConnected func()) (connect.EstablishResult, hostedSyncOutcome, error) {
 			r.establishCalls++
-			return r.establishResult, r.establishErr
+			// Mirrors the real step: the sync (and so the connected moment)
+			// happens only once the binding landed and egress is allowed.
+			if r.establishResult.Bound && !r.establishResult.NoEgress && onConnected != nil {
+				onConnected()
+			}
+			return r.establishResult, r.hostedSyncOutcome, r.establishErr
 		},
 		hostedSync: func(context.Context, io.Writer, Options, string, repoStorage) (hostedSyncOutcome, error) {
 			r.hostedSyncCalls++

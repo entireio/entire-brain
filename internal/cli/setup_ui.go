@@ -260,6 +260,16 @@ func (s *setupSink) Interject(lines ...setupui.Line) {
 	}
 }
 
+// OutcomeRow ends any live task and leaves one permanent glyph row — the
+// "  ✓ Connected to hosted memory store" shape — in both output modes.
+func (s *setupSink) OutcomeRow(mark tui.Mark, text string) {
+	if s == nil {
+		return
+	}
+	s.Suspend()
+	s.progress.EmitLine("  " + s.rend.TUI().Mark(mark) + " " + text)
+}
+
 // Note writes result rows that must survive BOTH output modes. Interject is
 // verbose-only and ShortWarning is quiet-only; the hosted-choice step's
 // outcomes ("connected", "skipping hosted sync") are results, not phase noise,

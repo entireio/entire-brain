@@ -192,7 +192,10 @@ func writePrompt(out io.Writer, r *Renderer, req ConsentRequest) int {
 		if pool == 1 {
 			verb = "remains"
 		}
-		count := 0
+		// The question is its own block: a blank line keeps it from reading as
+		// one more status row. Counted, so the erase removes it too.
+		fmt.Fprintln(out)
+		count := 1
 		for i, text := range []string{
 			fmt.Sprintf("%s %s. Distill up to %d now?", plural(pool, "session"), verb, req.Sessions),
 			agent + bullet + "uses agent tokens",
