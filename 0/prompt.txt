@@ -1,0 +1,27 @@
+2a - passed.
+
+
+2b - technically passed but it looks ugly. 
+
+[2026-11-10 21:40] /tmp/brain-onboarding-demo/project (main)% /tmp/entire-brain-dev setup --hosted --no-daemon
+
+Brain turns this repo's history and past AI sessions into memories your agents recall while they work.
+
+  − hosted store not connected: connect: remote "origin" not found; pass /gh/<owner>/<repo> or /et/<project>/<repo> explicitly; Or pass --repo-id and --api-url explicitly; continuing local-only — run `entire-brain setup --verbose` for details
+  ✓ Brain built — queryable now (889ms)
+  ✓ No past sessions to distill — memories accrue as you work
+  − Watcher not installed (--no-daemon) — the brain updates only when you re-run setup
+
+Memories will stay local. To share them, run `entire-brain connect` to sync.
+
+[2026-11-10 21:40] /tmp/brain-onboarding-demo/project (main)%
+
+this is a connection error. 
+
+we shoudl replace that last line with the error message instead.
+
+---
+
+much better. okay 2b scenario is good now. 
+
+commit this and then back to the other scenarios
