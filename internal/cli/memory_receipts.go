@@ -144,14 +144,10 @@ func sessionTranscriptDigestFromStore(store *transcriptStore, rel string) (strin
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// buildProjectionReceipts derives the receipt set from the canonical manifest
-// and the just-built index. A valid empty session succeeds with zero
-// exchanges. An unreadable transcript simply has no receipt: reconciliation
-// keeps its job open.
-func buildProjectionReceipts(brainDir string, manifest *exportManifest, index historyIndex, now time.Time) (projectionState, error) {
-	return buildProjectionReceiptsFromSnapshot(transcriptStoreFor(brainDir), manifest, index, now), nil
-}
-
+// buildProjectionReceiptsFromSnapshot derives the receipt set from the
+// canonical manifest and the just-built index, reading transcripts through
+// store. A valid empty session succeeds with zero exchanges. An unreadable
+// transcript simply has no receipt: reconciliation keeps its job open.
 func buildProjectionReceiptsFromSnapshot(store *transcriptStore, manifest *exportManifest, index historyIndex, now time.Time) projectionState {
 	state := projectionState{SchemaVersion: projectionSchemaVersion, ReconcilerVersion: projectionReconcilerVersion, GeneratedAt: now}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
