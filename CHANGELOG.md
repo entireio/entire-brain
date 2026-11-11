@@ -66,6 +66,12 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- A commit in another session no longer fails a history rebuild, such as the one
+  in `refresh` or the background history lane, with `memory_source_stale`.
+  Finalizing a checkpoint rewrites its transcript on the checkpoint ref, and a
+  rebuild read that transcript several times through the moving ref. A rebuild
+  now reads one fixed set of blobs, so a finalize that lands mid-rebuild belongs
+  to the next one (#580).
 - A background memory worker no longer fails `refresh history` (or any other
   history rebuild) with `memory_source_stale`. The short-term overlay left the
   projection identity: the rebuild derives from canonical sessions only, and

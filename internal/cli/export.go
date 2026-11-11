@@ -2088,19 +2088,13 @@ func loadAggregateCheckpointSources(ctx context.Context, runner CommandRunner, r
 				continue
 			}
 		}
-		pathsOut, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", "--name-only", ref)
+		pathsOut, oids, stderr, err := listCheckpointTree(ctx, runner, repoDir, localOnly, ref, cache != nil)
 		if err != nil {
 			enumerated = false
 			deferredErrors = append(deferredErrors, fmt.Sprintf("checkpoint ref %s unavailable: %v", ref, err))
 			continue
 		}
 		paths := treePathSet(pathsOut)
-		oids := map[string]string(nil)
-		if cache != nil {
-			if oidOut, _, oidErr := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", ref); oidErr == nil {
-				oids = treePathOIDs(oidOut)
-			}
-		}
 		for _, id := range checkpointIDsFromTreeListing(pathsOut) {
 			// First ref wins: the local ref keeps precedence for a checkpoint
 			// both refs carry, as before.
@@ -2171,7 +2165,7 @@ func loadPerCheckpointSources(ctx context.Context, runner CommandRunner, repoDir
 	sort.Strings(ids)
 	for _, id := range ids {
 		ref := refs[id]
-		pathsOut, treeStderr, treeErr := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", "--name-only", ref)
+		pathsOut, oids, treeStderr, treeErr := listCheckpointTree(ctx, runner, repoDir, localOnly, ref, cache != nil)
 		if treeErr != nil {
 			warnings = append(warnings, fmt.Sprintf("checkpoint ref %s unreadable: %v", ref, treeErr))
 			sources[id] = checkpointSnapshotSource{
@@ -2187,10 +2181,8 @@ func loadPerCheckpointSources(ctx context.Context, runner CommandRunner, repoDir
 		root := checkpointPath(id)
 		virtualPaths := virtualizePerCheckpointTree(treePathSet(pathsOut), root)
 		var virtualOIDs map[string]string
-		if cache != nil {
-			if oidOut, _, oidErr := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", ref); oidErr == nil {
-				virtualOIDs = virtualizePerCheckpointOIDs(treePathOIDs(oidOut), root)
-			}
+		if len(oids) > 0 {
+			virtualOIDs = virtualizePerCheckpointOIDs(oids, root)
 		}
 		sources[id] = checkpointSnapshotSource{
 			GitDir:      repoDir,
@@ -2221,6 +2213,31 @@ func probeLocalPerCheckpointRefs(ctx context.Context, runner CommandRunner, repo
 		refs[id] = ref
 	}
 	return refs, warnings, nil
+}
+
+// listCheckpointTree lists ref once. When object ids are wanted, the names come
+// from that same listing, because a second call could straddle a ref move and
+// leave a path with no consistent answer. If ids cannot be read, the names-only
+// listing still serves and the source simply goes uncached and unpinned.
+func listCheckpointTree(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, ref string, wantOIDs bool) (names []byte, oids map[string]string, stderr []byte, err error) {
+	if wantOIDs {
+		out, outStderr, oidErr := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", ref)
+		if oidErr == nil && len(bytes.TrimSpace(out)) == 0 {
+			return nil, nil, outStderr, nil // an empty tree, which is an answer
+		}
+		if oidErr == nil {
+			if oids = treePathOIDs(out); len(oids) > 0 {
+				paths := make([]string, 0, len(oids))
+				for path := range oids {
+					paths = append(paths, path)
+				}
+				sort.Strings(paths)
+				return []byte(strings.Join(paths, "\n") + "\n"), oids, outStderr, nil
+			}
+		}
+	}
+	names, stderr, err = runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", "--name-only", ref)
+	return names, nil, stderr, err
 }
 
 func runCheckpointGitWithPolicy(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, args ...string) ([]byte, []byte, error) {
@@ -2816,7 +2833,9 @@ func treePathOIDs(data []byte) map[string]string {
 		if len(fields) < 3 {
 			continue
 		}
-		path := strings.TrimSpace(filepath.ToSlash(line[tab+1:]))
+		// Exact names: pinned reads choose blobs from this map, so a file named
+		// with a trailing space must not replace the one it resembles.
+		path := filepath.ToSlash(line[tab+1:])
 		if path != "" {
 			oids[path] = fields[2]
 		}
@@ -2824,7 +2843,9 @@ func treePathOIDs(data []byte) map[string]string {
 	return oids
 }
 
-const checkpointMetadataCacheVersion = 1
+// Version 2 discards entries from the reader that fetched through the moving ref,
+// which could record one blob's bytes under another blob's id.
+const checkpointMetadataCacheVersion = 2
 const checkpointMetadataCachePath = "export/checkpoint-metadata-cache.json.gz"
 
 // checkpointMetadataCache memoizes checkpoint metadata blobs by their git
@@ -2932,7 +2953,16 @@ func (r *checkpointBlobReader) read(ctx context.Context, virtualPath string) ([]
 			return data, nil
 		}
 	}
-	data, err := catFileWithPolicy(ctx, r.runner, r.gitDir, r.ref, actualPath, r.localOnly)
+	// Read the blob the listing named, not whatever the ref holds now: metadata
+	// and the transcripts it points at must describe the same tree. A path the
+	// listing does not name is absent from that tree, whatever the ref holds now.
+	spec := r.ref + ":" + actualPath
+	if oid != "" {
+		spec = oid
+	} else if len(r.oids) > 0 {
+		return nil, fmt.Errorf("checkpoint path %s is not in the listing of %s", virtualPath, r.ref)
+	}
+	data, err := catFileSpecWithPolicy(ctx, r.runner, r.gitDir, spec, r.localOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -2969,6 +2999,11 @@ func catFile(ctx context.Context, runner CommandRunner, gitDir, ref, path string
 }
 
 func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, filePath string, localOnly bool) ([]byte, error) {
+	return catFileSpecWithPolicy(ctx, runner, gitDir, ref+":"+filePath, localOnly)
+}
+
+// catFileSpecWithPolicy reads one object named by any git object spec.
+func catFileSpecWithPolicy(ctx context.Context, runner CommandRunner, gitDir, spec string, localOnly bool) ([]byte, error) {
 	// Batch-capable runners read through one shared `cat-file --batch` child
 	// per (gitDir, policy) instead of one exec per blob (COR-2182). "missing"
 	// is git's definitive answer and must not be retried per-exec; any other
@@ -2976,7 +3011,7 @@ func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, f
 	// without the capability keep the per-exec path: the batch child would
 	// bypass their per-call seam.
 	if runnerAllowsCatFileBatch(runner) {
-		data, err := catFileBatchRead(ctx, gitDir, ref+":"+filePath, localOnly)
+		data, err := catFileBatchRead(ctx, gitDir, spec, localOnly)
 		if err == nil || errors.Is(err, errGitObjectMissing) {
 			return data, err
 		}
@@ -2984,9 +3019,9 @@ func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, f
 	var stdout []byte
 	var err error
 	if localOnly {
-		stdout, _, err = runCheckpointGitLocal(ctx, runner, gitDir, "cat-file", "-p", ref+":"+filePath)
+		stdout, _, err = runCheckpointGitLocal(ctx, runner, gitDir, "cat-file", "-p", spec)
 	} else {
-		stdout, _, err = runner.Run(ctx, gitDir, "git", "cat-file", "-p", ref+":"+filePath)
+		stdout, _, err = runner.Run(ctx, gitDir, "git", "cat-file", "-p", spec)
 	}
 	if err != nil {
 		return nil, err
@@ -3354,6 +3389,11 @@ func readSnapshotTranscriptFromSource(ctx context.Context, runner CommandRunner,
 		if !ok {
 			return nil, fmt.Errorf("checkpoint snapshot source %q not found", sourceKey)
 		}
+		if snapshot.ReadPinned {
+			if data, ok, err := readPinnedCheckpointSourceTranscript(ctx, runner, source, sourcePath); ok {
+				return data, err
+			}
+		}
 		return readCheckpointSourceTranscript(ctx, runner, source, sourcePath)
 	}
 	chunks := snapshotTranscriptChunks(sourcePath, snapshot.TreePaths)
@@ -3363,6 +3403,29 @@ func readSnapshotTranscriptFromSource(ctx context.Context, runner CommandRunner,
 	return readTranscriptChunks(chunks, func(chunk string) ([]byte, error) {
 		return catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk, clibase.BrainNoEgressMode())
 	})
+}
+
+// readPinnedCheckpointSourceTranscript reads the blobs this source's tree listed
+// when the snapshot resolved. ok=false means object ids were unavailable, so
+// there is nothing to pin to and the caller reads through the ref: a moved ref is
+// then caught by the rebuild's identity check, the same as before pinning. A
+// transcript the listing does not name is absent from that tree, which is an error.
+func readPinnedCheckpointSourceTranscript(ctx context.Context, runner CommandRunner, source checkpointSnapshotSource, virtualPath string) (data []byte, ok bool, err error) {
+	paths := make(map[string]struct{}, len(source.OIDs))
+	for path := range source.OIDs {
+		paths[path] = struct{}{}
+	}
+	if len(paths) == 0 {
+		return nil, false, nil
+	}
+	chunks := snapshotTranscriptChunks(virtualPath, paths)
+	if len(chunks) == 0 {
+		return nil, true, fmt.Errorf("transcript path %s not found in the listing of %s", virtualPath, source.Ref)
+	}
+	data, err = readTranscriptChunks(chunks, func(chunk string) ([]byte, error) {
+		return catFileSpecWithPolicy(ctx, runner, source.GitDir, source.OIDs[chunk], source.LocalOnly)
+	})
+	return data, true, err
 }
 
 func readCheckpointSourceTranscript(ctx context.Context, runner CommandRunner, source checkpointSnapshotSource, virtualPath string) ([]byte, error) {
@@ -4064,6 +4127,9 @@ type checkpointSnapshot struct {
 	TreePaths             map[string]struct{}
 	Sources               map[string]checkpointSnapshotSource
 	UnreadableCheckpoints map[string]struct{}
+	// ReadPinned makes transcript reads return the blobs listed when this
+	// snapshot resolved instead of whatever the ref holds at read time.
+	ReadPinned bool
 }
 
 // sessionCheckpoint is one (session, checkpoint) membership record with the

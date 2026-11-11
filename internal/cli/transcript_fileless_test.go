@@ -22,6 +22,10 @@ func filelessCheckpointFixture(t *testing.T) (Options, string, string) {
 
 func filelessCheckpointFixtureWithTranscript(t *testing.T, transcript string) (Options, string, string) {
 	t.Helper()
+	// Batch cat-file children are pooled per gitDir for the whole process and
+	// each holds open pipes; without this, fixture-heavy runs starve the
+	// rlimit-based descriptor tests (TestRegressionScanHistoryClosesFilesDuringLargeWalk).
+	t.Cleanup(closeCatFileBatches)
 	repo := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
