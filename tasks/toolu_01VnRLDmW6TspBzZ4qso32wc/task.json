@@ -1,0 +1,23 @@
+{
+  "tool_use_id": "toolu_01VnRLDmW6TspBzZ4qso32wc",
+  "agent_id": "a8d96e415570c0720",
+  "subagent_type": "general-purpose",
+  "task_description": "Builder check of design doc",
+  "files": [
+    "README.md",
+    "internal/agentsetup/nested.go",
+    "internal/agentsetup/nested_test.go",
+    "internal/cli/agent_setup_quoting_test.go",
+    "internal/cli/setup.go",
+    "internal/cli/shell_quoting_test.go"
+  ],
+  "token_usage": {
+    "input_tokens": 34,
+    "cache_creation_tokens": 99110,
+    "cache_read_tokens": 1229215,
+    "output_tokens": 18234,
+    "api_call_count": 17
+  },
+  "started_at": "2026-11-10T16:16:02.660489-08:00",
+  "completed_at": "2026-11-10T16:16:02.660921-08:00"
+}
