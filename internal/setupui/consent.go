@@ -48,6 +48,12 @@ type ConsentRequest struct {
 	// Sessions, the prompt says both numbers — a reader deciding whether to
 	// spend needs to know the pool is 272 even when this run covers 2.
 	Total int
+	// Covered is how many sessions team memories already cover (fact
+	// provenance from the hosted store); Corpus is the whole session count.
+	// When Covered > 0 the prompt says so — the reader deciding whether to
+	// spend should know most of the corpus needs nothing.
+	Covered int
+	Corpus  int
 	// Agent is the agent CLI that would run. Empty means none was found.
 	Agent string
 	// Model and Effort qualify the agent, for the informed-decision line.
@@ -210,10 +216,18 @@ func writePrompt(out io.Writer, r *Renderer, req ConsentRequest) int {
 	}
 	lines := []Line{
 		{Title: PhaseFacts.Title(), Text: pool + " can be distilled into durable facts.", Accent: PhaseFacts.Accent()},
-		{Text: agent, Accent: PhaseFacts.Accent()},
-		{Text: estimate, Accent: PhaseFacts.Accent()},
-		{Blank: true},
 	}
+	if req.Covered > 0 {
+		lines = append(lines, Line{
+			Text:   fmt.Sprintf("%d of %d sessions are already covered by team memories.", req.Covered, req.Corpus),
+			Accent: PhaseFacts.Accent(),
+		})
+	}
+	lines = append(lines,
+		Line{Text: agent, Accent: PhaseFacts.Accent()},
+		Line{Text: estimate, Accent: PhaseFacts.Accent()},
+		Line{Blank: true},
+	)
 	for _, line := range lines {
 		fmt.Fprintln(out, r.Line(line))
 	}

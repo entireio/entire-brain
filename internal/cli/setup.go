@@ -1092,7 +1092,8 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	backfillStarted := time.Now()
 	factsPhase := run.Begin(setupui.PhaseFacts)
 	ui.StartTask("Checking remaining sessions…")
-	report.Facts = factsBackfillStatusForBrain(storage.BrainDir)
+	feedDir, _ := hostedFeedDirForKey(perRepo.Env, storage.Key)
+	report.Facts = factsBackfillStatusForBrain(storage.BrainDir, coveredSessionIDs(storage.BrainDir, feedDir))
 	report.Backfill = runSetupBackfill(ctx, factsPhase, ui, cmd.InOrStdin(), setupPromptWriter(promptOut),
 		perRepo, setupOpts, steps, storage, repoDir, &report, brainCmd)
 	timings.record("backfill", time.Since(backfillStarted))
@@ -1466,6 +1467,12 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 			setupui.ConsentReasonPaused)
 	}
 	if report.Facts.Sessions > 0 && report.Facts.Pending() == 0 {
+		if report.Facts.Covered > 0 {
+			return setupBackfillSkippedBecause(phase, "all sessions covered by team memories",
+				fmt.Sprintf("already complete (%d/%d sessions distilled here, %d covered by team memories)",
+					report.Facts.Distilled, report.Facts.Sessions, report.Facts.Covered),
+				setupui.ConsentReasonAlreadyDistilled)
+		}
 		return setupBackfillSkippedBecause(phase, "all sessions already distilled",
 			fmt.Sprintf("already complete (%d/%d sessions distilled)", report.Facts.Distilled, report.Facts.Sessions),
 			setupui.ConsentReasonAlreadyDistilled)
@@ -1508,6 +1515,8 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 		Compact:  ui.quiet,
 		Sessions: queued,
 		Total:    report.Facts.Pending(),
+		Covered:  report.Facts.Covered,
+		Corpus:   report.Facts.Sessions,
 		Agent:    agent,
 		Model:    strings.TrimSpace(setupOpts.model),
 		Effort:   strings.TrimSpace(setupOpts.effort),
@@ -1624,6 +1633,10 @@ func setupBackfillSkippedBecause(phase *setupui.PhaseRun, detail, line string, w
 func setupFactsCounter(rend *setupui.Renderer, facts factsBackfillStatus) string {
 	if facts.Sessions <= 0 {
 		return ""
+	}
+	if facts.Covered > 0 {
+		return fmt.Sprintf(" %s %d/%d sessions distilled, %d covered by team memories",
+			rend.Bullet(), facts.Distilled, facts.Sessions, facts.Covered)
 	}
 	return fmt.Sprintf(" %s %d/%d sessions distilled", rend.Bullet(), facts.Distilled, facts.Sessions)
 }

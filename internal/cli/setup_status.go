@@ -44,7 +44,12 @@ type factsBackfillStatus struct {
 	// populated only while a setup run reports on the backfill it just
 	// started, so the summary can say "2 of 272" instead of claiming the
 	// whole pool.
-	Queued    int       `json:"queued,omitempty"`
+	Queued int `json:"queued,omitempty"`
+	// Covered counts sessions that are not in the distill cache but are cited
+	// by fact provenance — typically a teammate's facts pulled from the hosted
+	// store — so no run needs to spend on them. json:"-": the status JSON is a
+	// published contract; this feeds the text renderer only.
+	Covered   int       `json:"-"`
 	Running   bool      `json:"running"`
 	PID       int       `json:"pid,omitempty"`
 	StartedAt time.Time `json:"started_at,omitempty"`
@@ -53,10 +58,10 @@ type factsBackfillStatus struct {
 }
 
 func (f factsBackfillStatus) Pending() int {
-	if f.Sessions <= f.Distilled {
-		return 0
+	if pending := f.Sessions - f.Distilled - f.Covered; pending > 0 {
+		return pending
 	}
-	return f.Sessions - f.Distilled
+	return 0
 }
 
 // brainStatusComponent is one instant-phase source and whether it is built.
@@ -108,8 +113,10 @@ type brainStatusOnboarding struct {
 // factsBackfillStatusForBrain counts how many exported sessions have already
 // been distilled. The distill cache is the authority: a session is distilled
 // exactly when its cache entry exists, which is also the thing that stops a
-// re-run from re-spending on it.
-func factsBackfillStatusForBrain(brainDir string) factsBackfillStatus {
+// re-run from re-spending on it. covered (from coveredSessionIDs) marks
+// sessions a teammate's facts already cite; those count as Covered, not
+// pending, unless the cache already claims them.
+func factsBackfillStatusForBrain(brainDir string, covered map[string]bool) factsBackfillStatus {
 	status := factsBackfillStatus{}
 	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
@@ -130,7 +137,11 @@ func factsBackfillStatusForBrain(brainDir string) factsBackfillStatus {
 		if cache.Sessions != nil {
 			if _, ok := cache.Sessions[session.SessionID]; ok {
 				status.Distilled++
+				continue
 			}
+		}
+		if covered[session.SessionID] {
+			status.Covered++
 		}
 	}
 	return status
@@ -155,7 +166,11 @@ func readSetupBackfillState(stateDir string) (setupBackfillState, bool) {
 // or a report built without a command runner); the daemon then reports
 // installed-or-not without a liveness probe.
 func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoStorage, manifest *exportManifest, setupOpts setupCommandOptions) brainStatusOnboarding {
-	onboarding := brainStatusOnboarding{Facts: factsBackfillStatusForBrain(storage.BrainDir), HostCLIMissing: !hostCLIOnPath()}
+	feedDir, _ := hostedFeedDirForKey(opts.Env, storage.Key)
+	onboarding := brainStatusOnboarding{
+		Facts:          factsBackfillStatusForBrain(storage.BrainDir, coveredSessionIDs(storage.BrainDir, feedDir)),
+		HostCLIMissing: !hostCLIOnPath(),
+	}
 	stateDir := filepath.Dir(storage.HeadPath)
 	if state, ok := readSetupBackfillState(stateDir); ok {
 		onboarding.Facts.PID = state.PID
