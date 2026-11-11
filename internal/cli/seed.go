@@ -130,7 +130,9 @@ type seedScanResult struct {
 	Warnings    []string
 	Fingerprint string
 	// writtenDocs holds the seed/docs paths writeSeedDocs wrote, for the
-	// prune that runs once the new manifest is written.
+	// pending marker and the prune that runs once the new manifest is
+	// written. It fills as each document is written, so a write that fails
+	// part way still says which copies are on disk.
 	writtenDocs map[string]bool
 }
 
@@ -295,8 +297,26 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		// Read before the new manifest replaces the one that says which
 		// documents under seed/docs an earlier seed there wrote.
 		ownership := seedDocsOwnershipOf(outputDir, inBrainStore)
-		if err := writeSeedArtifacts(outputDir, &scan); err != nil {
-			return err
+		writeErr := writeSeedArtifacts(outputDir, &scan)
+		// The pending marker is written as soon as the documents are, even
+		// when writing the rest failed: from here seed/docs no longer matches
+		// the manifest there, and anything that ends the refresh before
+		// the new manifest (a failed write, a failed required agent run,
+		// the final worktree check) keeps that manifest. In an explicit --output the marker is all
+		// that records a copy the manifest does not list, so without it a
+		// copy of a file gone from the tree before the next seed would be
+		// left as not a seed's, and stay searchable. In the brain store it
+		// makes the next refresh reseed, which puts seed/docs right.
+		//
+		// seed/risks.md is already written, so a warning from here on (the
+		// marker's, then the prune's) is reported by writing it again, and
+		// the prune's by writing the manifest again too.
+		reported := len(scan.Warnings)
+		if err := beginSeedPrune(outputDir, &scan, &ownership); err != nil {
+			return errors.Join(writeErr, err)
+		}
+		if writeErr != nil {
+			return writeErr
 		}
 
 		seedManifest = &seedSourceManifest{
@@ -356,15 +376,6 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		// current manifest once the cause is put right. Any other --output
 		// gets one only to carry the seed's documents that one of the two
 		// manifests does not list (beginSeedPrune).
-		//
-		// seed/risks.md is already written, so a warning from here on (the
-		// marker's, then the prune's) is reported by writing it again, and
-		// the prune's by writing the manifest again too.
-		reported := len(scan.Warnings)
-		if err := beginSeedPrune(outputDir, &scan, &ownership); err != nil {
-			return err
-		}
-		seedManifest.Warnings = append(seedManifest.Warnings, scan.Warnings[reported:]...)
 		if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
 			return err
 		}
@@ -1022,6 +1033,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		limit = defaultSeedMaxFileBytes
 	}
 	written := map[string]bool{}
+	scan.writtenDocs = written
 	for i := range scan.Docs {
 		doc := &scan.Docs[i]
 		cleanSrc := filepath.Clean(filepath.FromSlash(doc.Path))
@@ -1102,7 +1114,6 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		}
 		written[filepath.ToSlash(cleanDst)] = true
 	}
-	scan.writtenDocs = written
 	return nil
 }
 
@@ -1185,12 +1196,14 @@ func readSeedPruneMarker(outputDir string) ([]string, seedPruneMarker) {
 	return listed, seedPruneMarkerOurs
 }
 
-// beginSeedPrune writes the pending marker just before the new manifest. The
-// brain store always gets one. Any other --output gets one listing the
-// seed's documents that one of the two manifests does not: the recorded
-// ones this seed did not write, which the new manifest drops, and the ones
-// it wrote that the manifest there now does not list, which a failed write
-// of the new one would leave unrecorded. It gets none when there are none,
+// beginSeedPrune writes the pending marker once the documents are written,
+// before anything else can refuse the refresh. The brain store always gets
+// one. Any other --output gets one listing the seed's documents that one of
+// the two manifests does not: the recorded ones this seed did not write,
+// which the new manifest drops, and the ones it wrote that the manifest
+// there now does not list, which a refresh refused before the new manifest
+// is written, or a failed write of it, would leave unrecorded. It gets none
+// when there are none,
 // when seed/docs overlaps the repository (nothing is pruned there), or when
 // a file of that name is not a seed's.
 func beginSeedPrune(outputDir string, scan *seedScanResult, ownership *seedDocsOwnership) error {

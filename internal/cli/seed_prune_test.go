@@ -696,6 +696,88 @@ func TestFailedManifestWriteInAnotherOutputKeepsWhatItWroteOwned(t *testing.T) {
 	}
 }
 
+// TestRefusedRefreshInAnotherOutputKeepsWhatItWroteOwned: in an --output
+// other than the brain store, a --worktree refresh refused at its final
+// worktree check has already copied a new untracked document, which the
+// manifest it keeps does not list. The marker lists it, so the next seed,
+// once the document is gone from the tree, removes its copy rather than
+// leaving it searchable as a file no seed recorded.
+func TestRefusedRefreshInAnotherOutputKeepsWhatItWroteOwned(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
+	outputDir := filepath.Join(t.TempDir(), "out")
+	seedPruneRun(t, repoDir, outputDir, "--worktree")
+	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/new.md": "# New\n\nThe zebra pipeline.\n"})
+
+	fileIndex := filepath.Join(outputDir, seedDirName, "file-index.json")
+	runner := &seedStatusHookRunner{hook: func() bool {
+		data, err := os.ReadFile(fileIndex)
+		if err != nil || !strings.Contains(string(data), "new.md") {
+			return false
+		}
+		if err := os.Remove(filepath.Join(repoDir, "docs", "new.md")); err != nil {
+			t.Error(err)
+		}
+		return true
+	}}
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: runner}
+	out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--output", outputDir, "--worktree", "--update", repoDir)
+	if err == nil || !runner.fired || !strings.Contains(err.Error(), "worktree_changed") {
+		t.Fatalf("refresh = %v (fired %v)\n%s; want worktree_changed", err, runner.fired, out)
+	}
+	assertSeedDoc(t, outputDir, "docs/new.md", true)
+	if listed, marker := readSeedPruneMarker(outputDir); marker != seedPruneMarkerOurs || !slices.Contains(listed, "seed/docs/docs/new.md") {
+		t.Fatalf("the marker = %q, %v; want it to list the document the refused refresh wrote", listed, marker)
+	}
+
+	seedPruneRun(t, repoDir, outputDir, "--worktree", "--update")
+	assertSeedDoc(t, outputDir, "docs/new.md", false)
+	assertDocIndexLacks(t, outputDir, "zebra pipeline")
+	if _, marker := readSeedPruneMarker(outputDir); marker != seedPruneMarkerAbsent {
+		t.Errorf("the marker is still there after a seed removed what it listed (%v)", marker)
+	}
+}
+
+// TestFailedDocumentWriteInAnotherOutputKeepsWhatItWroteOwned: a seed whose
+// document writes fail part way has copies on disk that no manifest lists.
+// The marker lists the ones it wrote, so a later seed that no longer has one
+// removes it.
+func TestFailedDocumentWriteInAnotherOutputKeepsWhatItWroteOwned(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
+	outputDir := filepath.Join(t.TempDir(), "out")
+	seedPruneRun(t, repoDir, outputDir, "--worktree")
+	writeSeedPruneFiles(t, repoDir, map[string]string{
+		"docs/a.md":   "# A\n\nThe zebra pipeline.\n",
+		"docs/z/b.md": "# B\n",
+	})
+	// A symlinked directory makes the second copy fail.
+	blocked := filepath.Join(outputDir, seedDirName, seedDocsDirName, "docs", "z")
+	if err := os.MkdirAll(filepath.Dir(blocked), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), blocked); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: ExecRunner{}}
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--output", outputDir, "--worktree", "--update", repoDir); err == nil {
+		t.Fatalf("the seed wrote through a symlinked directory:\n%s", out)
+	}
+	assertSeedDoc(t, outputDir, "docs/a.md", true)
+	if listed, marker := readSeedPruneMarker(outputDir); marker != seedPruneMarkerOurs || !slices.Contains(listed, "seed/docs/docs/a.md") {
+		t.Fatalf("the marker = %q, %v; want it to list the document the failed seed wrote", listed, marker)
+	}
+
+	if err := os.Remove(blocked); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(repoDir, "docs", "a.md")); err != nil {
+		t.Fatal(err)
+	}
+	seedPruneRun(t, repoDir, outputDir, "--worktree", "--update")
+	assertSeedDoc(t, outputDir, "docs/a.md", false)
+	assertSeedDoc(t, outputDir, "docs/z/b.md", true)
+	assertDocIndexLacks(t, outputDir, "zebra pipeline")
+}
+
 // TestReadSeedPruneMarkerTakesOnlyItsOwnList: a file named like the marker is
 // a list only in the form a seed writes, naming files under seed/docs.
 func TestReadSeedPruneMarkerTakesOnlyItsOwnList(t *testing.T) {
