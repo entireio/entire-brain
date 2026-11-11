@@ -913,7 +913,6 @@ func readMigrationRecords(path string) ([]factmerge.Record, string, error) {
 	return records, "", nil
 }
 
-
 // legacyOrphanNames are files abandoned subsystems left behind in legacy
 // branch dirs: the proposal framework (removed with the per-branch stores),
 // per-branch vitality copies (vitality lives at the flat facts/ root now),
