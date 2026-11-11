@@ -1915,96 +1915,19 @@ func TestRunDistillForBrainCachesDuplicateSessionIDs(t *testing.T) {
 	}
 }
 
-// TestDistillCommandRejectsOutOfRangeConfidence pins --confidence against the
-// same validation --jobs, --concurrency and --max-chunk-bytes already get.
-// Confidence is a probability the agent reports in [0,1] and the flag is the
-// threshold it is compared against, but every out-of-range value was accepted
-// silently and then did something other than what was asked:
-//
-//	--confidence 0     -> threshold <= 0 collapses to the 0.75 DEFAULT, so the
-//	                      user who asked to auto-apply everything got the
-//	                      default gate and no word about it
-//	--confidence -0.5  -> same silent fallback
-//	--confidence 2     -> a threshold no agent report can ever clear, so every
-//	                      merge/supersede is queued for manual review forever
-//	                      with nothing saying why
-func TestDistillCommandRejectsOutOfRangeConfidence(t *testing.T) {
-	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	for _, tc := range []struct {
-		value string
-		want  string
-	}{
-		{"0", "--confidence must be greater than 0 and at most 1"},
-		{"-0.5", "--confidence must be greater than 0 and at most 1"},
-		{"2", "--confidence must be greater than 0 and at most 1"},
-		{"1.0001", "--confidence must be greater than 0 and at most 1"},
-	} {
-		t.Run(tc.value, func(t *testing.T) {
-			repoDir := t.TempDir()
-			runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-				fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
-				fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
-			}}
-			opts := Options{
-				Version: "test",
-				Env: EntireEnv{
-					RepoRoot: repoDir, PluginConfigDir: t.TempDir(), PluginDataDir: t.TempDir(),
-					PluginStateDir: t.TempDir(), PluginCacheDir: t.TempDir(),
-				},
-				Runner: runner,
-				Now:    func() time.Time { return now },
-			}
-			storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
-			if err != nil {
-				t.Fatalf("storage: %v", err)
-			}
-			writeDistillFixtureAt(t, storage.BrainDir, now)
-
-			var stdout, stderr bytes.Buffer
-			cmd := NewRootCommand(opts)
-			cmd.SetOut(&stdout)
-			cmd.SetErr(&stderr)
-			// --dry-run so the rejection cannot be confused with an agent failure.
-			cmd.SetArgs([]string{"distill", "--agent", "command", "--agent-command", "true", "--dry-run", "--confidence", tc.value})
-			err = cmd.Execute()
-			if err == nil {
-				t.Fatalf("--confidence %s was accepted; stdout:\n%s", tc.value, stdout.String())
-			}
-			if !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("--confidence %s error %q does not say what was wrong (want %q)", tc.value, err, tc.want)
-			}
-		})
-	}
-
-	// In-range values, and an unset flag, must still work.
-	for _, value := range []string{"0.01", "0.5", "1"} {
-		repoDir := t.TempDir()
-		runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-			fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
-			fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
-		}}
-		opts := Options{
-			Version: "test",
-			Env: EntireEnv{
-				RepoRoot: repoDir, PluginConfigDir: t.TempDir(), PluginDataDir: t.TempDir(),
-				PluginStateDir: t.TempDir(), PluginCacheDir: t.TempDir(),
-			},
-			Runner: runner,
-			Now:    func() time.Time { return now },
-		}
-		storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
-		if err != nil {
-			t.Fatalf("storage: %v", err)
-		}
-		writeDistillFixtureAt(t, storage.BrainDir, now)
-		var stdout, stderr bytes.Buffer
-		cmd := NewRootCommand(opts)
-		cmd.SetOut(&stdout)
-		cmd.SetErr(&stderr)
-		cmd.SetArgs([]string{"distill", "--agent", "command", "--agent-command", "true", "--dry-run", "--json", "--confidence", value})
-		if err := cmd.Execute(); err != nil {
-			t.Fatalf("--confidence %s rejected: %v\nstderr:\n%s", value, err, stderr.String())
-		}
+// TestDistillCommandConfidenceFlagIsGone pins the COR-2317 removal: the
+// --confidence knob never affected production reconcile (only the distill
+// cache salt, now frozen), so passing it is an unknown-flag error rather than
+// a silently ignored setting.
+func TestDistillCommandConfidenceFlagIsGone(t *testing.T) {
+	cmd := NewRootCommand(Options{Version: "test"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"distill", "--dry-run", "--confidence", "0.9"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "confidence") {
+		t.Fatalf("--confidence should be an unknown flag, got err=%v\n%s", err, out.String())
 	}
 }
 

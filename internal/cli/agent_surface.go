@@ -66,10 +66,6 @@ type brainBriefOptions struct {
 	noSemantic  bool
 	graphBinary string
 	profileJSON string
-	// packetFormat selects an experimental compact serialization; the CLI
-	// "brief" verb selects between its text and JSON renderers with json above,
-	// and only the profiling path renders the compact packets.
-	packetFormat brainBriefPacketFormat
 	// surface names the caller for serve receipts; empty means the CLI
 	// "brief" verb.
 	surface string
@@ -1773,8 +1769,8 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			status.Live.Head, task, receiptFactIDs)
 	}
 	// Every brief response is buffered so a render failure emits nothing;
-	// emitBrainBriefPacket dispatches text, legacy JSON, and the compact
-	// formats alike, so one wrapper covers all of them.
+	// emitBrainBriefPacket dispatches the text and JSON renderers alike, so
+	// one wrapper covers both.
 	if profile == nil {
 		var packet bytes.Buffer
 		packetCmd := &cobra.Command{}

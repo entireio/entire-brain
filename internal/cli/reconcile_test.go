@@ -215,7 +215,7 @@ func TestRunDistillForBrainKeepsBothOnConfidentMerge(t *testing.T) {
 		}
 		return "project.tooling.stack\tThe stack is Go.\n", nil
 	}
-	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, confidenceThreshold: defaultFactConfidenceThreshold}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
 
 	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
 	if err != nil {
@@ -270,7 +270,7 @@ func TestRunDistillForBrainReconcileKeepsBothOnSupersede(t *testing.T) {
 		}
 		return "workflow.testing.rules\tRun the full suite before merging.\n", nil
 	}
-	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, confidenceThreshold: defaultFactConfidenceThreshold}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
 
 	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
 	if err != nil {

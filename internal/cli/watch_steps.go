@@ -294,12 +294,11 @@ func watchDistillOptions(w watch.Flags) distillCommandOptions {
 		maxSessions = 0
 	}
 	return distillCommandOptions{
-		agent:               w.DistillAgent,
-		model:               w.Model,
-		effort:              w.Effort,
-		timeout:             defaultDistillTimeout,
-		maxChunkBytes:       defaultDistillChunkSize,
-		confidenceThreshold: defaultFactConfidenceThreshold,
+		agent:         w.DistillAgent,
+		model:         w.Model,
+		effort:        w.Effort,
+		timeout:       defaultDistillTimeout,
+		maxChunkBytes: defaultDistillChunkSize,
 		// The per-pass VOLUME cap. A capped pass is ordered newest-first,
 		// matching what `setup` says it did and what a reader wants first; the
 		// deferred remainder stays UNCACHED, so the next window picks it up
