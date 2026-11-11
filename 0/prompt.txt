@@ -1,0 +1,17 @@
+[2026-11-10 21:55] /tmp/brain-onboarding-demo/project (main)% cd /tmp/brain-onboarding-demo/devenv/inner-clone
+/tmp/entire-brain-dev setup --no-daemon
+warning: /private/tmp/brain-onboarding-demo/devenv/inner-clone is a git repository inside /private/tmp/brain-onboarding-demo/devenv.
+Setup acts on the repository you ran it in. It writes the brain, the agent guide, AGENTS.md and CLAUDE.md there, not in the outer repository. If this repository is the one you meant, ignore this warning.
+To set up the outer repository instead, run:
+    entire-brain setup /private/tmp/brain-onboarding-demo/devenv
+
+
+------
+
+this still isn't clear as why we're showing this and the mesage itself is not clear at all. 
+
+i thought we were going to remove this? if it's a valid git repository why are we showing a warning? regardless of where it is?
+
+---
+
+1.
