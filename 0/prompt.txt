@@ -1,0 +1,11 @@
+this si failing CI : https://github.com/entireio/entire-brain/pull/633
+
+---
+
+<task-notification>
+<task-id>btzjojltn</task-id>
+<tool-use-id>toolu_01XQR45Ne25BpNhhrEwRSk3v</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/btzjojltn.output</output-file>
+<status>completed</status>
+<summary>Background command "Run the released-compat harness locally" completed (exit code 0)</summary>
+</task-notification>
