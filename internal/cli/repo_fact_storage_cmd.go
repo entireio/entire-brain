@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"io"
+	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
@@ -71,7 +73,7 @@ func newFactsStorageCommand(opts Options) *cobra.Command {
 				if action == "migrate" && summary.Changed() {
 					fmt.Fprintf(cmd.OutOrStdout(), "migrated %d record(s) from %d legacy dir(s)\n", summary.Folded, len(summary.MovedDirs))
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "memory storage: %s\n", report.Format)
+				renderStorageStatus(cmd.OutOrStdout(), report)
 				return nil
 			},
 		}
@@ -80,4 +82,43 @@ func newFactsStorageCommand(opts Options) *cobra.Command {
 		cmd.AddCommand(sub)
 	}
 	return cmd
+}
+
+// renderStorageStatus is the human form. It is the destination the one-line
+// retained-cleanup warning points at, so the retained entries print here in
+// full — one per line, the aggregate split at its "; " joins — instead of as
+// the single wall the warning used to dump on every write.
+func renderStorageStatus(out io.Writer, report factstore.StorageStatus) {
+	fmt.Fprintf(out, "memory storage: %s\n", report.Format)
+	fmt.Fprintf(out, "records: %d\n", report.Records)
+	cleanup := report.Cleanup
+	if cleanup == nil || (cleanup.State == "" || cleanup.State == "complete") && cleanup.ReclaimedBytes == 0 {
+		return
+	}
+	fmt.Fprintf(out, "legacy cleanup: %s", cleanup.State)
+	if cleanup.PendingDirs > 0 {
+		fmt.Fprintf(out, " · %d legacy dir(s) pending", cleanup.PendingDirs)
+	}
+	if cleanup.ReclaimedBytes > 0 {
+		fmt.Fprintf(out, " · %d byte(s) reclaimed", cleanup.ReclaimedBytes)
+	}
+	fmt.Fprintln(out)
+	if cleanup.State == "retained" {
+		fmt.Fprintln(out, "recovery data from the pre-flat store is kept until a human decides; nothing was deleted:")
+		for _, entry := range cleanup.Retained {
+			// The verifier aggregates one parked dir's items into one string,
+			// "<.legacy-dir>: <item>; <item>" with errors.Join newlines mixed
+			// in; peel the dir onto its own line and give every item a row.
+			if dir, rest, ok := strings.Cut(entry, ": "); ok && strings.HasPrefix(dir, ".legacy-") {
+				fmt.Fprintf(out, "  %s:\n", dir)
+				entry = rest
+			}
+			normalized := strings.ReplaceAll(entry, "; ", "\n")
+			for _, part := range strings.Split(normalized, "\n") {
+				if part = strings.TrimSpace(part); part != "" {
+					fmt.Fprintf(out, "  %s\n", part)
+				}
+			}
+		}
+	}
 }

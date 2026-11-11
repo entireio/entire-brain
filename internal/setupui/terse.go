@@ -212,7 +212,7 @@ func RenderTerseBuild(w io.Writer, r *Renderer, rep TerseReport) {
 	}
 	if rep.UnnamedFailures > 0 {
 		// Counted, not named, and pointed at the command that names them.
-		fmt.Fprintf(w, "  %s %s did not build — `%s doctor` names them\n",
+		fmt.Fprintf(w, "  %s %s did not build. Run `%s doctor` to see the list.\n",
 			skip, plural(rep.UnnamedFailures, "other component"), brainCmd)
 	}
 }
