@@ -277,3 +277,26 @@ func TestSetupTerseClosesWithTheConnectErrorWhenHostedFails(t *testing.T) {
 		t.Fatalf("the generic connect offer must not print after a failed connect:\n%s", out)
 	}
 }
+
+// The conflict refusal is the whole output of its run, so it renders as its
+// own block — blank line each side, an error: prefix — instead of one bare
+// line from main.go's catch-all.
+func TestSetupConflictRefusalRendersAnErrorBlock(t *testing.T) {
+	f := newSetupTestFixture(t)
+	opts := defaultSetupOptions()
+	out := &bytes.Buffer{}
+	cmd := setupTestCommand(t, out, opts)
+	for _, name := range []string{setupFlagHosted, setupFlagLocalOnly} {
+		if err := cmd.Flags().Set(name, "true"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, (&recordedSetup{}).steps(f))
+	if err == nil || !commandErrorWasRendered(err) {
+		t.Fatalf("the refusal must be rendered by the command and marked so, got %v", err)
+	}
+	want := "\nerror: --local-only and --hosted contradict each other; pass one\n\n"
+	if out.String() != want {
+		t.Fatalf("refusal block mismatch:\ngot  %q\nwant %q", out.String(), want)
+	}
+}

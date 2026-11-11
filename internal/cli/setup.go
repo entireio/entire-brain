@@ -533,9 +533,6 @@ type setupCommandOptions struct {
 	hosted       bool
 	localOnly    bool
 	hostedChoice string
-	// explicitPath is true when the reader typed the repository path, which is
-	// consent to a nested target: the nested-repo warning stays quiet.
-	explicitPath bool
 	// yes answers the Facts phase's consent prompt without a human. It is the
 	// ONLY way to spend tokens non-interactively: a run with no terminal and no
 	// --yes distills nothing, because silence is not consent to spend.
@@ -725,7 +722,6 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 --effort the previous run was given unless you pass the flag again.`, base.SetupCommandPrefix(os.LookupEnv)),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			setupOpts.explicitPath = len(args) == 1
 			return runSetup(cmd.Context(), cmd, opts, setupOpts, agentSurfaceTarget(opts, args), setupSteps{})
 		},
 	}
@@ -768,20 +764,6 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if !local {
 		return fmt.Errorf("setup requires a local repository path: %s", target)
 	}
-	// Name both roots when this one sits inside another repository. The
-	// documented build-from-source flow leaves the shell inside the entire-brain
-	// clone, where a bare setup silently writes the brain, the guide, AGENTS.md
-	// and CLAUDE.md into the clone the outer repository cannot see — no runtime
-	// signal otherwise (trail 2851 finding). Nesting is also a NORMAL layout
-	// (repos cloned under a repo-tracked parent), so this warns and continues,
-	// says plainly that staying put is fine, and stays quiet when an explicit
-	// path was given — that is consent to the nested target. The path in the
-	// suggested command is shell-quoted; the two in the prose are prose.
-	if outer := agentsetup.OuterRepo(repoDir); outer != "" && !setupOpts.explicitPath && !setupOpts.uninstallDaemon {
-		fmt.Fprintf(cmd.ErrOrStderr(),
-			"warning: %s is a git repository inside %s.\nSetup acts on the repository you ran it in. It writes the brain, the agent guide, AGENTS.md and CLAUDE.md there, not in the outer repository. If this repository is the one you meant, ignore this warning.\nTo set up the outer repository instead, run:\n    %s %s\n\n",
-			repoDir, outer, base.BrainInvocation(os.LookupEnv, "setup"), shellQuotedRepoDir(outer))
-	}
 	// Refuse a non-repository UP FRONT. Everything below is a side effect --
 	// a workspace registration, a machine watch-plan row, a per-repo state
 	// directory, an installed KeepAlive service -- and every deterministic
@@ -820,7 +802,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 	changed := setupFlagChanged(cmd)
 	if err := rejectConflictingSetupToggles(changed); err != nil {
-		return err
+		return setupRefusal(cmd, setupOpts, err)
 	}
 	mode, err := agentsetup.SelectMode(setupOpts.strict, setupOpts.normal)
 	if err != nil {
@@ -1504,6 +1486,20 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 // clear line and never an error: a machine with no agent CLI, or a repo with no
 // captured sessions yet, is a completely valid setup — it just has no facts to
 // extract.
+// setupRefusal renders a pre-flight refusal as its own block — a blank line
+// each side and a painted "error:" prefix — and returns the rendered marker so
+// main.go's catch-all does not print the same text again bare. --json runs
+// return the error untouched: the JSON wrapper owns that rendering.
+func setupRefusal(cmd *cobra.Command, setupOpts setupCommandOptions, err error) error {
+	if setupOpts.json {
+		return err
+	}
+	errW := cmd.ErrOrStderr()
+	r := tui.NewRenderer(errW)
+	fmt.Fprintf(errW, "\n%s %s\n\n", r.Paint(tui.CLIError, "error:"), err.Error())
+	return renderedCommandError{Err: err}
+}
+
 // runSetupHostedChoice answers the hosted-or-local question. First match wins:
 // an opt-out is an explicit "local" (never resurrected), --local-only is a
 // one-run local override, a live binding or a remembered/flagged "hosted"
