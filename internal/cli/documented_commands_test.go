@@ -28,9 +28,6 @@ func (dc documentedCommand) invocation() []string {
 
 func documentedCommands() []documentedCommand {
 	return []documentedCommand{
-		// entire brain bench semantic .
-		{path: []string{"bench"}, args: []string{"semantic", "."}, readmeLine: 419},
-
 		// entire brain inspect graph-schema --json
 		{path: []string{"inspect", "graph-schema"}, args: []string{"--json"}, readmeLine: 320},
 
@@ -55,17 +52,19 @@ func documentedCommands() []documentedCommand {
 		{path: []string{"facts", "retract"}, args: []string{"fact:missing"},
 			readmeLine: 379, note: "retracting a fact that was never authored"},
 
-		// entire brain facts eval-compare --a <before.json> --b <after.json>
-		{path: []string{"facts", "eval-compare"}, args: []string{"--a", "missing-a.json", "--b", "missing-b.json"},
-			readmeLine: 418, note: "the README's shape, with absent inputs"},
-
 		// `facts map` — documented in the fact-lifecycle section.
 		{path: []string{"facts", "map"}},
 	}
 }
 
+// documentedCommands plus the examples whose commands compile only under the
+// brain_harness tag (COR-2322).
+func allDocumentedCommands() []documentedCommand {
+	return append(documentedCommands(), harnessDocumentedCommands()...)
+}
+
 func TestREADMEExamplesAreExecutable(t *testing.T) {
-	for _, dc := range documentedCommands() {
+	for _, dc := range allDocumentedCommands() {
 		t.Run(dc.name(), func(t *testing.T) {
 			f := newVerifyFixture(t)
 
@@ -94,7 +93,7 @@ func TestREADMEExamplesAreExecutable(t *testing.T) {
 // touching the brain, so unlike the test above this one expects success every
 // time.
 func TestDocumentedCommandsExplainThemselves(t *testing.T) {
-	for _, dc := range documentedCommands() {
+	for _, dc := range allDocumentedCommands() {
 		t.Run(dc.name(), func(t *testing.T) {
 			f := newVerifyFixture(t)
 			args := append(append([]string{}, dc.path...), "--help")

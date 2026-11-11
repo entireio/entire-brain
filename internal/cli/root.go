@@ -20,7 +20,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 	"github.com/entireio/entire-brain/internal/cli/command/add"
-	"github.com/entireio/entire-brain/internal/cli/command/bench"
 	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
 	"github.com/entireio/entire-brain/internal/cli/command/capabilities"
 	"github.com/entireio/entire-brain/internal/cli/command/config"
@@ -182,7 +181,6 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("operations", repoidentity.New(repoIdentityConfig(opts)))
 	addGrouped("misc", capabilities.New(opts))
 	addGrouped("misc", newDoctorCommand(opts))
-	addHidden(bench.New(benchConfig(opts)))
 	addGrouped("misc", version.New(opts.Version))
 
 	// Hidden: `review` is the machine contract `entire review`'s diff-less mode shells
@@ -190,11 +188,12 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	// review surface is `entire review` in the cli, not a standalone brain command.
 	addHidden(brainreview.New(brainReviewConfig(opts)))
 
-	// Hidden measurement harness for the history retrieval layer (the facts
-	// analog lives under `facts eval`/`eval-gen`; summaries are compatible with
-	// `facts eval-compare`). Developer tooling, not agent surface.
-	addHidden(newHistoryEvalGenCommand(opts))
-	addHidden(newHistoryEvalCommand(opts))
+	// Hidden measurement harnesses (bench, history-eval[-gen]; the facts analog
+	// lives under `memories eval`/`eval-gen`/`eval-compare`). Developer tooling,
+	// compiled only under the brain_harness build tag (COR-2322).
+	for _, c := range harnessRootCommands(opts) {
+		addHidden(c)
+	}
 
 	// Hidden agent-harness hook surface (Phase 2 item 2): wired into hooks by
 	// the harness (Claude Code, Entire CLI), not invoked by humans or agents.

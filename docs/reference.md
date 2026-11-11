@@ -1199,7 +1199,9 @@ destination.
 
 The brain includes evaluation harnesses for maintainers who need evidence that a
 retriever or fact layer is actually helping — not required for everyday use, but
-the right surface before claiming a quality lift.
+the right surface before claiming a quality lift. Released binaries do not carry
+the eval and bench commands: run them from a checkout of this repository with
+`go run -tags brain_harness ./cmd/entire-brain <command>`.
 
 ```sh
 entire brain memories eval-gen > memories-tasks.json
