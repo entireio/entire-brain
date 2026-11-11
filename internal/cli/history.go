@@ -115,11 +115,17 @@ type historySessionFile struct {
 // the exact descriptor-rooted Brain/session-tree membership observed during
 // capture. os.SameFile comparisons catch same-size/same-mtime inode replacement
 // of the root, directories, supported transcripts, and irrelevant entries.
+//
+// The short-term overlay is deliberately NOT part of this identity. The
+// rebuild derives from canonical sessions only, and publish re-reads the
+// overlay under the write lock for its clear decision; an overlay written
+// mid-rebuild is voided by its BaseGeneratedAt pin, exactly like one written
+// just after publish. Comparing it here made every lock-free prepare lose the
+// race against a background memory worker's overlay write (issue #582).
 type historyProjectionIdentity struct {
 	SessionsFingerprint string
 	SessionFiles        string
 	SessionContents     string
-	Overlay             string
 	brainRoot           os.FileInfo
 	sessionEntries      []historySessionTreeEntry
 }
@@ -129,7 +135,7 @@ func (i historyProjectionIdentity) same(other historyProjectionIdentity) bool {
 }
 
 func (i historyProjectionIdentity) sameMetadata(other historyProjectionIdentity) bool {
-	if i.SessionsFingerprint != other.SessionsFingerprint || i.SessionFiles != other.SessionFiles || i.Overlay != other.Overlay {
+	if i.SessionsFingerprint != other.SessionsFingerprint || i.SessionFiles != other.SessionFiles {
 		return false
 	}
 	return sameHistorySessionMembership(i.brainRoot, i.sessionEntries, other.brainRoot, other.sessionEntries)
@@ -290,7 +296,7 @@ func prepareBrainHistoryProjectionContext(ctx context.Context, outputDir string,
 		return nil, err
 	}
 	if !identity.same(after) {
-		return nil, errors.New("memory_source_stale: sessions or short-term overlay changed while preparing history")
+		return nil, errors.New("memory_source_stale: sessions changed while preparing history")
 	}
 	// Retain the exact post-scan descriptor/root/tree snapshot for the short
 	// commit revalidation. The content aggregate already equals the immutable
@@ -367,7 +373,7 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 		return nil, err
 	}
 	if !current.sameMetadata(prepared.identity) {
-		return nil, errors.New("memory_source_stale: sessions or short-term overlay changed before history commit")
+		return nil, errors.New("memory_source_stale: sessions changed before history commit")
 	}
 	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
@@ -406,7 +412,7 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 		return nil, err
 	}
 	if !current.sameMetadata(prepared.identity) {
-		return nil, errors.New("memory_source_stale: sessions or short-term overlay changed at history commit")
+		return nil, errors.New("memory_source_stale: sessions changed at history commit")
 	}
 	bmanifest.Normalize(manifest)
 	// Normalization may fill default fields on the canonical sessions source.
@@ -953,7 +959,7 @@ func captureHistoryProjectionMetadataIdentity(outputDir string) (historyProjecti
 // inventory in both modes. Preparation additionally hashes non-excluded
 // transcript bytes. Commit runs metadata-only under the Brain lock: supported
 // exporters take that lock and publish transcripts by atomic replacement, so
-// retained SameFile root/tree membership plus manifest/overlay identity
+// retained SameFile root/tree membership plus manifest identity
 // binds the post-scan content snapshot without O(corpus bytes) lock hold time.
 // A hostile local process that mutates an inode in place while forging its size
 // and timestamps is local store compromise, outside the cooperative-store
@@ -1004,10 +1010,6 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 		}
 		contentIdentity = historyScanCacheContentIdentity(contentCache)
 	}
-	overlayIdentity, err := historyProjectionFileIdentity(outputDir, historyShortTermPath, clibase.DefaultMaxReadBytes)
-	if err != nil {
-		return historyProjectionIdentity{}, nil, err
-	}
 	return historyProjectionIdentity{
 		SessionsFingerprint: func() string {
 			if manifest.Sources == nil {
@@ -1017,31 +1019,9 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 		}(),
 		SessionFiles:    "sha256:" + hex.EncodeToString(fileHash.Sum(nil)),
 		SessionContents: contentIdentity,
-		Overlay:         overlayIdentity,
 		brainRoot:       inventory.rootInfo,
 		sessionEntries:  append([]historySessionTreeEntry(nil), inventory.entries...),
 	}, manifest, nil
-}
-
-func historyProjectionFileIdentity(outputDir, rel string, limit int64) (string, error) {
-	data, present, err := brainstore.ReadMemoryStateFile(outputDir, filepath.ToSlash(rel), "history projection input", limit)
-	if err != nil {
-		// An externally hardlinked input is unreadable here, but it must not
-		// veto the rebuild that supersedes it: these inputs are disposable
-		// projections, the rebuild derives from canonical sessions only, and
-		// publish clears a corrupt-classed overlay afterwards. The constant
-		// keeps the prepare and commit identity captures agreeing while the
-		// file stays in that state; any content change still differs.
-		if errors.Is(err, clibase.ErrFileHardlinked) {
-			return "unsafe-hardlinked", nil
-		}
-		return "", err
-	}
-	if !present {
-		return "absent", nil
-	}
-	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyIndexProgress) (historyIndex, *historySourceManifest, error) {

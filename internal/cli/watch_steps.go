@@ -42,7 +42,7 @@ func watchStepsForRepo(cmd *cobra.Command, opts base.Options, w watch.Flags, rep
 			return watchShortTermDelta(c, cmd, opts, repoDir)
 		},
 		Reconcile: func(c context.Context) error {
-			_, warning, err := reconcileMemoryAndLaunch(c, opts, repoDir, "watch")
+			_, warning, err := reconcileMemoryAndLaunch(c, opts, repoDir, "watch", true)
 			if warning != "" {
 				fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory coordinator: %s\n", warning)
 			}
@@ -117,7 +117,7 @@ func watchFingerprint(ctx context.Context, runner CommandRunner, repoDir string)
 // decision cannot live inside this shared body -- see
 // watchDeterministicRefreshComponents.
 func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, skipTranscriptSweep bool) error {
-	return watchDeterministicRefreshComponents(ctx, cmd, opts, repoDir, watchTickBuildsHistoryProjection, false, nil, skipTranscriptSweep)
+	return watchDeterministicRefreshComponents(ctx, cmd, opts, repoDir, watchTickBuildsHistoryProjection, false, nil, skipTranscriptSweep, true)
 }
 
 // historyIndex separates the two callers that were previously identical. A
@@ -212,7 +212,9 @@ func watchRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Option
 // watchDeterministicRefreshComponents also reconciles memory for user-invoked
 // setup and workspace refresh, which have no enclosing tick to launch a worker.
 // Setup chooses best effort and supplies a component outcome observer.
-func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, historyIndex, bestEffort bool, component func(name string, err error), skipTranscriptSweep bool) error {
+// launchWorker=false (`setup --no-daemon`) still reconciles the durable queue
+// but leaves no detached worker running after the command exits.
+func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, historyIndex, bestEffort bool, component func(name string, err error), skipTranscriptSweep, launchWorker bool) error {
 	if err := watchRefreshComponents(ctx, cmd, opts, repoDir, historyIndex, bestEffort, component, skipTranscriptSweep); err != nil {
 		return err
 	}
@@ -220,7 +222,7 @@ func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command
 	if component != nil {
 		memoryTask = newProgress(cmd.OutOrStdout(), "refresh").Begin("memory coordinator")
 	}
-	_, warning, err := reconcileMemoryAndLaunch(ctx, opts, repoDir, "watch")
+	_, warning, err := reconcileMemoryAndLaunch(ctx, opts, repoDir, "watch", launchWorker)
 	if memoryTask != nil {
 		memoryTask.Finish(err)
 	}

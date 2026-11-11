@@ -1972,7 +1972,7 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 				component := newSetupComponent(name, err, brainCmd)
 				components = append(components, component)
 				steps.observeComponent.notify(component)
-			}, false)
+			}, false, !setupOpts.noDaemon)
 			// The nested refresh's progress is discarded, but a warning on that
 			// stream is not progress -- a memory coordinator that could not
 			// launch, an entity index that was skipped -- and it reaches nobody
