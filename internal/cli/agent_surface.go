@@ -1390,10 +1390,6 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 			if c.IncompleteExchanges > 0 {
 				line += fmt.Sprintf(" (%d incomplete)", c.IncompleteExchanges)
 			}
-			line += ", vectors " + c.VectorState
-			if c.VectorState == "current" {
-				line += fmt.Sprintf(" (%d, %s)", c.Vectors, c.VectorModelID)
-			}
 			fmt.Fprintln(out, line)
 		}
 		if f := r.Freshness; f != nil {

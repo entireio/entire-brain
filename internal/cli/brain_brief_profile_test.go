@@ -153,7 +153,7 @@ func TestBrainBriefProfilePreservesPacketAndWritesCompletePrivateSidecar(t *test
 		t.Fatal(err)
 	}
 	assertProfileObjectFields(t, object, "semantic", "context", "runtime_traces", "tests")
-	assertProfileObjectFields(t, object, "facts", "load", "vector_cache_load", "embed", "rank", "cache_flush")
+	assertProfileObjectFields(t, object, "facts", "load", "rank", "cache_flush")
 	assertProfileObjectFields(t, object, "synthesis", "likely_files", "action_checklist")
 	assertProfileObjectFields(t, object, "knowledge", "patterns", "consolidations", "themes")
 	assertProfileObjectFields(t, object, "packet", "format", "serialization", "byte_count", "counts")
@@ -161,8 +161,7 @@ func TestBrainBriefProfilePreservesPacketAndWritesCompletePrivateSidecar(t *test
 	semanticObject := object["semantic"].(map[string]any)
 	assertProfileObjectFields(t, semanticObject, "context", "invoked", "duration_ns", "input_count", "output_count", "error_count")
 	factsObject := object["facts"].(map[string]any)
-	assertProfileObjectFields(t, factsObject, "vector_cache_load", "invoked", "duration_ns", "input_count", "output_count", "error_count")
-	assertProfileObjectFields(t, factsObject, "embed", "invoked", "duration_ns", "query_call_count", "fact_call_count", "valid_vector_count", "invalid_vector_count")
+	assertProfileObjectFields(t, factsObject, "load", "invoked", "duration_ns", "input_count", "output_count", "error_count")
 }
 
 func TestBrainBriefProfilePreservesTextPacket(t *testing.T) {

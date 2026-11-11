@@ -303,11 +303,6 @@ func renderReport(out io.Writer, report Report) {
 		}
 		renderCounts(out, "  by branch", c.ByBranch)
 		renderCounts(out, "  by agent", c.ByAgent)
-		line := "  vectors: " + c.VectorState
-		if c.VectorState == "current" {
-			line += fmt.Sprintf(" (%d, %s)", c.Vectors, c.VectorModelID)
-		}
-		fmt.Fprintln(out, line)
 	}
 	if s := report.ShortTerm; s != nil {
 		line := fmt.Sprintf("short-term memory: %d records (%d exchanges) from %d changed transcripts (built %s)", s.Records, s.Exchanges, s.Files, s.GeneratedAt)
