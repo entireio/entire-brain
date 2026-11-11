@@ -827,6 +827,11 @@ func nextMemoryWorkerDelay(brainDir string, now time.Time) (time.Duration, bool,
 	jobs := inventory.Jobs
 	var earliest time.Time
 	for _, job := range jobs {
+		// Only projection jobs are runnable; a legacy kind (session_abstract)
+		// must not schedule a relaunch no lane can ever satisfy.
+		if job.Kind != memoryJobKindProjection {
+			continue
+		}
 		if job.State != memoryJobStatePending && !(job.State == memoryJobStateRetryable && job.Attempt < memoryJobMaxAttempts) {
 			continue
 		}

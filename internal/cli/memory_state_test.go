@@ -1467,3 +1467,31 @@ func TestMemoryReconcileWorkerAndReceipts(t *testing.T) {
 	}
 
 }
+
+func TestNextMemoryWorkerDelayIgnoresLegacyAbstractJobs(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	legacy := memoryJob{
+		Kind: memoryJobKindSessionAbstract, RepoKey: "gh/example/repo", SessionID: "sess",
+		SessionRef: "conversation-session:scope", InputDigest: "sha256:a",
+		State: memoryJobStatePending, CreatedAt: now.Add(-time.Hour), AvailableAt: now.Add(-time.Hour),
+	}
+	legacy.JobID = memoryJobID(legacy.RepoKey, legacy.SessionRef, legacy.InputDigest, legacy.Kind)
+	if err := saveMemoryJob(brainDir, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if delay, ok, err := nextMemoryWorkerDelay(brainDir, now); err != nil || ok {
+		t.Fatalf("legacy abstract job scheduled a relaunch: delay=%v ok=%v err=%v", delay, ok, err)
+	}
+	projection := legacy
+	projection.Kind = memoryJobKindProjection
+	projection.InputDigest = "sha256:b"
+	projection.AvailableAt = now.Add(time.Minute)
+	projection.JobID = memoryJobID(projection.RepoKey, projection.SessionRef, projection.InputDigest, projection.Kind)
+	if err := saveMemoryJob(brainDir, projection); err != nil {
+		t.Fatal(err)
+	}
+	if delay, ok, err := nextMemoryWorkerDelay(brainDir, now); err != nil || !ok || delay != time.Minute {
+		t.Fatalf("projection delay = %v ok=%v err=%v, want 1m", delay, ok, err)
+	}
+}
