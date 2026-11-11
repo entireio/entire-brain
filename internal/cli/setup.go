@@ -17,12 +17,14 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/command/connect"
 	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/setupui"
+	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -524,6 +526,13 @@ type setupCommandOptions struct {
 	// repository already saved — a bare re-run never flips a strict repo back.
 	strict bool
 	normal bool
+	// hosted/localOnly answer the hosted-or-local question from a flag, for
+	// automation and for overriding the remembered choice. hostedChoice is the
+	// resolved answer this run acts on and records: "hosted", "local", or ""
+	// (never asked, or asked and dismissed).
+	hosted       bool
+	localOnly    bool
+	hostedChoice string
 	// yes answers the Facts phase's consent prompt without a human. It is the
 	// ONLY way to spend tokens non-interactively: a run with no terminal and no
 	// --yes distills nothing, because silence is not consent to spend.
@@ -585,6 +594,10 @@ type setupSteps struct {
 	inspect   func(context.Context, daemonPlan) daemonState
 	install   func(context.Context, daemonPlan) error
 	uninstall func(context.Context, daemonPlan) error
+	// establishHosted binds the repo to its hosted brain and runs the first
+	// sync (connect.Establish); a step so tests exercise the hosted-choice
+	// decision table without a host CLI.
+	establishHosted func(ctx context.Context, opts Options, stderr io.Writer) (connect.EstablishResult, error)
 }
 
 // setupBackfillPlan is the detached distill invocation.
@@ -721,6 +734,8 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 	cmd.Flags().DurationVar(&setupOpts.interval, "interval", setupOpts.interval, "Daemon poll interval")
 	cmd.Flags().DurationVar(&setupOpts.distillEvery, "distill-every", setupOpts.distillEvery, "Minimum interval between the daemon's gated agent runs")
 	cmd.Flags().StringVar(&setupOpts.daemonName, "daemon-name", setupOpts.daemonName, "RENAME the machine's single watcher (launchd label / systemd unit stem). It moves the watcher, it does not add a second one: the previous unit is retired first")
+	cmd.Flags().BoolVar(&setupOpts.hosted, setupFlagHosted, false, "Connect to the hosted memory store without asking (remembered)")
+	cmd.Flags().BoolVar(&setupOpts.localOnly, setupFlagLocalOnly, false, "Keep memories local to this machine for this run; never prompts and never syncs")
 	cmd.Flags().BoolVar(&setupOpts.json, "json", false, "Emit the setup report as JSON")
 	_ = cmd.Flags().MarkHidden("daemon-name")
 	return cmd
@@ -924,6 +939,12 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// for "you have not committed anything yet" was 47 lines describing a
 	// repository where nothing is wrong; a Precondition is two.
 	emptyRepo := commitsKnown && detected.Repo.Commits == 0
+
+	// The hosted-or-local question comes before anything is built or spent: a
+	// coworker whose team already distilled this repo should pull those
+	// memories BEFORE the facts phase counts what is pending.
+	runSetupHostedChoice(ctx, ui, cmd.InOrStdin(), setupPromptWriter(promptOut), cmd.ErrOrStderr(),
+		perRepo, &setupOpts, steps, storage, &report, brainCmd)
 
 	// Phase 2 — BUILD. Per-component BEST-EFFORT: a component that fails is
 	// reported as one line and the phase carries on, because first-run
@@ -1206,6 +1227,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		NoDaemon:     setupOpts.noDaemon,
 		NoBackfill:   setupOpts.noBackfill,
 		NoAgentHooks: setupOpts.noAgentHooks,
+		HostedChoice: setupOpts.hostedChoice,
 	}); err != nil {
 		report.Warnings = append(report.Warnings, "setup record not saved: "+err.Error())
 		ui.ShortWarning("Setup settings could not be saved: "+err.Error(), brainCmd)
@@ -1452,6 +1474,87 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 // clear line and never an error: a machine with no agent CLI, or a repo with no
 // captured sessions yet, is a completely valid setup — it just has no facts to
 // extract.
+// runSetupHostedChoice answers the hosted-or-local question. First match wins:
+// an opt-out is an explicit "local" (never resurrected), --local-only is a
+// one-run local override, a live binding or a remembered/flagged "hosted"
+// syncs, a remembered "local" stays quiet, an interactive terminal gets the
+// prompt, and automation defaults to local with nothing recorded. Hosted
+// failures never fail setup: the remedy prints and the run continues local.
+func runSetupHostedChoice(ctx context.Context, ui *setupSink, in io.Reader, promptOut, errW io.Writer, opts Options, setupOpts *setupCommandOptions, steps setupSteps, storage repoStorage, report *setupReport, brainCmd string) {
+	connectCmd := base.SetupBrainCommand(brainCmd) + " connect"
+	rend := ui.Renderer()
+	hostedRows := func(text string) []setupui.Line {
+		rows := make([]setupui.Line, 0, 3)
+		for _, line := range rend.WrapFlush(text) {
+			rows = append(rows, setupui.Line{Text: line, Accent: tui.PhaseDaemon, Flush: true})
+		}
+		return rows
+	}
+	binding, present, _ := brainstore.ReadHostedRepoBinding(storage.BrainDir)
+	switch {
+	case present && binding.OptedOut:
+		ui.Interject(hostedRows("hosted sync is disconnected for this repo; memories stay local. Run `" + connectCmd + "` to re-enable it.")...)
+		return
+	case setupOpts.localOnly:
+		if present {
+			ui.Interject(hostedRows("connected to the hosted store, but skipping hosted sync this run (--local-only). `" +
+				base.SetupBrainCommand(brainCmd) + " disconnect` opts out for good.")...)
+		}
+		return
+	case present, setupOpts.hosted, setupOpts.hostedChoice == "hosted":
+		setupEstablishHosted(ctx, ui, errW, opts, setupOpts, steps, report, brainCmd)
+		return
+	case setupOpts.hostedChoice == "local":
+		return
+	}
+	if !setupCanAskAHuman(ui.tty, readerIsTerminal(in)) {
+		return
+	}
+	ui.Suspend()
+	outcome := setupui.Select(setupui.SelectRequest{
+		Title: "Where should this repo's memories live?",
+		Options: []setupui.SelectOption{
+			{Label: "Hosted", Detail: "sync memories with your team (push and pull)"},
+			{Label: "Local", Detail: "this machine only"},
+		},
+		TTY: true,
+	}, in, promptOut, rend)
+	if !outcome.Answered {
+		return
+	}
+	if outcome.Index == 0 {
+		setupEstablishHosted(ctx, ui, errW, opts, setupOpts, steps, report, brainCmd)
+		return
+	}
+	setupOpts.hostedChoice = "local"
+	ui.Interject(hostedRows("memories stay local. If your team uses the hosted store, these sessions may already be distilled there — `" + connectCmd + "` joins them.")...)
+}
+
+// setupEstablishHosted runs the binding + first sync and records the choice.
+// Only a written binding records "hosted": a pre-bind failure leaves the
+// record empty so the next interactive run asks again.
+func setupEstablishHosted(ctx context.Context, ui *setupSink, errW io.Writer, opts Options, setupOpts *setupCommandOptions, steps setupSteps, report *setupReport, brainCmd string) {
+	ui.StartTask("Connecting to the hosted memory store…")
+	result, err := steps.establishHosted(ctx, opts, errW)
+	switch {
+	case err == nil && result.NoEgress:
+		setupOpts.hostedChoice = "hosted"
+		ui.Interject(setupui.Line{Text: "Connected: " + result.StorageKey + " — binding recorded; nothing syncs while " + base.NoEgressToggleName() + " is set", Accent: tui.PhaseDaemon, Flush: true})
+	case err == nil:
+		setupOpts.hostedChoice = "hosted"
+		ui.Interject(setupui.Line{Text: "Connected: " + result.StorageKey + " — team memories pulled; new facts sync automatically", Accent: tui.PhaseDaemon, Flush: true})
+	case result.Bound:
+		setupOpts.hostedChoice = "hosted"
+		detail := setupui.FlattenError(err)
+		report.Warnings = append(report.Warnings, detail)
+		ui.ShortWarning(detail, brainCmd)
+	default:
+		detail := "hosted store not connected: " + setupui.FlattenError(err) + "; continuing local-only"
+		report.Warnings = append(report.Warnings, detail)
+		ui.ShortWarning(detail, brainCmd)
+	}
+}
+
 func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSink, in io.Reader, promptOut io.Writer, opts Options, setupOpts setupCommandOptions, steps setupSteps, storage repoStorage, repoDir string, report *setupReport, brainCmd string) setupPhase {
 	rend := ui.Renderer()
 	dash := rend.Dash()
@@ -2018,6 +2121,11 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			return uninstallDaemon(ctx, opts.Runner, plan)
 		}
 	}
+	if steps.establishHosted == nil {
+		steps.establishHosted = func(ctx context.Context, opts Options, stderr io.Writer) (connect.EstablishResult, error) {
+			return connect.Establish(ctx, connectConfig(opts), stderr, "", "")
+		}
+	}
 	return steps
 }
 
@@ -2052,6 +2160,11 @@ type setupRecord struct {
 	NoDaemon     bool `json:"no_daemon,omitempty"`
 	NoBackfill   bool `json:"no_backfill,omitempty"`
 	NoAgentHooks bool `json:"no_agent_hooks,omitempty"`
+	// HostedChoice remembers the hosted-or-local answer ("hosted" or "local"),
+	// so a re-run never re-asks. Empty means the question was never answered:
+	// a failed hosted attempt records nothing, so the next interactive run
+	// asks again.
+	HostedChoice string `json:"hosted_choice,omitempty"`
 }
 
 // setupFlagNames maps each remembered option to its flag, so "was this passed?"
@@ -2071,6 +2184,8 @@ const (
 	setupFlagBackfill       = "backfill"
 	setupFlagNoAgentHooks   = "no-agent-hooks"
 	setupFlagAgentHooks     = "agent-hooks"
+	setupFlagHosted         = "hosted"
+	setupFlagLocalOnly      = "local-only"
 )
 
 // setupToggleConflicts pairs each decline with the affirmative that reverses it.
@@ -2080,6 +2195,7 @@ var setupToggleConflicts = [][2]string{
 	{setupFlagNoDaemon, setupFlagDaemon},
 	{setupFlagNoBackfill, setupFlagBackfill},
 	{setupFlagNoAgentHooks, setupFlagAgentHooks},
+	{setupFlagLocalOnly, setupFlagHosted},
 }
 
 // rejectConflictingSetupToggles refuses a run that both declines and demands the
@@ -2179,6 +2295,9 @@ func setupFlagChanged(cmd *cobra.Command) func(string) bool {
 func applySetupRecordDefaults(setupOpts setupCommandOptions, recorded setupCommandOptions, changed func(string) bool) setupCommandOptions {
 	if changed == nil {
 		changed = func(string) bool { return false }
+	}
+	if !changed(setupFlagHosted) && !changed(setupFlagLocalOnly) {
+		setupOpts.hostedChoice = recorded.hostedChoice
 	}
 	if !changed(setupFlagDaemonName) {
 		setupOpts.daemonName = recorded.daemonName
@@ -2311,6 +2430,9 @@ func setupOptionsFromRecord(stateDir string) (setupCommandOptions, bool, error) 
 	}
 	if d, err := time.ParseDuration(strings.TrimSpace(record.DistillEvery)); err == nil && d > 0 {
 		opts.distillEvery = d
+	}
+	if choice := strings.TrimSpace(record.HostedChoice); choice == "hosted" || choice == "local" {
+		opts.hostedChoice = choice
 	}
 	if strings.TrimSpace(record.Model) != "" {
 		opts.model = record.Model

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/connect"
 	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
@@ -159,6 +160,11 @@ type recordedSetup struct {
 	// real plan is unsupported by design and used to turn all of them into
 	// "installs = 0" failures.
 	targetOS string
+	// establishResult/establishErr script the hosted-choice step's connect
+	// outcome; establishCalls counts attempts.
+	establishCalls  int
+	establishResult connect.EstablishResult
+	establishErr    error
 }
 
 func (r *recordedSetup) plannedOS() string {
@@ -188,6 +194,10 @@ func (r *recordedSetup) steps(f *setupTestFixture) setupSteps {
 			r.spawnCalls++
 			r.spawned = plan
 			return 4242, nil
+		},
+		establishHosted: func(context.Context, Options, io.Writer) (connect.EstablishResult, error) {
+			r.establishCalls++
+			return r.establishResult, r.establishErr
 		},
 		stopBackfill: func(pid int) error {
 			r.stopCalls++
