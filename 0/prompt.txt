@@ -1,0 +1,456 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/san-jose directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+Conductor shows the PR for whichever branch is checked out. After you open a PR from a different branch, or a PR stack, check out that PR's branch (for a stack, the top-most branch) so Conductor shows it.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/san-jose/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+lets do both of these tickets and analysis:
+
+COR-2309	Phase C gate: memory-ladder parity — memories-only brief must match plain session search; misses become distill/ranking bugs, never a reason to restore default history search
+COR-2310	Phase C coverage: measure what the old history arm uniquely surfaced, classify gaps, decide mention-grade facts (with its own distill budget) or accept the gap explicitly
+<user-preferences>
+<!-- asd-ste100:begin -->
+## Response language: ASD-STE100
+
+Write all answers to the user in ASD-STE100 Simplified Technical English (Issue 9).
+Apply this rule to progress updates, questions, explanations, and final responses.
+
+- Follow the STE writing rules and dictionary. Use approved words with their approved meanings and parts of speech.
+- Use technical nouns and technical verbs when necessary. Explain unfamiliar terms. Use the same term for the same thing.
+- Use active voice and direct instructions.
+- Give one topic in each sentence. Give one instruction in each step.
+- Use no more than 20 words in a procedural sentence and 25 words in a descriptive sentence.
+- Use short paragraphs and clear lists. Use American English spelling.
+- Avoid idioms, figurative language, and unnecessary words.
+- Keep code, commands, paths, identifiers, URLs, and exact quotations unchanged. Apply STE to the prose around them.
+- Before you send a response, do a check for clear meaning and compliance with these rules.
+
+Reference: https://www.asd-ste100.org/
+## Writing style
+
+Write in natural, direct, conversational English. Favor how a thoughtful, technically sophisticated person would actually explain something over highly stylized or literary prose.
+
+- **Avoid agentive framing.** Don't turn systems, abstractions, or inanimate objects into actors merely to give sentences a strong noun–verb structure.
+- **Prefer ordinary verbs.** Use "gets," "has," "uses," or "can" when they're more natural than "holds," "carries," "owns," "drives," or "unlocks." Don't optimize every verb for rhetorical force.
+- **Avoid aphoristic technical prose.** Don't make ordinary explanations sound like architectural principles, maxims, or slogans.
+- **Optimize for naturalness, not elegance.** Prefer the sentence someone would say aloud in a technical discussion over one engineered to sound polished or authoritative.
+- **Preserve meaningful precision.** Use specialized terminology and precise verbs when they clarify an actual technical distinction, not simply because they sound more intentional.
+
+The writing should feel like a smart colleague explaining something clearly, not a technical manifesto.
+
+<!-- asd-ste100:end -->
+
+</user-preferences>
+
+---
+
+<task-notification>
+<task-id>bgy4pxy4x</task-id>
+<tool-use-id>toolu_01EprNbW8tjtC3Ym7rj2oK5F</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bgy4pxy4x.output</output-file>
+<status>completed</status>
+<summary>Background command "Smoke run condition 2 repetition 1" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvy2t9m0n</task-id>
+<tool-use-id>toolu_01CtZCMCzEzfAXi314ZKnuU5</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bvy2t9m0n.output</output-file>
+<status>failed</status>
+<summary>Background command "Smoke run condition 2 with the renamed branch" failed with exit code 1</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bex0vr2dy</task-id>
+<tool-use-id>toolu_01Um6HDHmYQMpCdjc85ziuQD</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bex0vr2dy.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun smoke test with nesting guard unset" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bj0r2m5ga</task-id>
+<tool-use-id>toolu_016UEYzLSGfE4TYYBpc6cbkW</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bj0r2m5ga.output</output-file>
+<status>completed</status>
+<summary>Background command "Replay corpus through old and new brief builds" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bqm069s9z</task-id>
+<tool-use-id>toolu_01Ard8T9PtwW3yQH2uCgscar</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bqm069s9z.output</output-file>
+<status>failed</status>
+<summary>Background command "Wait and check both background tasks" failed with exit code 1</summary>
+</task-notification>
+
+---
+
+status?
+
+---
+
+<task-notification>
+<task-id>bk448d00r</task-id>
+<tool-use-id>toolu_01FyD5Gfk34sWqHR8TjYrrfr</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bk448d00r.output</output-file>
+<status>completed</status>
+<summary>Background command "Periodic progress check on benchmark matrix" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+status??
+
+---
+
+status?
+
+---
+
+why sequential? how long will it take if we parallelize it?
+
+---
+
+<task-notification>
+<task-id>bcl0lggx1</task-id>
+<tool-use-id>toolu_01NHV4Ecvd4LLBbCYj4aikBx</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bcl0lggx1.output</output-file>
+<status>completed</status>
+<summary>Background command "Run remaining 16 benchmark runs with 8-way parallelism" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>br86zc53x</task-id>
+<tool-use-id>toolu_01XcYsEjZ4BXNsMZdgUDVgBx</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/br86zc53x.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait until the Linear MCP endpoint is reachable" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>be9aa8xaq</task-id>
+<tool-use-id>toolu_01UEjPDRQJCBh4fS4pCEPqJf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/be9aa8xaq.output</output-file>
+<status>completed</status>
+<summary>Background command "Keep waiting for Linear MCP endpoint, up to 10 minutes" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+walk me through each condition and what each one tested for and the results. 
+
+give me only concise, simple straight forward language and the results
+
+---
+
+okay so waht do our results tell us? and this is after we removed the history and now only have the provenence?
+
+---
+
+review the eval methodolofy and then 5x the n and re-run it in parallel
+
+---
+
+status?
+
+---
+
+<task-notification>
+<task-id>bxnx10iuc</task-id>
+<tool-use-id>toolu_01RSNKeuTmDkJ1XHSaQTCaPV</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bxnx10iuc.output</output-file>
+<status>completed</status>
+<summary>Background command "Run 90 benchmark runs (n=15 per cell) with 8-way parallelism" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+okay so what is our final takeaway then
+
+---
+
+yeah let's move to cor-2311 now
+
+---
+
+<task-notification>
+<task-id>bx24cwq0a</task-id>
+<tool-use-id>toolu_013rhBAg3cyj3g18NkBGe3T5</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bx24cwq0a.output</output-file>
+<status>completed</status>
+<summary>Background command "Generate provenance-labeled eval task pack" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b2a1qyuep</task-id>
+<tool-use-id>toolu_01Lbc55yxhNgTtu8jzahGds6</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/b2a1qyuep.output</output-file>
+<status>completed</status>
+<summary>Background command "Build change-1 binary and run eval A" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bi96t5aju</task-id>
+<tool-use-id>toolu_01DxfQ5a9y3KBtcZLxJ4wQZq</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bi96t5aju.output</output-file>
+<status>completed</status>
+<summary>Background command "Build change-2 binary and run eval B" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+put a  trail when done
+
+---
+
+<task-notification>
+<task-id>b87vs4upw</task-id>
+<tool-use-id>toolu_01CdP9fbookxFShcK8SQhMHw</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/b87vs4upw.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full affected test suites" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bz569qxkr</task-id>
+<tool-use-id>toolu_01S8Q49jmLACyfZjMiykTuo9</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bz569qxkr.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for full test suite verdict" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bukvdw05s</task-id>
+<tool-use-id>toolu_019Rh7SXRFptzk4RFzEGaxUe</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bukvdw05s.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for full test suite result" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b6exys21z</task-id>
+<tool-use-id>toolu_01QdwCLLRHzWzczWoFeSmPQy</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/b6exys21z.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch PR 625 CI until all checks finish" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<system_instruction>
+The user has attached these files. Read them before proceeding.
+- .context/attachments/fZSzJp/image.png (1.1 MB)
+</system_instruction>
+
+
+
+fxi the finding: .context/attachments/fZSzJp/image.png
+
+---
+
+https://github.com/entireio/entire-brain/pull/625
+
+---
+
+this si merged in now: https://github.com/entireio/entire-brain/pull/625
+
+---
+
+2309 and 2310 shoudl be resolve din linear now as well. and 2311 as well.
+
+---
+
+okay anythign else in this repository?
+
+---
+
+okay createa  table of all of these and then let's work through them one by one
+
+---
+
+another workspace said that we have these tickets open as well.
+
+
+Performance
+
+COR-2313 — recall loads the fact store up to three times per query
+COR-2314 — brief runs the full status report and re-loads the fact store
+Operational noise
+
+COR-2315 — seed staleness warning is permanent noise for shared multi-worktree brains
+COR-2316 — watch never runs a full refresh in permanently-dirty worktrees
+Deletions and consolidation
+
+COR-2317 — dead-code and removal-leftover sweep (proposals, vectors, compact briefs, gitmeta, orphan legacy files)
+COR-2318 — delegate inspect verbs to Graph, drop the duplicates (~13k LOC)
+COR-2319 — quarantine or drop the opt-in half of the pattern subsystem (~5k LOC)
+COR-2320 — one way to browse the brain: drop graph-ui, choose dash or viz
+COR-2322 — move eval/bench harnesses out of the shipped binary (note: memories eval stays runnable — it’s the ranking gate for 2311)
+Product decisions
+
+COR-2321 — multi-repo workspaces: keep or remove (~5.7k LOC)
+COR-2323 — memory abstracts ship disabled: remove or commit (~2.6k LOC)
+COR-2324 — move the benchmarks archive and docs images out of the repo (~17 MB)
+Each description notes the survey date and that line references should be re-verified against current main, since main moved a lot this week. With these filed, nothing remains in this workspace — safe to close.
+
+
+can you do a cross check between these items and the ones that you mentioned and de-dupe them and come up with a final list?
+
+---
+
+okay thi sis merged: https://github.com/entireio/entire-brain/pull/626
+
+validate and then mark this item as done adn then return the table and let's move onto the next oen
+
+---
+
+<task-notification>
+<task-id>b0n60g18c</task-id>
+<tool-use-id>toolu_01Pw6HA5zgZJuZHwbZ85RhDk</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/b0n60g18c.output</output-file>
+<status>completed</status>
+<summary>Background command "Format check and full affected suites" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+okay this is merged now: https://github.com/entireio/entire-brain/pull/627
+
+---
+
+<task-notification>
+<task-id>b0d3o6xky</task-id>
+<tool-use-id>toolu_01Q84aQu4LYMqQGxfcYxebyw</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/b0d3o6xky.output</output-file>
+<status>completed</status>
+<summary>Background command "Changelog entry and full cli suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bfcz6pvp3</task-id>
+<tool-use-id>toolu_01TYRsE2aGKdC85cjxEavV7f</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bfcz6pvp3.output</output-file>
+<status>completed</status>
+<summary>Background command "Changelog, format, vet, run cli and watch suites" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bchq7w911</task-id>
+<tool-use-id>toolu_01PUHTzTuVL6BEM68GrahWcX</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bchq7w911.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for suite verdicts" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bls9bdxnj</task-id>
+<tool-use-id>toolu_014u9ZmJfgTPnWAj1S54hUAv</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bls9bdxnj.output</output-file>
+<status>completed</status>
+<summary>Background command "List failing tests" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b2g0opqfe</task-id>
+<tool-use-id>toolu_019cNw3kBB5Fpp4oJ4d85wNG</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/b2g0opqfe.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for failing test names" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw5fsbo41</task-id>
+<tool-use-id>toolu_01Sj46f23Ve2Y8m5CELNdpmV</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/bw5fsbo41.output</output-file>
+<status>completed</status>
+<summary>Background command "Full cli suite after fixes" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+give me links for 628, 630 and 631
+
+---
+
+this si merged: https://github.com/entireio/entire-brain/pull/628
+
+mark that off
+
+---
+
+630 is now merged: https://github.com/entireio/entire-brain/pull/630
+
+---
+
+okay this si merged niw too: https://github.com/entireio/entire-brain/pull/631
+
+update the table and come back
+
+---
+
+11 im already working on, so we can remove that from this list since that will take a while. 
+
+for 10: give me a hand off so ic an have another workspace work on it
+
+---
+
+okay another workspace is on 10 now. 
+
+let's go thrugh each of the remaining deletions one by one.
+
+---
+
+<task-notification>
+<task-id>b7gryi2u5</task-id>
+<tool-use-id>toolu_01F9m5s4xEZ59DEA1Hj69V5d</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-san-jose/df9eeaa9-a2cf-49d4-be97-859d32c4c463/tasks/b7gryi2u5.output</output-file>
+<status>completed</status>
+<summary>Background command "Full repo format, vet, and test suite" completed (exit code 0)</summary>
+</task-notification>
