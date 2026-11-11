@@ -1,0 +1,48 @@
+i want to see wha tthe onboarding process is like now step by step. set up the env and give me the commands to test it
+
+---
+
+<system_instruction>
+The user has attached these files. Read them before proceeding.
+- .context/attachments/f9GMPY/CleanShot 2026-11-10 at 9.21.16 PM.png (43.6 KB)
+</system_instruction>
+
+
+
+for 1.
+
+.context/attachments/f9GMPY/CleanShot 2026-11-10 at 9.21.16 PM.png 
+
+capitalize the "m" in "memories stay local." add a new ine after "memories stay local. If your team uses the hosted store, these sessions may already be distilled there — `entire-brain connect` joins them."
+
+then update:" — `entire-brain connect` joins them.""
+
+to say "sessions may already be distilled there. Run `entire-brain connect` to sync."
+
+make the updates there and then give me the commands again and i'll re-run it to make sure it works as expected
+
+---
+
+<system_instruction>
+The user has attached these files. Read them before proceeding.
+- .context/attachments/WrGmsU/CleanShot 2026-11-10 at 9.28.05 PM.png (50.8 KB)
+</system_instruction>
+
+
+
+we're repeating ourselves now.context/attachments/WrGmsU/CleanShot 2026-11-10 at 9.28.05 PM.png 
+
+let's just remove "Memories stay local.
+If your team uses the hosted store, these sessions may already be distilled there. Run `entire-brain connect` to sync."
+
+entirely 
+
+and then jsut update the wording of "Memories stay on this machine. To share them: entire-brain connect" to "Memories will stay local. Run `entire-brain connect` to sync."
+
+keep "To share them
+
+---
+
+okay good this looks much better. commit this.
+
+then let's test the next scenario
