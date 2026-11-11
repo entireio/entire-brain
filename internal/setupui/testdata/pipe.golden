@@ -1,7 +1,7 @@
 + Detect    repo acme-payments | 13 commits | clean tree
             agent    claude-code (claude-haiku-5-5, effort low)
             provider entire-graph v0.4.1  semantic +  entities +
-            hosted   not bound -- local-only (COR-2029); bind: entire brain connect
+            hosted   not bound -- memories stay local; bind: entire brain connect
 + Build     instant core ready in 340ms -- 9 components, the brain is queryable now
 + Agents    instructions written | pre-edit hook already wired | session-end hook installed
 - Facts     not distilled; the brain is queryable now, start later: entire brain distill
