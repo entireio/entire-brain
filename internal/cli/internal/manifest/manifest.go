@@ -170,34 +170,42 @@ type UnavailableSession struct {
 // FactSource is recorded under sources.facts in the brain manifest,
 // parallel to HistorySource and the semantic source metadata.
 type FactSource struct {
-	LastDistilledAt   time.Time      `json:"last_distilled_at,omitzero"`
-	GeneratedAt       time.Time      `json:"generated_at"`
-	TaxonomyPath      string         `json:"taxonomy_path"`
-	Branches          []string       `json:"branches,omitempty"`
-	Facts             int            `json:"facts"`
-	Distilled         int            `json:"distilled"`
-	Authored          int            `json:"authored"`
-	Imported          int            `json:"imported,omitempty"`
-	Superseded        int            `json:"superseded"`
-	Verified          int            `json:"verified"`
-	Unsigned          int            `json:"unsigned"`
-	ByKind            map[string]int `json:"by_kind,omitempty"`
-	ChunksScanned     int            `json:"chunks_scanned"`
-	ChunksDistilled   int            `json:"chunks_distilled"`
-	CacheHits         int            `json:"cache_hits,omitempty"`
-	FailedChunks      int            `json:"failed_chunks,omitempty"`
-	PreprocessedBytes int64          `json:"preprocessed_bytes,omitempty"`
-	Agent             string         `json:"agent,omitempty"`
-	Model             string         `json:"model,omitempty"`
-	Effort            string         `json:"effort,omitempty"`
-	Branch            string         `json:"branch,omitempty"`
-	Force             bool           `json:"force,omitempty"`
-	Jobs              int            `json:"jobs,omitempty"`
-	ExtractionJobsCap int            `json:"extraction_jobs_cap,omitempty"`
-	MaxChunkBytes     int            `json:"max_chunk_bytes,omitempty"`
-	Confidence        float64        `json:"confidence_threshold,omitempty"`
-	ExtractionCalls   int            `json:"extraction_agent_calls,omitempty"`
-	ReconcileCalls    int            `json:"reconcile_agent_calls,omitempty"`
+	LastDistilledAt time.Time      `json:"last_distilled_at,omitzero"`
+	GeneratedAt     time.Time      `json:"generated_at"`
+	TaxonomyPath    string         `json:"taxonomy_path"`
+	Branches        []string       `json:"branches,omitempty"`
+	Facts           int            `json:"facts"`
+	Distilled       int            `json:"distilled"`
+	Authored        int            `json:"authored"`
+	Imported        int            `json:"imported,omitempty"`
+	Superseded      int            `json:"superseded"`
+	Verified        int            `json:"verified"`
+	Unsigned        int            `json:"unsigned"`
+	ByKind          map[string]int `json:"by_kind,omitempty"`
+	// Proposals is persisted-schema compat only (COR-2317): the proposal
+	// framework is gone and nothing reads the count, but a manifest field
+	// cannot be retired without a schema bump — LoadForReplace refuses to
+	// round-trip a field this struct does not declare, which left every
+	// manifest written by an older build unwritable (the released-compat lane
+	// caught exactly that). omitempty: fresh manifests stop writing it; a
+	// nonzero value another build recorded still round-trips.
+	Proposals         int     `json:"proposals,omitempty"`
+	ChunksScanned     int     `json:"chunks_scanned"`
+	ChunksDistilled   int     `json:"chunks_distilled"`
+	CacheHits         int     `json:"cache_hits,omitempty"`
+	FailedChunks      int     `json:"failed_chunks,omitempty"`
+	PreprocessedBytes int64   `json:"preprocessed_bytes,omitempty"`
+	Agent             string  `json:"agent,omitempty"`
+	Model             string  `json:"model,omitempty"`
+	Effort            string  `json:"effort,omitempty"`
+	Branch            string  `json:"branch,omitempty"`
+	Force             bool    `json:"force,omitempty"`
+	Jobs              int     `json:"jobs,omitempty"`
+	ExtractionJobsCap int     `json:"extraction_jobs_cap,omitempty"`
+	MaxChunkBytes     int     `json:"max_chunk_bytes,omitempty"`
+	Confidence        float64 `json:"confidence_threshold,omitempty"`
+	ExtractionCalls   int     `json:"extraction_agent_calls,omitempty"`
+	ReconcileCalls    int     `json:"reconcile_agent_calls,omitempty"`
 	// The staged-reconcile pass (COR-2184): how many extracted candidates the
 	// end-of-run pass adjudicated, how many promoted with no agent call, and
 	// how many similarity clusters went to the agent. Disclosed so the staging
