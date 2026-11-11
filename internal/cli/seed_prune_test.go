@@ -923,6 +923,46 @@ func TestUpdateIntoAnotherDirectoryRemovesOnlyTheOtherSpelling(t *testing.T) {
 	assertSeedDoc(t, outputDir, "notes/link.md", true)
 }
 
+// TestRemovalTakesNoOtherSpellingAfterAnIncompleteWalk: a recorded document
+// in a directory the walk cannot read is not listed, though it is there. A
+// hard link to it in another directory, whose path folds to the same name,
+// is not the seed's, so the prune must not take it for the document's other
+// spelling. Root reads any directory and Windows does not stop it, and on a
+// case-insensitive filesystem the two directories are one.
+func TestRemovalTakesNoOtherSpellingAfterAnIncompleteWalk(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod read-only directory semantics are not portable on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a directory without permission")
+	}
+	t.Parallel()
+	outputDir := t.TempDir()
+	docs := filepath.Join(outputDir, seedDirName, seedDocsDirName)
+	writeSeedPruneFiles(t, docs, map[string]string{"Docs/guide.md": "# Guide\n"})
+	if _, err := os.Stat(filepath.Join(docs, "docs")); err == nil {
+		t.Skip("filesystem is case-insensitive")
+	}
+	if err := os.Mkdir(filepath.Join(docs, "docs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(filepath.Join(docs, "Docs", "guide.md"), filepath.Join(docs, "docs", "guide.md")); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	unreadable := filepath.Join(docs, "Docs")
+	if err := os.Chmod(unreadable, 0o100); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o700) })
+
+	scan := &seedScanResult{}
+	ownership := seedDocsOwnership{recorded: map[string]bool{"seed/docs/Docs/guide.md": true}}
+	if !pruneSeedDocs(outputDir, scan, map[string]bool{}, ownership) {
+		t.Errorf("a prune that could not read a directory did not ask for a retry: %q", scan.Warnings)
+	}
+	assertSeedDoc(t, outputDir, "docs/guide.md", true)
+}
+
 // TestPruneSeedDocsLeavesWhatItCannotSafelyRemove: a symlink is reported and
 // left, never followed; a second name for the file just written (what a
 // case-insensitive filesystem gives a document renamed only in case) is kept;

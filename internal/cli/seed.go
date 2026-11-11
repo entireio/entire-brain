@@ -1312,9 +1312,17 @@ func pruneSeedDocs(outputDir string, scan *seedScanResult, written map[string]bo
 		prune.unchecked(err)
 	}
 	// Matched once the whole directory is listed: a recorded name is the
-	// seed's under another spelling only when it is not listed itself.
+	// seed's under another spelling only when it is not listed itself. When
+	// the walk could not list everything, a recorded name it missed may be
+	// an entry of its own all the same, and identity would take a hard link
+	// to it for another spelling, so recorded documents then match by name
+	// alone. The walk failure asks for a retry, which gets the rest.
 	prune.written = seedDocsMatcher(outputDir, written, nil)
-	prune.recorded = seedDocsMatcher(outputDir, ownership.recorded, prune.listed)
+	if prune.incomplete {
+		prune.recorded = func(rel string) bool { return ownership.recorded[rel] }
+	} else {
+		prune.recorded = seedDocsMatcher(outputDir, ownership.recorded, prune.listed)
+	}
 	for _, file := range prune.files {
 		prune.consider(file)
 	}
@@ -1339,13 +1347,15 @@ type seedDocsPrune struct {
 	written   func(rel string) bool
 	recorded  func(rel string) bool
 	// files and dirs list what is under seed/docs, in walk order, and listed
-	// the names of those files; emptied holds the directories a removal took
-	// a file from, directly or below.
-	files   []seedDocsFile
-	dirs    []string
-	listed  map[string]bool
-	emptied map[string]bool
-	retry   bool
+	// the names of those files; incomplete says the walk could not read all
+	// of it. emptied holds the directories a removal took a file from,
+	// directly or below.
+	files      []seedDocsFile
+	dirs       []string
+	listed     map[string]bool
+	incomplete bool
+	emptied    map[string]bool
+	retry      bool
 }
 
 // seedDocsFile is a non-directory entry under seed/docs.
@@ -1397,6 +1407,7 @@ func (p *seedDocsPrune) consider(file seedDocsFile) {
 // unchecked records a part of seed/docs the walk could not read.
 func (p *seedDocsPrune) unchecked(err error) {
 	p.scan.Warnings = append(p.scan.Warnings, fmt.Sprintf("old seed documents not checked: %v", err))
+	p.incomplete = true
 	p.retry = true
 }
 
