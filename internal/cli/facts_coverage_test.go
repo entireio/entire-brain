@@ -15,7 +15,7 @@ import (
 func coverageRecord(id string, sessionIDs ...string) factmerge.Record {
 	anchors := make([]factmerge.Anchor, 0, len(sessionIDs))
 	for _, s := range sessionIDs {
-		anchors = append(anchors, factmerge.Anchor{SessionID: s})
+		anchors = append(anchors, factmerge.Anchor{SessionID: s, CheckpointID: "cp-" + s})
 	}
 	return factmerge.Record{
 		ID:         id,
@@ -44,11 +44,14 @@ func TestCoveredSessionIDsReadsLocalFactProvenance(t *testing.T) {
 	covered := coveredSessionIDs(brainDir, "")
 
 	for _, want := range []string{"sess-1", "sess-2", "sess-3"} {
-		if !covered[want] {
-			t.Errorf("session %s must be covered by local fact provenance", want)
+		if !covered[coveredSessionKey(want, "cp-"+want)] {
+			t.Errorf("session %s must be covered at its cited checkpoint", want)
+		}
+		if covered[coveredSessionKey(want, "cp-later")] {
+			t.Errorf("session %s must NOT be covered at a checkpoint no fact cites", want)
 		}
 	}
-	if covered[""] {
+	if covered[coveredSessionKey("", "")] {
 		t.Error("the empty session id must never be covered")
 	}
 }
@@ -69,7 +72,7 @@ func TestCoveredSessionIDsIncludesFeedCacheOnlySessions(t *testing.T) {
 
 	covered := coveredSessionIDs(brainDir, feedDir)
 
-	if !covered["sess-filtered"] {
+	if !covered[coveredSessionKey("sess-filtered", "cp-sess-filtered")] {
 		t.Error("a session cited only by the hosted feed cache must count as covered")
 	}
 }
@@ -87,7 +90,10 @@ func TestBackfillStatusCountsTeammateCoveredSessions(t *testing.T) {
 	f.markDistilled(t, "s1")
 	// s1 is distilled AND covered: the distill cache wins, so Covered counts
 	// only sessions whose skip comes from teammate facts.
-	status := factsBackfillStatusForBrain(f.storage.BrainDir, map[string]bool{"s1": true, "s2": true})
+	status := factsBackfillStatusForBrain(f.storage.BrainDir, map[string]bool{
+		coveredSessionKey("s1", "cp-s1"): true,
+		coveredSessionKey("s2", "cp-s2"): true,
+	})
 	if status.Sessions != 3 || status.Distilled != 1 || status.Covered != 1 || status.Pending() != 1 {
 		t.Fatalf("expected 3 sessions / 1 distilled / 1 covered / 1 pending, got %+v", status)
 	}
@@ -100,7 +106,7 @@ func TestDistillPlanSkipsCoveredUncachedSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opts := distillCommandOptions{covered: map[string]bool{"mid": true}}
+	opts := distillCommandOptions{covered: map[string]bool{coveredSessionKey("mid", "cp-mid"): true}}
 	plan, err := buildDistillPlan(brainDir, manifest, opts, "salt")
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +137,7 @@ func TestDistillPlanStillRedispatchesGrownCachedSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opts := distillCommandOptions{covered: map[string]bool{"old": true}}
+	opts := distillCommandOptions{covered: map[string]bool{coveredSessionKey("old", "cp-old"): true}}
 	plan, err := buildDistillPlan(brainDir, manifest, opts, "salt")
 	if err != nil {
 		t.Fatal(err)
@@ -154,7 +160,7 @@ func TestRunDistillSkipsCoveredSessions(t *testing.T) {
 		maxChunkBytes: defaultDistillChunkSize,
 		timeout:       time.Minute,
 		concurrency:   1,
-		covered:       map[string]bool{"old": true},
+		covered:       map[string]bool{coveredSessionKey("old", "cp-old"): true},
 	}
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatal(err)
@@ -202,7 +208,7 @@ func TestCoveredSessionIDsIgnoresCandidatesAndAuthoredFacts(t *testing.T) {
 func TestDryRunReportAccountsForCoveredSessions(t *testing.T) {
 	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
 	brainDir := writeOrderedDistillFixture(t, now, "old", "mid", "new")
-	opts := distillCommandOptions{covered: map[string]bool{"mid": true}, maxChunkBytes: defaultDistillChunkSize}
+	opts := distillCommandOptions{covered: map[string]bool{coveredSessionKey("mid", "cp-mid"): true}, maxChunkBytes: defaultDistillChunkSize}
 	report, err := buildDistillDryRunReport(brainDir, opts, now)
 	if err != nil {
 		t.Fatal(err)
@@ -239,5 +245,32 @@ func TestDistillPlanWithNilCoveredSkipsNothing(t *testing.T) {
 	}
 	if plan.CoveredSessions != 0 || plan.SessionsToDistill != 1 {
 		t.Fatalf("nil covered must skip nothing, got covered=%d distill=%d", plan.CoveredSessions, plan.SessionsToDistill)
+	}
+}
+
+// Coverage must track the session's CURRENT latest checkpoint, not the bare
+// session id: a teammate distilled early, the transcript keeps growing in git,
+// and a clone with no cache entry would otherwise skip the new content forever
+// (trail 2851 finding 01M768ADMYKZFGZXWX9FEGRN4Z).
+func TestRunDistillRedistillsAGrownCoveredSession(t *testing.T) {
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	brainDir := writeOrderedDistillFixture(t, now, "old")
+	// The fixture's session has LatestCheckpoint "cp-old"; the covering fact
+	// cites an EARLIER checkpoint of the same session.
+	var visited []string
+	opts := distillCommandOptions{
+		agent:         "command",
+		agentCommand:  []string{"fake"},
+		run:           recordingDistillRunner(&visited),
+		maxChunkBytes: defaultDistillChunkSize,
+		timeout:       time.Minute,
+		concurrency:   1,
+		covered:       map[string]bool{coveredSessionKey("old", "cp-old-stale"): true},
+	}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatal(err)
+	}
+	if len(visited) == 0 {
+		t.Fatal("a grown covered session must be re-distilled")
 	}
 }

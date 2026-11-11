@@ -140,7 +140,7 @@ func factsBackfillStatusForBrain(brainDir string, covered map[string]bool) facts
 				continue
 			}
 		}
-		if covered[session.SessionID] {
+		if covered[coveredSessionKey(session.SessionID, session.LatestCheckpoint)] {
 			status.Covered++
 		}
 	}

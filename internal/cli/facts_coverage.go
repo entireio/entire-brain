@@ -27,7 +27,7 @@ func coveredSessionIDs(brainDir string, feedDir string) map[string]bool {
 			}
 			for _, anchor := range rec.Provenance {
 				if anchor.SessionID != "" {
-					covered[anchor.SessionID] = true
+					covered[coveredSessionKey(anchor.SessionID, anchor.CheckpointID)] = true
 				}
 			}
 		}
@@ -43,4 +43,15 @@ func coveredSessionIDs(brainDir string, feedDir string) map[string]bool {
 		}
 	}
 	return covered
+}
+
+// coveredSessionKey is the identity a covering fact must cite: the session AND
+// its CURRENT latest checkpoint. Distillation stamps every fact with the
+// session's latest checkpoint at distill time, so a transcript that grew since
+// a teammate distilled carries a checkpoint no fact cites and is NOT covered —
+// otherwise a clone with no cache entry to grow from skipped the new content
+// forever (trail 2851 finding). Checkpoint-backed cache hits use the same
+// "same latest checkpoint" definition of unchanged.
+func coveredSessionKey(sessionID, latestCheckpoint string) string {
+	return sessionID + "\x00" + latestCheckpoint
 }

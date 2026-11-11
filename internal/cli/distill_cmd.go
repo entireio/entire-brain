@@ -298,7 +298,7 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 			// cache entry to grow from. Same rule as buildDistillPlanContext,
 			// and checked before the transcript read so a fresh clone pays no
 			// I/O or agent spend for its covered corpus.
-			if !distillOpts.force && distillOpts.covered[session.SessionID] &&
+			if !distillOpts.force && distillOpts.covered[coveredSessionKey(session.SessionID, session.LatestCheckpoint)] &&
 				!distillCacheHasSession(prevCache, ps.branch, ps.session, duplicateKeys) {
 				ps.covered = true
 				f <- ps
@@ -1822,7 +1822,7 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		// session, and this machine has no cache entry to grow from, so there
 		// is nothing incremental to protect. Checked before the transcript
 		// read, so a freshly cloned repo pays no I/O for its covered corpus.
-		if !distillOpts.force && distillOpts.covered[session.SessionID] &&
+		if !distillOpts.force && distillOpts.covered[coveredSessionKey(session.SessionID, session.LatestCheckpoint)] &&
 			!distillCacheHasSession(prevCache, branch, session, duplicateKeys) {
 			sessionPlan.Covered = true
 			plan.CoveredSessions++
