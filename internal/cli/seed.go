@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -353,16 +354,20 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		// reason that may pass keeps the marker too, so the next refresh
 		// tries again instead of leaving the document searchable behind a
 		// current manifest once the cause is put right. Any other --output
-		// gets one only to carry the old documents it still has to remove,
-		// which the new manifest no longer lists (beginSeedPrune).
+		// gets one only to carry the seed's documents that one of the two
+		// manifests does not list (beginSeedPrune).
+		//
+		// seed/risks.md is already written, so a warning from here on (the
+		// marker's, then the prune's) is reported by writing it again, and
+		// the prune's by writing the manifest again too.
+		reported := len(scan.Warnings)
 		if err := beginSeedPrune(outputDir, &scan, &ownership); err != nil {
 			return err
 		}
+		seedManifest.Warnings = append(seedManifest.Warnings, scan.Warnings[reported:]...)
 		if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
 			return err
 		}
-		// A document the prune could not remove is reported by writing the
-		// manifest and seed/risks.md again.
 		pruned := len(scan.Warnings)
 		retryPrune := pruneSeedDocs(outputDir, &scan, scan.writtenDocs, ownership)
 		if pruneWarnings := scan.Warnings[pruned:]; len(pruneWarnings) > 0 {
@@ -370,6 +375,8 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
 				return err
 			}
+		}
+		if len(scan.Warnings) > reported {
 			if err := writeSeedRisks(outputDir, &scan); err != nil {
 				return err
 			}
@@ -1104,17 +1111,18 @@ type seedDocsOwnership struct {
 	// all is set for the brain store, where nothing but a seed writes
 	// seed/docs.
 	all bool
-	// recorded holds, for any other --output, the documents the seed there
-	// before this one listed in its manifest, and those an earlier seed's
-	// pending marker still lists. Only those are a seed's to remove: --update
-	// accepts any existing directory, which can hold files of its own under
-	// seed/docs (another repository's, say).
-	recorded map[string]bool
+	// manifested holds, for any other --output, the documents the seed there
+	// before this one listed in its manifest, and recorded those and the ones
+	// an earlier seed's pending marker still lists. Only those are a seed's
+	// to remove: --update accepts any existing directory, which can hold
+	// files of its own under seed/docs (another repository's, say).
+	manifested map[string]bool
+	recorded   map[string]bool
 	// marker says what is at seedPrunePendingPath in an explicit --output.
 	marker seedPruneMarker
-	// pending lists, once beginSeedPrune has run, the recorded documents this
-	// seed did not write, which its marker records until they are removed.
-	pending []string
+	// stale lists, once beginSeedPrune has run, the recorded documents this
+	// seed did not write: the ones its prune is to remove.
+	stale []string
 }
 
 // seedPruneMarker is the state of an explicit --output's pending marker.
@@ -1132,20 +1140,21 @@ func seedDocsOwnershipOf(outputDir string, inBrainStore bool) seedDocsOwnership 
 	if inBrainStore {
 		return seedDocsOwnership{all: true}
 	}
-	recorded := map[string]bool{}
+	manifested := map[string]bool{}
 	manifest, err := bmanifest.Load(outputDir)
 	if err == nil && manifest.Sources != nil && manifest.Sources.Seed != nil {
 		for _, doc := range manifest.Sources.Seed.Documents {
 			if doc.SeedPath != "" {
-				recorded[filepath.ToSlash(filepath.Clean(filepath.FromSlash(doc.SeedPath)))] = true
+				manifested[filepath.ToSlash(filepath.Clean(filepath.FromSlash(doc.SeedPath)))] = true
 			}
 		}
 	}
+	recorded := maps.Clone(manifested)
 	listed, marker := readSeedPruneMarker(outputDir)
 	for _, rel := range listed {
 		recorded[rel] = true
 	}
-	return seedDocsOwnership{recorded: recorded, marker: marker}
+	return seedDocsOwnership{manifested: manifested, recorded: recorded, marker: marker}
 }
 
 // readSeedPruneMarker reads an explicit --output's pending marker. Only a
@@ -1177,50 +1186,88 @@ func readSeedPruneMarker(outputDir string) ([]string, seedPruneMarker) {
 }
 
 // beginSeedPrune writes the pending marker just before the new manifest. The
-// brain store always gets one. Any other --output gets one only when an
-// earlier seed there recorded documents this one did not write, listing
-// them, and not when seed/docs overlaps the repository (nothing is pruned
-// there) or a file of that name is not a seed's.
+// brain store always gets one. Any other --output gets one listing the
+// seed's documents that one of the two manifests does not: the recorded
+// ones this seed did not write, which the new manifest drops, and the ones
+// it wrote that the manifest there now does not list, which a failed write
+// of the new one would leave unrecorded. It gets none when there are none,
+// when seed/docs overlaps the repository (nothing is pruned there), or when
+// a file of that name is not a seed's.
 func beginSeedPrune(outputDir string, scan *seedScanResult, ownership *seedDocsOwnership) error {
 	if ownership.all {
 		return brainstore.WriteBrainRelativeFileAtomic(outputDir, seedPrunePendingPath, []byte(seedPrunePendingText), 0o600)
 	}
+	if seedDocsOverlapRepository(filepath.Join(outputDir, seedDirName, seedDocsDirName), scan.RepoDir) {
+		return nil
+	}
 	for rel := range ownership.recorded {
 		if !scan.writtenDocs[rel] {
-			ownership.pending = append(ownership.pending, rel)
+			ownership.stale = append(ownership.stale, rel)
 		}
 	}
-	sort.Strings(ownership.pending)
-	if len(ownership.pending) == 0 || seedDocsOverlapRepository(filepath.Join(outputDir, seedDirName, seedDocsDirName), scan.RepoDir) {
-		ownership.pending = nil
+	sort.Strings(ownership.stale)
+	pending := slices.Clone(ownership.stale)
+	for rel := range scan.writtenDocs {
+		if !ownership.manifested[rel] {
+			pending = append(pending, rel)
+		}
+	}
+	if len(pending) == 0 {
 		return nil
 	}
 	if ownership.marker == seedPruneMarkerForeign {
-		scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not recorded for a retry: %s is not a seed's, so a document this seed cannot remove now is left for good", seedPrunePendingPath))
-		ownership.pending = nil
+		if len(ownership.stale) > 0 {
+			scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not recorded for a retry: %s is not a seed's, so a document this seed cannot remove now is left for good", seedPrunePendingPath))
+		}
 		return nil
 	}
-	var text strings.Builder
-	text.WriteString(seedPrunePendingListHeader)
-	for _, rel := range ownership.pending {
-		text.WriteString(strconv.Quote(rel) + "\n")
-	}
-	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, seedPrunePendingPath, []byte(text.String()), 0o600); err != nil {
+	sort.Strings(pending)
+	if err := writeSeedPruneMarker(outputDir, pending); err != nil {
 		return err
 	}
 	ownership.marker = seedPruneMarkerOurs
 	return nil
 }
 
-// finishSeedPrune removes the pending marker once the prune no longer needs
-// it. It stays when the prune asked for a retry: in the brain store so that
-// refresh reseeds, and elsewhere while it lists documents still to remove.
+// writeSeedPruneMarker writes an explicit --output's pending marker listing
+// pending.
+func writeSeedPruneMarker(outputDir string, pending []string) error {
+	var text strings.Builder
+	text.WriteString(seedPrunePendingListHeader)
+	for _, rel := range pending {
+		text.WriteString(strconv.Quote(rel) + "\n")
+	}
+	return brainstore.WriteBrainRelativeFileAtomic(outputDir, seedPrunePendingPath, []byte(text.String()), 0o600)
+}
+
+// finishSeedPrune settles the pending marker once the new manifest is saved
+// and the prune has run. In the brain store it stays when the prune asked
+// for a retry, so that refresh reseeds. In any other --output it then lists
+// just the stale documents still there, since the new manifest lists the
+// rest: a path the prune emptied must not stay the seed's, or a file someone
+// puts there later would be removed as one.
 func finishSeedPrune(outputDir string, ownership seedDocsOwnership, retry bool) error {
-	keep := retry && (ownership.all || len(ownership.pending) > 0)
-	if keep || (!ownership.all && ownership.marker != seedPruneMarkerOurs) {
+	if ownership.all {
+		if retry {
+			return nil
+		}
+		return brainstore.RemoveBrainRelativeFile(outputDir, seedPrunePendingPath)
+	}
+	if ownership.marker != seedPruneMarkerOurs {
 		return nil
 	}
-	return brainstore.RemoveBrainRelativeFile(outputDir, seedPrunePendingPath)
+	var left []string
+	if retry {
+		for _, rel := range ownership.stale {
+			if _, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(rel))); !errors.Is(err, fs.ErrNotExist) {
+				left = append(left, rel)
+			}
+		}
+	}
+	if len(left) == 0 {
+		return brainstore.RemoveBrainRelativeFile(outputDir, seedPrunePendingPath)
+	}
+	return writeSeedPruneMarker(outputDir, left)
 }
 
 // pruneSeedDocs removes every file under seed/docs that this seed did not
@@ -1258,6 +1305,7 @@ func pruneSeedDocs(outputDir string, scan *seedScanResult, written map[string]bo
 		docsRel:   filepath.ToSlash(docsRel),
 		scan:      scan,
 		all:       ownership.all,
+		listed:    map[string]bool{},
 		emptied:   map[string]bool{},
 	}
 	if err := filepath.WalkDir(filepath.Join(outputDir, docsRel), prune.visit); err != nil {
@@ -1322,9 +1370,6 @@ func (p *seedDocsPrune) visit(path string, d fs.DirEntry, err error) error {
 		}
 		return nil
 	}
-	if p.listed == nil {
-		p.listed = map[string]bool{}
-	}
 	p.listed[rel] = true
 	p.files = append(p.files, seedDocsFile{rel: rel, symlink: d.Type()&fs.ModeSymlink != 0})
 	return nil
@@ -1375,19 +1420,29 @@ func (p *seedDocsPrune) removeEmptiedDirs() {
 // seedDocsMatcher reports whether a file under outputDir is one of names: by
 // name, or else by filesystem identity. On a case-insensitive filesystem a
 // document renamed only in case is written over the old directory entry,
-// which can keep the old spelling (and the filesystem's folding need not
-// match strings.ToLower: Σ, σ and ς are one name on APFS), so a name alone
-// does not tell. A name in listed is an entry of its own, so for it only the
-// name counts: another file with its identity is a hard link, a second entry
-// that names never made one of names.
+// which can keep the old spelling, so a name alone does not tell.
+//
+// With listed nil, for the names a prune keeps, identity alone counts, since
+// the filesystem's folding need not match Go's. With listed given, for the
+// names a prune removes by, identity counts only where it is a name's other
+// spelling: for a name that is not itself listed (a listed name is an entry
+// of its own), and a file whose name folds to the same (strings.EqualFold,
+// which also folds Σ, σ and ς together). Another file with that identity is
+// a hard link, a second entry that names never made one of names. A
+// filesystem that folds more than Go does leaves a file, which is the safe
+// way to miss.
 func seedDocsMatcher(outputDir string, names, listed map[string]bool) func(rel string) bool {
-	infos := make([]os.FileInfo, 0, len(names))
+	type spelling struct {
+		name string
+		info os.FileInfo
+	}
+	others := make([]spelling, 0, len(names))
 	for name := range names {
 		if listed[name] {
 			continue
 		}
 		if info, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(name))); err == nil {
-			infos = append(infos, info)
+			others = append(others, spelling{name: name, info: info})
 		}
 	}
 	return func(rel string) bool {
@@ -1398,8 +1453,8 @@ func seedDocsMatcher(outputDir string, names, listed map[string]bool) func(rel s
 		if err != nil {
 			return false
 		}
-		for _, info := range infos {
-			if os.SameFile(have, info) {
+		for _, other := range others {
+			if (listed == nil || strings.EqualFold(rel, other.name)) && os.SameFile(have, other.info) {
 				return true
 			}
 		}

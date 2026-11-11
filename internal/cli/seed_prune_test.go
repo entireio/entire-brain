@@ -506,6 +506,30 @@ func TestUpdateIntoAnotherDirectoryRemovesOnlyWhatASeedThereRecorded(t *testing.
 	}
 }
 
+// TestAForeignMarkerIsReportedWhenEveryRemovalWorks: an output's own
+// seed/prune-pending leaves a seed no marker to record a failed removal in.
+// The seed says so in its manifest and seed/risks.md, also when its prune
+// has nothing else to report.
+func TestAForeignMarkerIsReportedWhenEveryRemovalWorks(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{
+		"README.md":   "# readme\n",
+		"docs/old.md": "# Old guide\n",
+	})
+	outputDir := seedPruneRepo(t, map[string]string{seedPrunePendingPath: "this repository's own\n"})
+	seedPruneRun(t, repoDir, outputDir, "--update")
+	gitAt(t, repoDir, "rm", "-q", "docs/old.md")
+	gitAt(t, repoDir, "commit", "-q", "-m", "drop old doc")
+	seedPruneRun(t, repoDir, outputDir, "--update")
+	assertSeedDoc(t, outputDir, "docs/old.md", false)
+	assertSeedWarns(t, outputDir, "not recorded for a retry")
+	if risks, err := os.ReadFile(filepath.Join(outputDir, seedDirName, "risks.md")); err != nil || !strings.Contains(string(risks), "not recorded for a retry") {
+		t.Errorf("seed/risks.md does not say the marker is not a seed's: %v\n%s", err, risks)
+	}
+	if got, err := os.ReadFile(filepath.Join(outputDir, seedPrunePendingPath)); err != nil || string(got) != "this repository's own\n" {
+		t.Errorf("the output's own %s = %q, %v; want it untouched", seedPrunePendingPath, got, err)
+	}
+}
+
 // TestAPruneThatCouldNotRemoveADocumentStaysPending: a stale document the
 // prune could not remove, for a reason that can pass, keeps the pending
 // marker. In the brain store refresh then reseeds
@@ -535,6 +559,7 @@ func removalFailureLeavesThePrunePending(t *testing.T, explicit bool) {
 	repoDir := seedPruneRepo(t, map[string]string{
 		"README.md":       "# readme\n",
 		"docs/old/old.md": "# Old guide\n\nDeploy with the retired zebra pipeline.\n",
+		"docs/gone.md":    "# Gone\n",
 	})
 	opts, outputDir := seedPruneBrainStore(t, repoDir)
 	args := []string{"refresh", "seed", "--agent", "none"}
@@ -542,9 +567,11 @@ func removalFailureLeavesThePrunePending(t *testing.T, explicit bool) {
 	if explicit {
 		outputDir = filepath.Join(t.TempDir(), "out")
 		args = append(args, "--update", "--output", outputDir)
+		// The marker lists just the document the prune left: the one it
+		// removed is no longer the seed's.
 		pending = func() bool {
 			listed, marker := readSeedPruneMarker(outputDir)
-			return marker == seedPruneMarkerOurs && slices.Contains(listed, "seed/docs/docs/old/old.md")
+			return marker == seedPruneMarkerOurs && slices.Equal(listed, []string{"seed/docs/docs/old/old.md"})
 		}
 	}
 	seed := func() {
@@ -555,8 +582,8 @@ func removalFailureLeavesThePrunePending(t *testing.T, explicit bool) {
 	}
 	seed()
 	assertSeedDoc(t, outputDir, "docs/old/old.md", true)
-	gitAt(t, repoDir, "rm", "-q", "docs/old/old.md")
-	gitAt(t, repoDir, "commit", "-q", "-m", "drop old doc")
+	gitAt(t, repoDir, "rm", "-q", "docs/old/old.md", "docs/gone.md")
+	gitAt(t, repoDir, "commit", "-q", "-m", "drop old docs")
 	locked := filepath.Join(outputDir, seedDirName, seedDocsDirName, "docs", "old")
 	if err := os.Chmod(locked, 0o500); err != nil {
 		t.Fatal(err)
@@ -565,8 +592,10 @@ func removalFailureLeavesThePrunePending(t *testing.T, explicit bool) {
 
 	seed()
 	assertSeedDoc(t, outputDir, "docs/old/old.md", true)
+	assertSeedDoc(t, outputDir, "docs/gone.md", false)
 	if !pending() {
-		t.Fatal("a prune that could not remove a document did not leave it pending")
+		listed, marker := readSeedPruneMarker(outputDir)
+		t.Fatalf("a prune that could not remove a document did not leave just it pending (%q, %v)", listed, marker)
 	}
 
 	if err := os.Chmod(locked, 0o700); err != nil {
@@ -613,6 +642,55 @@ func TestReadmeFailureInAnotherOutputKeepsItsOldDocumentOwned(t *testing.T) {
 	}
 	seedPruneRun(t, repoDir, outputDir, "--update")
 	assertSeedDoc(t, outputDir, "docs/old.md", false)
+	if _, marker := readSeedPruneMarker(outputDir); marker != seedPruneMarkerAbsent {
+		t.Errorf("the marker is still there after a seed removed what it listed (%v)", marker)
+	}
+}
+
+// TestFailedManifestWriteInAnotherOutputKeepsWhatItWroteOwned: in an
+// --output other than the brain store, a seed whose manifest write fails has
+// written documents that the manifest there does not list. The marker lists
+// them, so a later seed that no longer has one still removes its copy.
+func TestFailedManifestWriteInAnotherOutputKeepsWhatItWroteOwned(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
+	outputDir := filepath.Join(t.TempDir(), "out")
+	seedPruneRun(t, repoDir, outputDir, "--worktree")
+	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/new.md": "# New\n\nThe zebra pipeline.\n"})
+
+	manifestPath := filepath.Join(outputDir, bmanifest.FileName)
+	saved, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileIndex := filepath.Join(outputDir, seedDirName, "file-index.json")
+	runner := &seedStatusHookRunner{hook: func() bool {
+		// The final worktree check is the last step before the manifest
+		// write, so breaking the manifest here makes that write fail.
+		data, err := os.ReadFile(fileIndex)
+		if err != nil || !strings.Contains(string(data), "new.md") {
+			return false
+		}
+		writeSeedPruneFiles(t, outputDir, map[string]string{bmanifest.FileName: "{not json"})
+		return true
+	}}
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: runner}
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--output", outputDir, "--worktree", "--update", repoDir); err == nil || !runner.fired {
+		t.Fatalf("the seed did not fail at its manifest write (fired %v): %v\n%s", runner.fired, err, out)
+	}
+	assertSeedDoc(t, outputDir, "docs/new.md", true)
+	if listed, marker := readSeedPruneMarker(outputDir); marker != seedPruneMarkerOurs || !slices.Contains(listed, "seed/docs/docs/new.md") {
+		t.Fatalf("the marker = %q, %v; want it to list the document the failed seed wrote", listed, marker)
+	}
+
+	if err := os.WriteFile(manifestPath, saved, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(repoDir, "docs", "new.md")); err != nil {
+		t.Fatal(err)
+	}
+	seedPruneRun(t, repoDir, outputDir, "--worktree", "--update")
+	assertSeedDoc(t, outputDir, "docs/new.md", false)
+	assertDocIndexLacks(t, outputDir, "zebra pipeline")
 	if _, marker := readSeedPruneMarker(outputDir); marker != seedPruneMarkerAbsent {
 		t.Errorf("the marker is still there after a seed removed what it listed (%v)", marker)
 	}
@@ -765,6 +843,84 @@ func TestPruneSeedDocsKeepsADocumentRenamedOnlyInCase(t *testing.T) {
 	if len(scan.Warnings) > 0 {
 		t.Errorf("warnings = %q, want none", scan.Warnings)
 	}
+}
+
+// TestRemovalMatchesAnotherSpellingNotAHardLink: a recorded name that is not
+// listed, on a case-insensitive filesystem, is the listed entry spelled
+// another way. Its identity takes that entry, which folds to the same name,
+// and never a hard link to it under another name, which the seed did not
+// record. Here hard links stand in for the other spelling. The matcher for
+// what a seed wrote, which only ever keeps files, takes identity alone.
+func TestRemovalMatchesAnotherSpellingNotAHardLink(t *testing.T) {
+	t.Parallel()
+	outputDir := t.TempDir()
+	docs := filepath.Join(outputDir, seedDirName, seedDocsDirName)
+	writeSeedPruneFiles(t, docs, map[string]string{"docs/guide.md": "# Guide\n", "ς/a.md": "# A\n"})
+	if err := os.MkdirAll(filepath.Join(docs, "notes"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(docs, "Σ"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for from, to := range map[string]string{"docs/guide.md": "docs/Guide.md", "ς/a.md": "Σ/a.md"} {
+		if err := os.Link(filepath.Join(docs, filepath.FromSlash(from)), filepath.Join(docs, filepath.FromSlash(to))); err != nil {
+			t.Skipf("no hard link to stand in for another spelling: %v", err)
+		}
+	}
+	if err := os.Link(filepath.Join(docs, "docs", "guide.md"), filepath.Join(docs, "notes", "link.md")); err != nil {
+		t.Fatal(err)
+	}
+	recorded := map[string]bool{"seed/docs/docs/Guide.md": true, "seed/docs/Σ/a.md": true}
+	listed := map[string]bool{"seed/docs/docs/guide.md": true, "seed/docs/notes/link.md": true, "seed/docs/ς/a.md": true}
+	removes := seedDocsMatcher(outputDir, recorded, listed)
+	keeps := seedDocsMatcher(outputDir, recorded, nil)
+	for rel, want := range map[string]bool{"seed/docs/docs/guide.md": true, "seed/docs/ς/a.md": true, "seed/docs/notes/link.md": false} {
+		if got := removes(rel); got != want {
+			t.Errorf("removal matcher(%s) = %v, want %v", rel, got, want)
+		}
+		if !keeps(rel) {
+			t.Errorf("keep matcher(%s) = false, want true", rel)
+		}
+	}
+}
+
+// TestUpdateIntoAnotherDirectoryRemovesOnlyTheOtherSpelling runs where the
+// filesystem folds case. A repository directory renamed only in case is
+// written into the old directory, so the next manifest records a spelling
+// the directory listing does not have. Once the document is gone, its copy
+// under the old spelling is removed, and a hard link to it elsewhere, which
+// no seed recorded, is not.
+func TestUpdateIntoAnotherDirectoryRemovesOnlyTheOtherSpelling(t *testing.T) {
+	probe := t.TempDir()
+	if err := os.WriteFile(filepath.Join(probe, "case"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(probe, "CASE")); err != nil {
+		t.Skip("filesystem is case-sensitive")
+	}
+	repoDir := seedPruneRepo(t, map[string]string{
+		"README.md":            "# readme\n",
+		"docs/Guides/guide.md": "# Guide\n\nThe zebra pipeline.\n",
+	})
+	outputDir := filepath.Join(t.TempDir(), "out")
+	seedPruneRun(t, repoDir, outputDir, "--update")
+	gitAt(t, repoDir, "mv", "docs/Guides", "docs/renaming")
+	gitAt(t, repoDir, "mv", "docs/renaming", "docs/guides")
+	gitAt(t, repoDir, "commit", "-q", "-m", "rename Guides to guides")
+	seedPruneRun(t, repoDir, outputDir, "--update")
+	docs := filepath.Join(outputDir, seedDirName, seedDocsDirName)
+	if err := os.MkdirAll(filepath.Join(docs, "notes"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(filepath.Join(docs, "docs", "guides", "guide.md"), filepath.Join(docs, "notes", "link.md")); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+
+	gitAt(t, repoDir, "rm", "-q", "docs/guides/guide.md")
+	gitAt(t, repoDir, "commit", "-q", "-m", "drop the guide")
+	seedPruneRun(t, repoDir, outputDir, "--update")
+	assertSeedDoc(t, outputDir, "docs/guides/guide.md", false)
+	assertSeedDoc(t, outputDir, "notes/link.md", true)
 }
 
 // TestPruneSeedDocsLeavesWhatItCannotSafelyRemove: a symlink is reported and
