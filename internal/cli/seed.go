@@ -1444,7 +1444,10 @@ func seedCopyClaimMatch(outputDir, rel string, claims []seedCopyClaim) (seedCopy
 // seedClaimCheckFailure is err when it may pass, and nil otherwise: a file
 // that is gone, or a check that refused a symlink, is a definite mismatch.
 func seedClaimCheckFailure(err error) error {
-	if err == nil || errors.Is(err, fs.ErrNotExist) || !seedPruneFailureMayPass(err) {
+	if err == nil || errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if !seedPruneFailureMayPass(err) {
 		return nil
 	}
 	return err
@@ -1491,7 +1494,7 @@ func (c *seedCopyClaimer) claim(batch []seedDocCopy) error {
 	added := false
 	for _, cp := range batch {
 		prior, claimed := c.claims[cp.rel]
-		if !claimed && (cp.replaced || c.ownership.recorded[cp.rel] || !seedPruneListable(cp.rel)) {
+		if !claimed && !c.claimsNew(cp) {
 			continue
 		}
 		if claim := seedCopyClaimOf(cp.data); !slices.Contains(prior, claim) {
@@ -1516,6 +1519,16 @@ func (c *seedCopyClaimer) claim(batch []seedDocCopy) error {
 	}
 	c.ownership.marker = seedPruneMarkerOurs
 	return nil
+}
+
+// claimsNew reports whether cp, at a path no claim names yet, is a new copy
+// to claim: at a path no record lists and where no file was, under
+// seed/docs.
+func (c *seedCopyClaimer) claimsNew(cp seedDocCopy) bool {
+	if cp.replaced || c.ownership.recorded[cp.rel] {
+		return false
+	}
+	return seedPruneListable(cp.rel)
 }
 
 // beginSeedPrune writes an explicit --output's pending marker once the
@@ -1561,6 +1574,11 @@ func beginSeedPrune(outputDir string, scan *seedScanResult, ownership *seedDocsO
 	for rel := range scan.writtenDocs {
 		if !ownership.manifested[rel] {
 			pending = append(pending, rel)
+			// A new copy stays claimed by its digest: until a manifest
+			// lists it, a file put in its place is not the seed's.
+			if c := scan.copyClaimer; c != nil && len(c.claims[rel]) > 0 {
+				claims[rel] = c.claims[rel]
+			}
 		}
 		if !ownership.recorded[rel] && !scan.replacedDocs[rel] {
 			unrecorded = append(unrecorded, rel)

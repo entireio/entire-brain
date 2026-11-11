@@ -1102,8 +1102,9 @@ func TestAClaimOwnsOnlyTheCopyItDescribes(t *testing.T) {
 }
 
 // TestARewrittenMarkerKeepsItsClaims: a claim a seed found matching stays a
-// claim, with its digest, whenever the marker is written again, and a copy
-// written over a claimed one adds its own digest. A rewrite used to list a
+// claim, with its digest, whenever the marker is written again, a copy
+// written over a claimed one adds its own digest, and a new copy stays
+// claimed once it is made. A rewrite used to list a
 // claimed path on its own, making whatever file is there later the seed's;
 // and a seed stopped after claiming new bytes for a claimed copy, but before
 // writing them, left a claim the old bytes no longer matched.
@@ -1118,6 +1119,7 @@ func TestARewrittenMarkerKeepsItsClaims(t *testing.T) {
 	ownership := seedDocsOwnershipOf(outputDir, false)
 	scan := &seedScanResult{RepoDir: t.TempDir(), writtenDocs: map[string]bool{}, replacedDocs: map[string]bool{}}
 	claimer := newSeedCopyClaimer(outputDir, scan, &ownership)
+	scan.copyClaimer = claimer
 	if err := claimer.claim([]seedDocCopy{
 		{rel: "seed/docs/a.md", data: newBytes, replaced: true},
 		{rel: "seed/docs/b.md", data: []byte("# B\n")},
@@ -1142,8 +1144,8 @@ func TestARewrittenMarkerKeepsItsClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 	listed, claims, _ := readSeedPruneMarkerEntries(outputDir)
-	if !slices.Equal(listed, []string{"seed/docs/a.md", "seed/docs/b.md"}) || len(claims["seed/docs/a.md"]) != 1 || len(claims["seed/docs/b.md"]) != 0 {
-		t.Fatalf("marker after beginSeedPrune = %q, %v; want a.md claimed and b.md listed", listed, claims)
+	if !slices.Equal(listed, []string{"seed/docs/a.md", "seed/docs/b.md"}) || len(claims["seed/docs/a.md"]) != 1 || len(claims["seed/docs/b.md"]) != 1 {
+		t.Fatalf("marker after beginSeedPrune = %q, %v; want a.md and the new b.md claimed", listed, claims)
 	}
 	if err := finishSeedPrune(outputDir, ownership, true); err != nil {
 		t.Fatal(err)
