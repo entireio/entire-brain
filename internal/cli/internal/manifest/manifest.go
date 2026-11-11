@@ -179,7 +179,6 @@ type FactSource struct {
 	Authored          int            `json:"authored"`
 	Imported          int            `json:"imported,omitempty"`
 	Superseded        int            `json:"superseded"`
-	Proposals         int            `json:"proposals"`
 	Verified          int            `json:"verified"`
 	Unsigned          int            `json:"unsigned"`
 	ByKind            map[string]int `json:"by_kind,omitempty"`

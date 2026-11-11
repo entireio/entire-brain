@@ -933,8 +933,8 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	for _, warning := range distillWarningsForDisplay(source.Warnings) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored, %d superseded) across %d branch(es) from %d chunks\n",
-		source.Facts, source.Distilled, source.Authored, source.Superseded, len(source.Branches), source.ChunksScanned)
+	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored, %d superseded) from %d chunks\n",
+		source.Facts, source.Distilled, source.Authored, source.Superseded, source.ChunksScanned)
 	if source.CandidatesReconciled > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "reconciled %d candidates: %d promoted without an agent call, %d adjudicated in %d similarity cluster(s) (%d agent calls)\n",
 			source.CandidatesReconciled, source.PromotedWithoutAgent,
@@ -1504,7 +1504,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		if err != nil {
 			return err
 		}
-		source = factstore.SummarizeSource(now, stored, chunksScanned, chunksDistilled, 0, warnings)
+		source = factstore.SummarizeSource(now, stored, chunksScanned, chunksDistilled, warnings)
 		source.LastDistilledAt = now
 		source.CacheHits = cacheHits
 		source.FailedChunks = failedChunks

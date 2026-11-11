@@ -130,8 +130,6 @@ type brainStatusFacts struct {
 	// explain their own numbers.
 	Imported     int            `json:"imported,omitempty"`
 	Superseded   int            `json:"superseded"`
-	Branches     int            `json:"branches"`
-	Proposals    int            `json:"proposals"`
 	Verification *verifySummary `json:"verification,omitempty"`
 	// MissingBranches names declared fact branches whose on-disk store is
 	// absent. Empty in the healthy case, so it is additive for readers.
@@ -1276,8 +1274,8 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	}
 	if f := report.Facts; f != nil {
 		fmt.Fprintln(out, "\nFacts")
-		fmt.Fprintf(out, "  counts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
-			f.Facts, f.Distilled, f.Authored, f.Superseded, f.Branches, f.Proposals)
+		fmt.Fprintf(out, "  counts: %d (%d distilled, %d authored, %d superseded)\n",
+			f.Facts, f.Distilled, f.Authored, f.Superseded)
 		// The counts above are the manifest's claim. When the store cannot
 		// produce it, say so on the next line rather than leaving a reader to
 		// assume the numbers were observed.
@@ -4576,8 +4574,6 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 				Authored:   f.Authored,
 				Imported:   f.Imported,
 				Superseded: f.Superseded,
-				Branches:   len(f.Branches),
-				Proposals:  f.Proposals,
 			}
 			// One flat store: both paths cross-check declared vs readable (the
 			// fold is one store read; the old lightweight shortcut existed to

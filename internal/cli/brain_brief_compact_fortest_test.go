@@ -82,8 +82,6 @@ func emitBrainBriefCompactV1(cmd *cobra.Command, report brainBriefReport) error 
 			// reads as an empty brain to the agent reading this packet.
 			compactV1Int("imported", facts.Imported),
 			compactV1IntAlways("superseded", facts.Superseded),
-			compactV1IntAlways("branches", facts.Branches),
-			compactV1IntAlways("proposals", facts.Proposals),
 		}
 		if verification := facts.Verification; verification != nil {
 			fields = append(fields,
@@ -1373,7 +1371,7 @@ func comprehensiveCompactV1Report() brainBriefReport {
 			Brain:   brainStatusBrain{Path: "/brain", Schema: 2, GeneratedAt: "2026-07-16T09:00:00Z"},
 			Sources: brainStatusSources{Seed: true, Sessions: true, Semantic: true, History: true, Facts: true},
 			Facts: &brainStatusFacts{
-				Facts: 4, Distilled: 3, Authored: 1, Superseded: 1, Branches: 2, Proposals: 1,
+				Facts: 4, Distilled: 3, Authored: 1, Superseded: 1,
 				Verification: &verifySummary{Facts: 3, Verified: 2, Stale: 1, Orphaned: 0, UnverifiableHere: 0, SampledOf: 4},
 			},
 			Semantic: &brainStatusSemantic{

@@ -249,7 +249,7 @@ func TestRunDistillForBrainKeepsBothOnConfidentMerge(t *testing.T) {
 	if crossLinked != 2 {
 		t.Fatalf("merged pair must be cross-linked: %+v", facts)
 	}
-	if source.Facts != 2 || source.PendingReconcile != 0 || source.Proposals != 0 {
+	if source.Facts != 2 || source.PendingReconcile != 0 {
 		t.Fatalf("manifest must count both published facts and nothing pending: %+v", source)
 	}
 }
@@ -295,7 +295,7 @@ func TestRunDistillForBrainReconcileKeepsBothOnSupersede(t *testing.T) {
 	if crossLinked != 2 {
 		t.Fatalf("conflicting pair must be cross-linked: %+v", facts)
 	}
-	if source.Facts != 2 || source.PendingReconcile != 0 || source.Proposals != 0 {
+	if source.Facts != 2 || source.PendingReconcile != 0 {
 		t.Fatalf("manifest must count both published facts and nothing pending: %+v", source)
 	}
 }

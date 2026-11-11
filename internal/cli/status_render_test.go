@@ -41,7 +41,7 @@ func statusFixtureReport(t *testing.T, blindSpotCount int) brainStatusReport {
 		Repo:        brainStatusRepo{Root: "/repo", Key: "gh/entireio/entire-brain"},
 		Brain:       brainStatusBrain{Path: "/brain", ManifestState: "current", Schema: 3, SupportedSchema: 3},
 		Sources:     brainStatusSources{Seed: true, Sessions: true, Semantic: true, Docs: true, Facts: true},
-		Facts:       &brainStatusFacts{Facts: 375, Distilled: 375, Branches: 2},
+		Facts:       &brainStatusFacts{Facts: 375, Distilled: 375},
 		Semantic: &brainStatusSemantic{
 			Coverage: &brainStatusSemanticCoverage{
 				Files:                 1179,
