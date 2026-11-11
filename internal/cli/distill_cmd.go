@@ -543,7 +543,9 @@ type distillCommandOptions struct {
 	// pulled facts count). A covered session with NO distill-cache entry is
 	// skipped instead of distilled; a session with a cache entry keeps the
 	// fingerprint-based incremental path so grown transcripts still
-	// re-dispatch. nil means "compute from the local store"; --force ignores
+	// re-dispatch. runDistill is the ONLY populate point (local store plus the
+	// hosted feed cache); nil means no coverage, identically for the dry-run
+	// plan and the run, so the two can never disagree. --force ignores
 	// coverage entirely.
 	covered map[string]bool
 	// onPassSkipped fires when the cross-process pass lock was already held, so
@@ -1781,12 +1783,6 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
 	sortDistillSessions(sessions, distillOpts.newestFirst)
 	prevCache := loadDistillCache(brainDir)
-	if distillOpts.covered == nil {
-		// In-process callers (watcher, session-end hook) reach here without a
-		// precomputed set; the local store alone still names every session this
-		// machine or a pull has facts for.
-		distillOpts.covered = coveredSessionIDs(brainDir, "")
-	}
 	// Same disambiguation the run uses, so the plan a --dry-run prints is the
 	// plan the run executes. Computed over the UNFILTERED session list for the
 	// same reason the run does: a --branch/--session filter must not change

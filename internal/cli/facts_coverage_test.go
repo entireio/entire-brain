@@ -218,3 +218,26 @@ func TestDryRunReportAccountsForCoveredSessions(t *testing.T) {
 		t.Fatalf("branch stats contradict the top-level count: %d vs %d", toDistill, report.SessionsToDistill)
 	}
 }
+
+// nil covered must mean the SAME thing to the plan and to the run: no
+// coverage. runDistill is the one place the set is computed (local store plus
+// hosted feed cache); a plan-side fallback that read only the local store made
+// the dry-run plan skip sessions a nil-covered run would distill.
+func TestDistillPlanWithNilCoveredSkipsNothing(t *testing.T) {
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	brainDir := writeOrderedDistillFixture(t, now, "old")
+	if err := factstore.Write(brainDir, []factmerge.Record{coverageRecord("fact:ffffffffffffffffffffffff", "old")}); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := bmanifest.Load(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := buildDistillPlan(brainDir, manifest, distillCommandOptions{}, "salt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.CoveredSessions != 0 || plan.SessionsToDistill != 1 {
+		t.Fatalf("nil covered must skip nothing, got covered=%d distill=%d", plan.CoveredSessions, plan.SessionsToDistill)
+	}
+}
