@@ -1059,7 +1059,9 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 	return errors.Join(err, copies.flush())
 }
 
-// prepareSeedDocs reads each document and hands its copy to copies.
+// prepareSeedDocs reads each document and queues its copy in copies, apart
+// from the writes so that writeSeedDocs still makes the copies queued before
+// a document that fails.
 func prepareSeedDocs(outputDir string, scan *seedScanResult, copies *seedDocCopies) error {
 	limit := scan.MaxFileBytes
 	if limit <= 0 {
@@ -1243,6 +1245,14 @@ type seedDocsOwnership struct {
 	// files of its own under seed/docs (another repository's, say).
 	manifested map[string]bool
 	recorded   map[string]bool
+	// claims holds, for a recorded document only a claim in the pending
+	// marker lists (seedCopyClaimer), the claim its file matched, so that a
+	// rewrite of the marker keeps it a claim. unreadClaims holds the claims
+	// whose file could not be checked, by the error that stopped it: the
+	// path is not the seed's to remove, but the marker keeps the claims for
+	// a seed that can read the file.
+	claims       map[string][]seedCopyClaim
+	unreadClaims map[string]seedUnreadClaims
 	// marker says what is at seedPrunePendingPath in an explicit --output.
 	marker seedPruneMarker
 	// stale lists, once beginSeedPrune has run, the recorded documents this
@@ -1279,15 +1289,37 @@ func seedDocsOwnershipOf(outputDir string, inBrainStore bool) seedDocsOwnership 
 			}
 		}
 	}
-	recorded := maps.Clone(manifested)
+	ownership := seedDocsOwnership{
+		manifested:   manifested,
+		recorded:     maps.Clone(manifested),
+		claims:       map[string][]seedCopyClaim{},
+		unreadClaims: map[string]seedUnreadClaims{},
+	}
 	listed, claims, marker := readSeedPruneMarkerEntries(outputDir)
+	ownership.marker = marker
 	for _, rel := range listed {
-		if claim, claimed := claims[rel]; claimed && !seedCopyMatchesClaim(outputDir, rel, claim) {
+		pathClaims, claimed := claims[rel]
+		if !claimed || manifested[rel] {
+			ownership.recorded[rel] = true
 			continue
 		}
-		recorded[rel] = true
+		claim, matched, err := seedCopyClaimMatch(outputDir, rel, pathClaims)
+		switch {
+		case err != nil:
+			ownership.unreadClaims[rel] = seedUnreadClaims{claims: pathClaims, err: err}
+		case matched:
+			ownership.recorded[rel] = true
+			ownership.claims[rel] = []seedCopyClaim{claim}
+		}
 	}
-	return seedDocsOwnership{manifested: manifested, recorded: recorded, marker: marker}
+	return ownership
+}
+
+// seedUnreadClaims are the claims for one path whose file a seed could not
+// check, and why.
+type seedUnreadClaims struct {
+	claims []seedCopyClaim
+	err    error
 }
 
 // readSeedPruneMarker reads the paths an explicit --output's pending marker
@@ -1299,10 +1331,12 @@ func readSeedPruneMarker(outputDir string) ([]string, seedPruneMarker) {
 
 // readSeedPruneMarkerEntries reads an explicit --output's pending marker:
 // the paths it lists and, for a copy a seed claimed before making it, the
-// claim (seedCopyClaimer). Only a list in the form writeSeedPruneMarker
-// writes, naming files under seed/docs, is taken as one: a file of that
-// name in a directory --update was pointed at may be that directory's own.
-func readSeedPruneMarkerEntries(outputDir string) ([]string, map[string]seedCopyClaim, seedPruneMarker) {
+// claims (seedCopyClaimer): a path may carry several, one line each. A path
+// listed on a line of its own is the seed's whatever its file holds, so it
+// has no claims. Only a list in the form writeSeedPruneMarker writes, naming
+// files under seed/docs, is taken as one: a file of that name in a directory
+// --update was pointed at may be that directory's own.
+func readSeedPruneMarkerEntries(outputDir string) ([]string, map[string][]seedCopyClaim, seedPruneMarker) {
 	text, err := brainstore.ReadBrainRelativeStateFile(outputDir, seedPrunePendingPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil, seedPruneMarkerAbsent
@@ -1312,7 +1346,8 @@ func readSeedPruneMarkerEntries(outputDir string) ([]string, map[string]seedCopy
 		return nil, nil, seedPruneMarkerForeign
 	}
 	var listed []string
-	claims := map[string]seedCopyClaim{}
+	claims := map[string][]seedCopyClaim{}
+	plain := map[string]bool{}
 	for _, line := range strings.Split(body, "\n") {
 		if line == "" {
 			continue
@@ -1325,14 +1360,23 @@ func readSeedPruneMarkerEntries(outputDir string) ([]string, map[string]seedCopy
 		if err != nil || !seedPruneListable(rel) {
 			return nil, nil, seedPruneMarkerForeign
 		}
-		if rest := line[len(quoted):]; rest != "" {
-			claim, ok := parseSeedCopyClaim(rest)
-			if !ok {
-				return nil, nil, seedPruneMarkerForeign
-			}
-			claims[rel] = claim
+		_, seen := claims[rel]
+		if !seen && !plain[rel] {
+			listed = append(listed, rel)
 		}
-		listed = append(listed, rel)
+		rest := line[len(quoted):]
+		if rest == "" {
+			plain[rel] = true
+			continue
+		}
+		claim, ok := parseSeedCopyClaim(rest)
+		if !ok {
+			return nil, nil, seedPruneMarkerForeign
+		}
+		claims[rel] = append(claims[rel], claim)
+	}
+	for rel := range plain {
+		delete(claims, rel)
 	}
 	return listed, claims, seedPruneMarkerOurs
 }
@@ -1375,19 +1419,35 @@ func seedCopyClaimOf(data []byte) seedCopyClaim {
 	return seedCopyClaim{size: int64(len(data)), digest: hex.EncodeToString(sum[:])}
 }
 
-// seedCopyMatchesClaim reports whether the file at rel is the copy claim
-// describes. A path through a symlink, a file of another size or bytes, and
-// one that cannot be read do not match.
-func seedCopyMatchesClaim(outputDir, rel string, claim seedCopyClaim) bool {
-	if clibase.RejectExistingSymlinkPathComponents(outputDir, filepath.FromSlash(rel)) != nil {
-		return false
+// seedCopyClaimMatch returns the one of claims that describes the file at
+// rel, if one does. A path through a symlink, a file that is gone or not
+// regular, and one with other bytes match none. A failure to check that may
+// pass (seedPruneFailureMayPass), such as a permission, is returned instead,
+// since it says nothing of what the file holds.
+func seedCopyClaimMatch(outputDir, rel string, claims []seedCopyClaim) (seedCopyClaim, bool, error) {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, filepath.FromSlash(rel)); err != nil {
+		return seedCopyClaim{}, false, seedClaimCheckFailure(err)
 	}
 	path := filepath.Join(outputDir, filepath.FromSlash(rel))
-	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() || info.Size() != claim.size {
-		return false
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || !slices.ContainsFunc(claims, func(c seedCopyClaim) bool { return c.size == info.Size() }) {
+		return seedCopyClaim{}, false, seedClaimCheckFailure(err)
 	}
-	data, err := clibase.SafeReadFile(path, claim.size+1)
-	return err == nil && seedCopyClaimOf(data) == claim
+	data, err := clibase.SafeReadFile(path, info.Size()+1)
+	if err != nil {
+		return seedCopyClaim{}, false, seedClaimCheckFailure(err)
+	}
+	got := seedCopyClaimOf(data)
+	return got, slices.Contains(claims, got), nil
+}
+
+// seedClaimCheckFailure is err when it may pass, and nil otherwise: a file
+// that is gone, or a check that refused a symlink, is a definite mismatch.
+func seedClaimCheckFailure(err error) error {
+	if err == nil || errors.Is(err, fs.ErrNotExist) || !seedPruneFailureMayPass(err) {
+		return nil
+	}
+	return err
 }
 
 // seedCopyClaimer journals an explicit --output's new copies in its pending
@@ -1397,12 +1457,14 @@ func seedCopyMatchesClaim(outputDir, rel string, claim seedCopyClaim) bool {
 // seed's to remove. It claims a path that no record lists and where no file
 // is yet, with the copy's size and digest (seedCopyClaim); a path that
 // already names a file may be the output's own and is not claimed. The
-// marker keeps what it already listed. beginSeedPrune rewrites it to the
-// copies actually made.
+// marker keeps what it already listed, claims with their digests: a copy
+// written over a claimed one gets its own digest added, not put in place of
+// the other, since the seed may stop before writing it. beginSeedPrune
+// rewrites the marker to the copies actually made.
 type seedCopyClaimer struct {
 	outputDir string
 	ownership *seedDocsOwnership
-	claims    map[string]seedCopyClaim
+	claims    map[string][]seedCopyClaim
 }
 
 // newSeedCopyClaimer returns the claimer for an explicit --output, or nil
@@ -1413,7 +1475,14 @@ func newSeedCopyClaimer(outputDir string, scan *seedScanResult, ownership *seedD
 	if ownership.all || ownership.marker == seedPruneMarkerForeign || seedDocsOverlapRepository(filepath.Join(outputDir, seedDirName, seedDocsDirName), scan.RepoDir) {
 		return nil
 	}
-	return &seedCopyClaimer{outputDir: outputDir, ownership: ownership, claims: map[string]seedCopyClaim{}}
+	claims := map[string][]seedCopyClaim{}
+	for rel, pathClaims := range ownership.claims {
+		claims[rel] = slices.Clone(pathClaims)
+	}
+	for rel, unread := range ownership.unreadClaims {
+		claims[rel] = slices.Clone(unread.claims)
+	}
+	return &seedCopyClaimer{outputDir: outputDir, ownership: ownership, claims: claims}
 }
 
 // claim writes the marker with the batch's new copies added, if it adds
@@ -1421,11 +1490,14 @@ func newSeedCopyClaimer(outputDir string, scan *seedScanResult, ownership *seedD
 func (c *seedCopyClaimer) claim(batch []seedDocCopy) error {
 	added := false
 	for _, cp := range batch {
-		if cp.replaced || c.ownership.recorded[cp.rel] || !seedPruneListable(cp.rel) {
+		prior, claimed := c.claims[cp.rel]
+		if !claimed && (cp.replaced || c.ownership.recorded[cp.rel] || !seedPruneListable(cp.rel)) {
 			continue
 		}
-		c.claims[cp.rel] = seedCopyClaimOf(cp.data)
-		added = true
+		if claim := seedCopyClaimOf(cp.data); !slices.Contains(prior, claim) {
+			c.claims[cp.rel] = append(prior, claim)
+			added = true
+		}
 	}
 	if !added {
 		return nil
@@ -1469,6 +1541,22 @@ func beginSeedPrune(outputDir string, scan *seedScanResult, ownership *seedDocsO
 	}
 	sort.Strings(ownership.stale)
 	pending := slices.Clone(ownership.stale)
+	claims := map[string][]seedCopyClaim{}
+	for _, rel := range ownership.stale {
+		if pathClaims, claimed := ownership.claims[rel]; claimed {
+			claims[rel] = pathClaims
+		}
+	}
+	// A claim this seed could not check stays for the next one, unless the
+	// seed wrote that path again: the copy there is then its own.
+	for rel, unread := range ownership.unreadClaims {
+		if scan.writtenDocs[rel] {
+			delete(ownership.unreadClaims, rel)
+			continue
+		}
+		pending = append(pending, rel)
+		claims[rel] = unread.claims
+	}
 	var unrecorded []string
 	for rel := range scan.writtenDocs {
 		if !ownership.manifested[rel] {
@@ -1499,7 +1587,7 @@ func beginSeedPrune(outputDir string, scan *seedScanResult, ownership *seedDocsO
 		return nil
 	}
 	sort.Strings(pending)
-	err := writeSeedPruneMarker(outputDir, pending, nil)
+	err := writeSeedPruneMarker(outputDir, pending, claims)
 	if err != nil && !seedWriteIsLive(err) {
 		ownership.unrecorded = unrecorded
 		return err
@@ -1538,15 +1626,16 @@ func removeUnrecordedSeedCopies(outputDir string, ownership seedDocsOwnership, e
 
 // writeSeedPruneMarker writes an explicit --output's pending marker listing
 // pending.
-func writeSeedPruneMarker(outputDir string, pending []string, claims map[string]seedCopyClaim) error {
+func writeSeedPruneMarker(outputDir string, pending []string, claims map[string][]seedCopyClaim) error {
 	var text strings.Builder
 	text.WriteString(seedPrunePendingListHeader)
 	for _, rel := range pending {
-		text.WriteString(strconv.Quote(rel))
-		if claim, claimed := claims[rel]; claimed {
-			text.WriteString(" " + strconv.FormatInt(claim.size, 10) + " " + claim.digest)
+		if len(claims[rel]) == 0 {
+			text.WriteString(strconv.Quote(rel) + "\n")
 		}
-		text.WriteString("\n")
+		for _, claim := range claims[rel] {
+			text.WriteString(strconv.Quote(rel) + " " + strconv.FormatInt(claim.size, 10) + " " + claim.digest + "\n")
+		}
 	}
 	return brainstore.WriteBrainRelativeFileAtomic(outputDir, seedPrunePendingPath, []byte(text.String()), 0o600)
 }
@@ -1568,17 +1657,26 @@ func finishSeedPrune(outputDir string, ownership seedDocsOwnership, retry bool) 
 		return nil
 	}
 	var left []string
+	claims := map[string][]seedCopyClaim{}
 	if retry {
 		for _, rel := range ownership.stale {
 			if _, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(rel))); !errors.Is(err, fs.ErrNotExist) {
 				left = append(left, rel)
+				if pathClaims, claimed := ownership.claims[rel]; claimed {
+					claims[rel] = pathClaims
+				}
 			}
 		}
+	}
+	for rel, unread := range ownership.unreadClaims {
+		left = append(left, rel)
+		claims[rel] = unread.claims
 	}
 	if len(left) == 0 {
 		return brainstore.RemoveBrainRelativeFile(outputDir, seedPrunePendingPath)
 	}
-	return writeSeedPruneMarker(outputDir, left, nil)
+	sort.Strings(left)
+	return writeSeedPruneMarker(outputDir, left, claims)
 }
 
 // pruneSeedDocs removes every file under seed/docs that this seed did not
@@ -1616,6 +1714,7 @@ func pruneSeedDocs(outputDir string, scan *seedScanResult, written map[string]bo
 		docsRel:       filepath.ToSlash(docsRel),
 		scan:          scan,
 		all:           ownership.all,
+		unreadClaims:  ownership.unreadClaims,
 		listed:        map[string]bool{},
 		emptied:       map[string]bool{},
 		uncheckedSeen: map[string]bool{},
@@ -1658,6 +1757,9 @@ type seedDocsPrune struct {
 	all       bool
 	written   func(rel string) bool
 	recorded  func(rel string) bool
+	// unreadClaims are the claimed paths whose file could not be checked
+	// (seedDocsOwnership.unreadClaims): left, and reported with the reason.
+	unreadClaims map[string]seedUnreadClaims
 	// files and dirs list what is under seed/docs, in walk order, and listed
 	// the names of those files; incomplete says the walk could not read all
 	// of it. emptied holds the directories a removal took a file from,
@@ -1705,6 +1807,9 @@ func (p *seedDocsPrune) visit(path string, d fs.DirEntry, err error) error {
 func (p *seedDocsPrune) consider(file seedDocsFile) {
 	switch {
 	case p.written(file.rel):
+	case p.unreadClaims[file.rel].err != nil:
+		p.scan.Warnings = append(p.scan.Warnings, fmt.Sprintf("old seed document not removed: %s: its claim could not be checked: %v", file.rel, p.unreadClaims[file.rel].err))
+		p.retry = true
 	case !p.all && !p.recorded(file.rel):
 		p.scan.Warnings = append(p.scan.Warnings, fmt.Sprintf("old seed document not removed: %s: no earlier seed of this output recorded it, so it may not be a seed's", file.rel))
 	default:

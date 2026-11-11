@@ -1045,6 +1045,7 @@ func TestReadSeedPruneMarkerTakesOnlyItsOwnList(t *testing.T) {
 		{name: "outside seed/docs", text: seedPrunePendingListHeader + strconv.Quote("seed/risks.md") + "\n", want: seedPruneMarkerForeign},
 		{name: "climbs out", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/../../x.md") + "\n", want: seedPruneMarkerForeign},
 		{name: "claim", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/a.md") + " 12 " + strings.Repeat("ab", 32) + "\n", listed: []string{"seed/docs/a.md"}, want: seedPruneMarkerOurs},
+		{name: "two claims for one path", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/a.md") + " 12 " + strings.Repeat("ab", 32) + "\n" + strconv.Quote("seed/docs/a.md") + " 13 " + strings.Repeat("cd", 32) + "\n", listed: []string{"seed/docs/a.md"}, want: seedPruneMarkerOurs},
 		{name: "claim without digest", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/a.md") + " 12\n", want: seedPruneMarkerForeign},
 		{name: "claim with short digest", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/a.md") + " 12 abcd\n", want: seedPruneMarkerForeign},
 		{name: "claim with negative size", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/a.md") + " -1 " + strings.Repeat("ab", 32) + "\n", want: seedPruneMarkerForeign},
@@ -1077,9 +1078,9 @@ func TestAClaimOwnsOnlyTheCopyItDescribes(t *testing.T) {
 		"seed/docs/made.md":  string(copyBytes),
 		"seed/docs/other.md": "# the output's own\n",
 	})
-	claims := map[string]seedCopyClaim{}
+	claims := map[string][]seedCopyClaim{}
 	for _, rel := range []string{"seed/docs/made.md", "seed/docs/other.md", "seed/docs/never.md"} {
-		claims[rel] = seedCopyClaimOf(copyBytes)
+		claims[rel] = []seedCopyClaim{seedCopyClaimOf(copyBytes)}
 	}
 	if err := writeSeedPruneMarker(outputDir, []string{"seed/docs/listed.md", "seed/docs/made.md", "seed/docs/never.md", "seed/docs/other.md"}, claims); err != nil {
 		t.Fatal(err)
@@ -1097,6 +1098,109 @@ func TestAClaimOwnsOnlyTheCopyItDescribes(t *testing.T) {
 	}
 	if ownership.marker != seedPruneMarkerOurs {
 		t.Errorf("marker = %v, want ours", ownership.marker)
+	}
+}
+
+// TestARewrittenMarkerKeepsItsClaims: a claim a seed found matching stays a
+// claim, with its digest, whenever the marker is written again, and a copy
+// written over a claimed one adds its own digest. A rewrite used to list a
+// claimed path on its own, making whatever file is there later the seed's;
+// and a seed stopped after claiming new bytes for a claimed copy, but before
+// writing them, left a claim the old bytes no longer matched.
+func TestARewrittenMarkerKeepsItsClaims(t *testing.T) {
+	t.Parallel()
+	outputDir := t.TempDir()
+	oldBytes, newBytes := []byte("# Guide\n"), []byte("# Guide, revised\n")
+	writeSeedPruneFiles(t, outputDir, map[string]string{"seed/docs/a.md": string(oldBytes)})
+	if err := writeSeedPruneMarker(outputDir, []string{"seed/docs/a.md"}, map[string][]seedCopyClaim{"seed/docs/a.md": {seedCopyClaimOf(oldBytes)}}); err != nil {
+		t.Fatal(err)
+	}
+	ownership := seedDocsOwnershipOf(outputDir, false)
+	scan := &seedScanResult{RepoDir: t.TempDir(), writtenDocs: map[string]bool{}, replacedDocs: map[string]bool{}}
+	claimer := newSeedCopyClaimer(outputDir, scan, &ownership)
+	if err := claimer.claim([]seedDocCopy{
+		{rel: "seed/docs/a.md", data: newBytes, replaced: true},
+		{rel: "seed/docs/b.md", data: []byte("# B\n")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, claims, _ := readSeedPruneMarkerEntries(outputDir)
+	if len(claims["seed/docs/a.md"]) != 2 || len(claims["seed/docs/b.md"]) != 1 {
+		t.Fatalf("claims after a batch = %v, want two for a.md and one for b.md", claims)
+	}
+	for content, want := range map[string]bool{string(oldBytes): true, string(newBytes): true, "# someone else's\n": false} {
+		writeSeedPruneFiles(t, outputDir, map[string]string{"seed/docs/a.md": content})
+		if got := seedDocsOwnershipOf(outputDir, false).recorded["seed/docs/a.md"]; got != want {
+			t.Errorf("a.md holding %q: recorded = %v, want %v", content, got, want)
+		}
+	}
+
+	// a.md is stale: this seed did not write it.
+	writeSeedPruneFiles(t, outputDir, map[string]string{"seed/docs/a.md": string(oldBytes), "seed/docs/b.md": "# B\n"})
+	scan.writtenDocs["seed/docs/b.md"] = true
+	if err := beginSeedPrune(outputDir, scan, &ownership); err != nil {
+		t.Fatal(err)
+	}
+	listed, claims, _ := readSeedPruneMarkerEntries(outputDir)
+	if !slices.Equal(listed, []string{"seed/docs/a.md", "seed/docs/b.md"}) || len(claims["seed/docs/a.md"]) != 1 || len(claims["seed/docs/b.md"]) != 0 {
+		t.Fatalf("marker after beginSeedPrune = %q, %v; want a.md claimed and b.md listed", listed, claims)
+	}
+	if err := finishSeedPrune(outputDir, ownership, true); err != nil {
+		t.Fatal(err)
+	}
+	if listed, claims, _ := readSeedPruneMarkerEntries(outputDir); !slices.Equal(listed, []string{"seed/docs/a.md"}) || len(claims["seed/docs/a.md"]) != 1 {
+		t.Fatalf("marker kept for a retry = %q, %v; want a.md still claimed", listed, claims)
+	}
+}
+
+// TestAClaimThatCannotBeCheckedIsKept: a claimed copy that cannot be read is
+// neither the seed's nor dropped. The prune leaves it and says why, and the
+// marker keeps the claim, so a seed that can read the file owns it again.
+// Such a claim used to count as a mismatch and was gone from the marker for
+// good. Root reads any file, and Windows does not stop it.
+func TestAClaimThatCannotBeCheckedIsKept(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod unreadable file semantics are not portable on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a file without permission")
+	}
+	t.Parallel()
+	outputDir := t.TempDir()
+	copyBytes := []byte("# Guide\n")
+	writeSeedPruneFiles(t, outputDir, map[string]string{"seed/docs/a.md": string(copyBytes)})
+	if err := writeSeedPruneMarker(outputDir, []string{"seed/docs/a.md"}, map[string][]seedCopyClaim{"seed/docs/a.md": {seedCopyClaimOf(copyBytes)}}); err != nil {
+		t.Fatal(err)
+	}
+	copyPath := filepath.Join(outputDir, "seed", "docs", "a.md")
+	if err := os.Chmod(copyPath, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(copyPath, 0o600) })
+
+	ownership := seedDocsOwnershipOf(outputDir, false)
+	if ownership.recorded["seed/docs/a.md"] || ownership.unreadClaims["seed/docs/a.md"].err == nil {
+		t.Fatalf("an unreadable claimed copy: recorded = %v, unread = %v; want only unread", ownership.recorded, ownership.unreadClaims)
+	}
+	scan := &seedScanResult{RepoDir: t.TempDir(), writtenDocs: map[string]bool{}, replacedDocs: map[string]bool{}}
+	if err := beginSeedPrune(outputDir, scan, &ownership); err != nil {
+		t.Fatal(err)
+	}
+	retry := pruneSeedDocs(outputDir, scan, scan.writtenDocs, ownership)
+	if !retry || !strings.Contains(strings.Join(scan.Warnings, "\n"), "its claim could not be checked") {
+		t.Errorf("prune of an unreadable claimed copy: retry = %v, warnings = %q", retry, scan.Warnings)
+	}
+	if err := finishSeedPrune(outputDir, ownership, retry); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(copyPath); err != nil {
+		t.Errorf("the unreadable copy was removed: %v", err)
+	}
+	if err := os.Chmod(copyPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !seedDocsOwnershipOf(outputDir, false).recorded["seed/docs/a.md"] {
+		t.Error("once the copy can be read, its claim no longer owns it")
 	}
 }
 
