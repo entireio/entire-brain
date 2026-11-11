@@ -4,6 +4,7 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -58,22 +59,28 @@ func TestACopyLiveButNotSyncedIsRecorded(t *testing.T) {
 // TestACopyIsClaimedBeforeItIsLive: in an --output other than the brain
 // store, the pending marker claims a new document's path before its copy is
 // renamed into place, so a seed killed while copying, which no error path
-// cleans up after, still leaves the copy the next seed's to remove. Not
-// parallel: the sync seam is process-wide.
+// cleans up after, still leaves the copy the next seed's to remove. The
+// copy checked is in the second batch of copies. Not parallel: the sync
+// seam is process-wide.
 func TestACopyIsClaimedBeforeItIsLive(t *testing.T) {
 	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
 	outputDir := filepath.Join(t.TempDir(), "out")
 	seedPruneRun(t, repoDir, outputDir, "--worktree")
-	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/new.md": "# New\n"})
+	docs := map[string]string{}
+	for i := range seedCopyBatchDocs + 1 {
+		docs[fmt.Sprintf("docs/new-%03d.md", i)] = fmt.Sprintf("# New %d\n", i)
+	}
+	writeSeedPruneFiles(t, repoDir, docs)
+	last := fmt.Sprintf("new-%03d.md", seedCopyBatchDocs)
 
-	copyPath := filepath.Join(outputDir, seedDirName, seedDocsDirName, "docs", "new.md")
+	copyPath := filepath.Join(outputDir, seedDirName, seedDocsDirName, "docs", last)
 	var claimed, seen bool
 	saved := brainstore.AtomicReplaceBeforeParentSync
 	brainstore.AtomicReplaceBeforeParentSync = func(path string) error {
 		if path == copyPath && !seen {
 			seen = true
 			listed, marker := readSeedPruneMarker(outputDir)
-			claimed = marker == seedPruneMarkerOurs && slices.Contains(listed, "seed/docs/docs/new.md")
+			claimed = marker == seedPruneMarkerOurs && slices.Contains(listed, "seed/docs/docs/"+last)
 		}
 		return nil
 	}

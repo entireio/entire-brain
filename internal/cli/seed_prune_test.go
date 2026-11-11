@@ -1009,6 +1009,11 @@ func TestReadSeedPruneMarkerTakesOnlyItsOwnList(t *testing.T) {
 		{name: "unquoted path", text: seedPrunePendingListHeader + "seed/docs/a.md\n", want: seedPruneMarkerForeign},
 		{name: "outside seed/docs", text: seedPrunePendingListHeader + strconv.Quote("seed/risks.md") + "\n", want: seedPruneMarkerForeign},
 		{name: "climbs out", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/../../x.md") + "\n", want: seedPruneMarkerForeign},
+		{name: "claim", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/a.md") + " 12 " + strings.Repeat("ab", 32) + "\n", listed: []string{"seed/docs/a.md"}, want: seedPruneMarkerOurs},
+		{name: "claim without digest", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/a.md") + " 12\n", want: seedPruneMarkerForeign},
+		{name: "claim with short digest", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/a.md") + " 12 abcd\n", want: seedPruneMarkerForeign},
+		{name: "claim with negative size", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/a.md") + " -1 " + strings.Repeat("ab", 32) + "\n", want: seedPruneMarkerForeign},
+		{name: "claim with upper-case digest", text: seedPrunePendingListHeader + strconv.Quote("seed/docs/a.md") + " 12 " + strings.Repeat("AB", 32) + "\n", want: seedPruneMarkerForeign},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -1021,6 +1026,42 @@ func TestReadSeedPruneMarkerTakesOnlyItsOwnList(t *testing.T) {
 				t.Errorf("readSeedPruneMarker = %q, %v; want %q, %v", listed, marker, tc.listed, tc.want)
 			}
 		})
+	}
+}
+
+// TestAClaimOwnsOnlyTheCopyItDescribes: a path a seed claimed before making
+// its copy is the seed's only while the file there is that copy, by size
+// and digest. A seed killed before making the copy leaves the claim; a file
+// someone puts there afterwards is not the seed's, and neither is a path
+// with nothing there.
+func TestAClaimOwnsOnlyTheCopyItDescribes(t *testing.T) {
+	t.Parallel()
+	outputDir := t.TempDir()
+	copyBytes := []byte("# Guide\n")
+	writeSeedPruneFiles(t, outputDir, map[string]string{
+		"seed/docs/made.md":  string(copyBytes),
+		"seed/docs/other.md": "# the output's own\n",
+	})
+	claims := map[string]seedCopyClaim{}
+	for _, rel := range []string{"seed/docs/made.md", "seed/docs/other.md", "seed/docs/never.md"} {
+		claims[rel] = seedCopyClaimOf(copyBytes)
+	}
+	if err := writeSeedPruneMarker(outputDir, []string{"seed/docs/listed.md", "seed/docs/made.md", "seed/docs/never.md", "seed/docs/other.md"}, claims); err != nil {
+		t.Fatal(err)
+	}
+	ownership := seedDocsOwnershipOf(outputDir, false)
+	for rel, want := range map[string]bool{
+		"seed/docs/listed.md": true,
+		"seed/docs/made.md":   true,
+		"seed/docs/other.md":  false,
+		"seed/docs/never.md":  false,
+	} {
+		if ownership.recorded[rel] != want {
+			t.Errorf("recorded[%s] = %v, want %v", rel, ownership.recorded[rel], want)
+		}
+	}
+	if ownership.marker != seedPruneMarkerOurs {
+		t.Errorf("marker = %v, want ours", ownership.marker)
 	}
 }
 
