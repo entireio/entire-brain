@@ -134,6 +134,11 @@ type seedScanResult struct {
 	// written. It fills as each document is written, so a write that fails
 	// part way still says which copies are on disk.
 	writtenDocs map[string]bool
+	// replacedDocs holds the written paths that already named a file when
+	// this seed wrote them: an earlier copy, under this spelling or another
+	// the filesystem folds to it, or a file no seed recorded. A seed that
+	// stops early does not remove those (removeUnrecordedSeedCopies).
+	replacedDocs map[string]bool
 }
 
 func newSeedCommand(opts Options) *cobra.Command {
@@ -1043,8 +1048,8 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 	if limit <= 0 {
 		limit = defaultSeedMaxFileBytes
 	}
-	written := map[string]bool{}
-	scan.writtenDocs = written
+	scan.writtenDocs = map[string]bool{}
+	scan.replacedDocs = map[string]bool{}
 	for i := range scan.Docs {
 		doc := &scan.Docs[i]
 		cleanSrc := filepath.Clean(filepath.FromSlash(doc.Path))
@@ -1096,7 +1101,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			}
 			rendered := renderExtractedDocument(doc.Path, text)
 			doc.Bytes = int64(len(rendered))
-			if err := writeSeedDocCopy(outputDir, filepath.ToSlash(cleanDst), []byte(rendered), written); err != nil {
+			if err := writeSeedDocCopy(outputDir, filepath.ToSlash(cleanDst), []byte(rendered), scan); err != nil {
 				return err
 			}
 			continue
@@ -1119,21 +1124,26 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		if truncated {
 			data = append(data, []byte("\n\n[truncated]\n")...)
 		}
-		if err := writeSeedDocCopy(outputDir, filepath.ToSlash(cleanDst), data, written); err != nil {
+		if err := writeSeedDocCopy(outputDir, filepath.ToSlash(cleanDst), data, scan); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// writeSeedDocCopy writes one document's copy and adds it to written once
-// it is on disk, which includes a write that reports the replacement live
-// but not durably synced: the copy is there, and the marker and the prune
-// must know it is this seed's.
-func writeSeedDocCopy(outputDir, rel string, data []byte, written map[string]bool) error {
+// writeSeedDocCopy writes one document's copy and adds it to
+// scan.writtenDocs once it is on disk, which includes a write that reports
+// the replacement live but not durably synced: the copy is there, and the
+// marker and the prune must know it is this seed's. A path that named a file
+// before the write, or that cannot be checked, also goes in
+// scan.replacedDocs. The caller has refused symlinked components of rel.
+func writeSeedDocCopy(outputDir, rel string, data []byte, scan *seedScanResult) error {
+	if _, err := os.Lstat(filepath.Join(outputDir, filepath.FromSlash(rel))); !errors.Is(err, fs.ErrNotExist) {
+		scan.replacedDocs[rel] = true
+	}
 	err := brainstore.WriteBrainRelativeFileAtomic(outputDir, rel, data, 0o600)
 	if err == nil || seedWriteIsLive(err) {
-		written[rel] = true
+		scan.writtenDocs[rel] = true
 	}
 	return err
 }
@@ -1173,9 +1183,9 @@ type seedDocsOwnership struct {
 	// seed did not write: the ones its prune is to remove.
 	stale []string
 	// unrecorded lists, once beginSeedPrune has run, the copies this seed
-	// made that no record lists, when it could not record them: a seed
-	// that then stops before its manifest removes them
-	// (removeUnrecordedSeedCopies).
+	// made where no file was before (not scan.replacedDocs) and that no
+	// record lists, when it could not record them: a seed that then stops
+	// before its manifest removes them (removeUnrecordedSeedCopies).
 	unrecorded []string
 }
 
@@ -1250,7 +1260,7 @@ func readSeedPruneMarker(outputDir string) ([]string, seedPruneMarker) {
 // seed/docs overlaps the repository (nothing is pruned there), or when a
 // file of that name is not a seed's. In that last case, and when the
 // marker cannot be written, ownership.unrecorded lists the copies no record
-// holds.
+// holds that are where no file was before this seed.
 func beginSeedPrune(outputDir string, scan *seedScanResult, ownership *seedDocsOwnership) error {
 	if ownership.all || seedDocsOverlapRepository(filepath.Join(outputDir, seedDirName, seedDocsDirName), scan.RepoDir) {
 		return nil
@@ -1267,7 +1277,7 @@ func beginSeedPrune(outputDir string, scan *seedScanResult, ownership *seedDocsO
 		if !ownership.manifested[rel] {
 			pending = append(pending, rel)
 		}
-		if !ownership.recorded[rel] {
+		if !ownership.recorded[rel] && !scan.replacedDocs[rel] {
 			unrecorded = append(unrecorded, rel)
 		}
 	}
@@ -1305,8 +1315,11 @@ func markBrainStorePrunePending(outputDir string, ownership seedDocsOwnership) e
 // lists (ownership.unrecorded) because it is stopping, with err, before its
 // manifest lists them: left there, a copy whose source is gone before the
 // next seed would be kept as not a seed's and stay searchable. Each was
-// written by this seed, at a path no seed recorded. A copy it cannot remove
-// is named in the error returned with err.
+// written by this seed, at a path no seed recorded and where no file was
+// before it: a path that named one, such as a recorded document under
+// another spelling the filesystem folds to it or a file that is not a
+// seed's, is left as a file, though with this seed's bytes. A copy it cannot
+// remove is named in the error returned with err.
 func removeUnrecordedSeedCopies(outputDir string, ownership seedDocsOwnership, err error) error {
 	errs := []error{err}
 	for _, rel := range ownership.unrecorded {

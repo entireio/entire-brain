@@ -657,32 +657,13 @@ func TestFailedManifestWriteInAnotherOutputKeepsWhatItWroteOwned(t *testing.T) {
 	seedPruneRun(t, repoDir, outputDir, "--worktree")
 	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/new.md": "# New\n\nThe zebra pipeline.\n"})
 
-	manifestPath := filepath.Join(outputDir, bmanifest.FileName)
-	saved, err := os.ReadFile(manifestPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fileIndex := filepath.Join(outputDir, seedDirName, "file-index.json")
-	runner := &seedStatusHookRunner{hook: func() bool {
-		// The final worktree check is the last step before the manifest
-		// write, so breaking the manifest here makes that write fail.
-		data, err := os.ReadFile(fileIndex)
-		if err != nil || !strings.Contains(string(data), "new.md") {
-			return false
-		}
-		writeSeedPruneFiles(t, outputDir, map[string]string{bmanifest.FileName: "{not json"})
-		return true
-	}}
-	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: runner}
-	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--output", outputDir, "--worktree", "--update", repoDir); err == nil || !runner.fired {
-		t.Fatalf("the seed did not fail at its manifest write (fired %v): %v\n%s", runner.fired, err, out)
-	}
+	saved := refreshSeedFailingItsManifestWrite(t, repoDir, outputDir, "docs/new.md")
 	assertSeedDoc(t, outputDir, "docs/new.md", true)
 	if listed, marker := readSeedPruneMarker(outputDir); marker != seedPruneMarkerOurs || !slices.Contains(listed, "seed/docs/docs/new.md") {
 		t.Fatalf("the marker = %q, %v; want it to list the document the failed seed wrote", listed, marker)
 	}
 
-	if err := os.WriteFile(manifestPath, saved, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, bmanifest.FileName), saved, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(repoDir, "docs", "new.md")); err != nil {
@@ -694,6 +675,75 @@ func TestFailedManifestWriteInAnotherOutputKeepsWhatItWroteOwned(t *testing.T) {
 	if _, marker := readSeedPruneMarker(outputDir); marker != seedPruneMarkerAbsent {
 		t.Errorf("the marker is still there after a seed removed what it listed (%v)", marker)
 	}
+}
+
+// refreshSeedFailingItsManifestWrite runs a --worktree --update refresh of
+// outputDir that breaks the manifest at the final worktree check, once the
+// new file index lists wantDoc, so the manifest write right after it fails.
+// It returns the manifest as it was before, to put back.
+func refreshSeedFailingItsManifestWrite(t *testing.T, repoDir, outputDir, wantDoc string) []byte {
+	t.Helper()
+	saved, err := os.ReadFile(filepath.Join(outputDir, bmanifest.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileIndex := filepath.Join(outputDir, seedDirName, "file-index.json")
+	runner := &seedStatusHookRunner{hook: func() bool {
+		data, err := os.ReadFile(fileIndex)
+		if err != nil || !strings.Contains(string(data), wantDoc) {
+			return false
+		}
+		writeSeedPruneFiles(t, outputDir, map[string]string{bmanifest.FileName: "{not json"})
+		return true
+	}}
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: runner}
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--output", outputDir, "--worktree", "--update", repoDir); err == nil || !runner.fired {
+		t.Fatalf("the seed did not fail at its manifest write (fired %v): %v\n%s", runner.fired, err, out)
+	}
+	return saved
+}
+
+// TestAStoppedSeedLeavesAFileThatWasThereBeforeIt: in an --output other than
+// the brain store whose pending-marker file is not a seed's, a seed that
+// stops before its manifest lists its copies removes them, but not one at a
+// path that already named a file no seed recorded. That file is the
+// output's own; the seed replaced its bytes, as a seed always has, and must
+// not delete it as well.
+func TestAStoppedSeedLeavesAFileThatWasThereBeforeIt(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
+	outputDir := seedPruneRepo(t, map[string]string{seedPrunePendingPath: "this repository's own\n"})
+	seedPruneRun(t, repoDir, outputDir, "--worktree", "--update")
+	writeSeedPruneFiles(t, outputDir, map[string]string{"seed/docs/docs/new.md": "# the output's own\n"})
+	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/new.md": "# New\n"})
+
+	refreshSeedFailingItsManifestWrite(t, repoDir, outputDir, "docs/new.md")
+	assertSeedDoc(t, outputDir, "docs/new.md", true)
+}
+
+// TestAStoppedSeedLeavesADocumentRenamedOnlyInCase runs where the filesystem
+// folds case. A recorded docs/Guide.md renamed docs/guide.md is written
+// over the same file, so the new spelling, which no record lists, is that
+// recorded document: a seed that stops before its manifest, with a
+// pending-marker file that is not a seed's, must not remove it.
+func TestAStoppedSeedLeavesADocumentRenamedOnlyInCase(t *testing.T) {
+	probe := t.TempDir()
+	if err := os.WriteFile(filepath.Join(probe, "case"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(probe, "CASE")); err != nil {
+		t.Skip("filesystem is case-sensitive")
+	}
+	repoDir := seedPruneRepo(t, map[string]string{
+		"README.md":     "# readme\n",
+		"docs/Guide.md": "# Guide\n",
+	})
+	outputDir := seedPruneRepo(t, map[string]string{seedPrunePendingPath: "this repository's own\n"})
+	seedPruneRun(t, repoDir, outputDir, "--worktree", "--update")
+	gitAt(t, repoDir, "mv", "docs/Guide.md", "docs/renaming.md")
+	gitAt(t, repoDir, "mv", "docs/renaming.md", "docs/guide.md")
+
+	refreshSeedFailingItsManifestWrite(t, repoDir, outputDir, "docs/guide.md")
+	assertSeedDoc(t, outputDir, "docs/Guide.md", true)
 }
 
 // TestRefusedRefreshInAnotherOutputKeepsWhatItWroteOwned: in an --output
