@@ -2,6 +2,7 @@ package base
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -50,13 +51,128 @@ func TestResolvePluginDirsUsesXDGDefaultsUnderEntireRoot(t *testing.T) {
 	// Data mirrors the host's plugin-data namespace so a standalone/dev run hits
 	// the real brain store; config/state/cache stay at the bare XDG root (the host
 	// leaves those env vars unset too).
-	if dirs.Data != filepath.Join(xdg, "data", "entire", "plugins", "data", PluginDataName) {
-		t.Fatalf("Data = %q", dirs.Data)
+	//
+	// The data root is the one dir whose rule is OS-dependent, because the host
+	// ignores XDG on Windows and reads %LOCALAPPDATA% instead. Config, state and
+	// cache stay on the XDG rule everywhere, which is why only this assertion
+	// branches.
+	wantDataRoot := filepath.Join(xdg, "data", "entire")
+	if runtime.GOOS == windowsGOOS {
+		localAppData := filepath.Join(xdg, "localappdata")
+		t.Setenv(EnvLocalAppData, localAppData)
+		wantDataRoot = filepath.Join(localAppData, "entire")
+		// Re-resolve: the env var above was set after the first call.
+		dirs, err = ResolvePluginDirs(EntireEnv{})
+		if err != nil {
+			t.Fatalf("resolve plugin dirs: %v", err)
+		}
+	}
+	if dirs.Data != filepath.Join(wantDataRoot, "plugins", "data", PluginDataName) {
+		t.Fatalf("Data = %q, want under %q", dirs.Data, wantDataRoot)
 	}
 	if dirs.State != filepath.Join(xdg, "state", "entire") {
 		t.Fatalf("State = %q", dirs.State)
 	}
 	if dirs.Cache != filepath.Join(xdg, "cache", "entire") {
 		t.Fatalf("Cache = %q", dirs.Cache)
+	}
+}
+
+// The brain and the host CLI must resolve the same plugin data root, or a
+// standalone brain reads an empty store and reports "no brain built for this
+// repository" — a confident wrong answer rather than an error. On Unix both
+// sides already use XDG then ~/.local/share; Windows is where they diverged.
+//
+// These exercise the Windows rule from any machine by passing the target OS
+// explicitly, the same way planBrainWatchDaemon is golden-tested for darwin and
+// linux from one host. One caveat they cannot escape: filepath.IsAbs is
+// host-dependent, so a literal "C:\\..." is not absolute on darwin. The inputs
+// below are therefore host-absolute temp dirs, and the genuinely Windows-shaped
+// paths are covered by this same code running on the Windows CI leg.
+
+func TestWindowsPluginDataRootMirrorsTheHostLayout(t *testing.T) {
+	localAppData := t.TempDir()
+	home := t.TempDir()
+
+	got, err := windowsPluginDataRoot(localAppData, home)
+	if err != nil {
+		t.Fatalf("with LOCALAPPDATA: %v", err)
+	}
+	if want := filepath.Join(localAppData, XDGRootDir); got != want {
+		t.Fatalf("with LOCALAPPDATA: got %q, want %q", got, want)
+	}
+
+	got, err = windowsPluginDataRoot("", home)
+	if err != nil {
+		t.Fatalf("without LOCALAPPDATA: %v", err)
+	}
+	if want := filepath.Join(home, "AppData", "Local", XDGRootDir); got != want {
+		t.Fatalf("without LOCALAPPDATA: got %q, want %q", got, want)
+	}
+}
+
+// A relative %LOCALAPPDATA% is discarded rather than joined. The host requires
+// an absolute one, so honouring a relative value here would invent a third
+// location instead of agreeing with the host or with the home fallback.
+func TestWindowsPluginDataRootDiscardsRelativeLocalAppData(t *testing.T) {
+	home := t.TempDir()
+
+	got, err := windowsPluginDataRoot(filepath.Join("relative", "appdata"), home)
+	if err != nil {
+		t.Fatalf("relative LOCALAPPDATA: %v", err)
+	}
+	if want := filepath.Join(home, "AppData", "Local", XDGRootDir); got != want {
+		t.Fatalf("relative LOCALAPPDATA: got %q, want %q", got, want)
+	}
+
+	if _, err := windowsPluginDataRoot("", ""); err == nil {
+		t.Fatal("no LOCALAPPDATA and no home: want an error, got nil")
+	}
+}
+
+// The dispatched path must be unaffected on every OS: when the host sets
+// ENTIRE_PLUGIN_DATA_DIR, that value wins outright and neither XDG nor
+// LOCALAPPDATA is consulted.
+func TestResolvePluginDataRootPrefersTheHostSuppliedDir(t *testing.T) {
+	hostDir := t.TempDir()
+	t.Setenv(EnvLocalAppData, t.TempDir())
+	t.Setenv(XDGDataHome, t.TempDir())
+
+	for _, goos := range []string{windowsGOOS, "linux", "darwin"} {
+		got, err := resolvePluginDataRoot(hostDir, goos)
+		if err != nil {
+			t.Fatalf("goos %s: %v", goos, err)
+		}
+		if got != hostDir {
+			t.Fatalf("goos %s: got %q, want the host-supplied %q", goos, got, hostDir)
+		}
+	}
+}
+
+// The divergence itself: with no host-supplied dir, Windows must follow
+// LOCALAPPDATA and ignore XDG_DATA_HOME, while every other OS keeps the XDG
+// rule untouched.
+func TestResolvePluginDataRootIgnoresXDGOnWindowsOnly(t *testing.T) {
+	localAppData := t.TempDir()
+	xdgData := t.TempDir()
+	t.Setenv(EnvLocalAppData, localAppData)
+	t.Setenv(XDGDataHome, xdgData)
+
+	got, err := resolvePluginDataRoot("", windowsGOOS)
+	if err != nil {
+		t.Fatalf("windows: %v", err)
+	}
+	if want := filepath.Join(localAppData, XDGRootDir); got != want {
+		t.Fatalf("windows: got %q, want %q (XDG_DATA_HOME must be ignored)", got, want)
+	}
+
+	for _, goos := range []string{"linux", "darwin"} {
+		got, err := resolvePluginDataRoot("", goos)
+		if err != nil {
+			t.Fatalf("goos %s: %v", goos, err)
+		}
+		if want := filepath.Join(xdgData, XDGRootDir); got != want {
+			t.Fatalf("goos %s: got %q, want %q (XDG rule must be unchanged)", goos, got, want)
+		}
 	}
 }
