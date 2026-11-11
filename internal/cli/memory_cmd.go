@@ -63,8 +63,6 @@ func newMemoryCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newMemoryRepairCommand(opts))
 	cmd.AddCommand(newMemoryRebuildCommand(opts))
 	cmd.AddCommand(newMemoryMigrateCommand(opts))
-	cmd.AddCommand(newMemoryConfigureCommand(opts))
-	cmd.AddCommand(newMemoryAbstractCommand(opts))
 	return cmd
 }
 
@@ -166,11 +164,6 @@ func launchDetachedSelf(repoDir string, args ...string) error {
 	go func() { _ = command.Wait() }()
 	return nil
 }
-
-// memoryAbstractCancellationPollInterval bounds how long a running abstract
-// provider can miss a durable cancellation request. It is a variable only so
-// race tests can prove cancellation without sleeping for production time.
-var memoryAbstractCancellationPollInterval = 5 * time.Second
 
 // memoryWorkerChildEnvironment replaces inherited routing values instead of
 // appending duplicates. Workspace/watch processes can be bound to repo A while
@@ -643,7 +636,6 @@ func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, 
 			// disposable receipt cannot suppress repair until pruning.
 			if existing.State == memoryJobStateComplete {
 				existing.AvailableAt = now
-				existing.AbstractOverride = nil // automatic retry uses current repository configuration
 				updated, terr := recordTransition(existing, memoryJobStatePending)
 				if terr != nil {
 					return created, terr
@@ -673,102 +665,6 @@ func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, 
 			CreatedAt: now, AvailableAt: now,
 		}
 		if err := recordCreate(job); err != nil {
-			return created, err
-		}
-		byID[jobID] = job
-		created++
-	}
-	return created, nil
-}
-
-func reconcileAbstractJobsLocked(brainDir, trigger string, now time.Time) (created int, err error) {
-	if err := rejectAutomaticAbstractReconciliationForGlobalNoEgress(brainDir); err != nil {
-		return 0, err
-	}
-	manifest, err := bmanifest.Load(brainDir)
-	if err != nil {
-		return 0, err
-	}
-	if manifest.Sources == nil || manifest.Sources.History == nil {
-		return 0, nil
-	}
-	fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
-	if err != nil {
-		return 0, nil // deterministic projection is not current yet
-	}
-	views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest)
-	inventory := loadMemoryJobInventory(brainDir)
-	if err := memoryJobEnumerationError(inventory.Issues); err != nil {
-		return 0, err
-	}
-	jobs := inventory.Jobs
-	byID := make(map[string]memoryJob, len(jobs))
-	for _, job := range jobs {
-		byID[job.JobID] = job
-	}
-	abstracts := newSessionAbstractResolver(brainDir)
-	refs := make([]string, 0, len(views))
-	for ref := range views {
-		refs = append(refs, ref)
-	}
-	sort.Strings(refs)
-	for _, ref := range refs {
-		view := views[ref]
-		if len(view.Records) == 0 {
-			continue
-		}
-		request, requestErr := automaticAbstractWorkRequestWithResolver(brainDir, view, abstracts)
-		if requestErr != nil {
-			return created, requestErr
-		}
-		if request == nil {
-			continue
-		}
-		jobID := memoryJobID(manifest.RepoKey, request.SessionRef, request.SessionDigest, memoryJobKindSessionAbstract)
-		if _, blocked := inventory.issueForJobID(jobID); blocked {
-			continue
-		}
-		if existing, exists := byID[jobID]; exists {
-			// The current abstract artifact, not a terminal work record, is the
-			// proof. Missing/corrupt disposable output reactivates its job.
-			if existing.State == memoryJobStateComplete {
-				existing.AvailableAt = now
-				updated, terr := transitionMemoryJob(brainDir, existing, memoryJobStatePending, now, "")
-				if terr != nil {
-					return created, terr
-				}
-				byID[jobID] = updated
-			}
-			continue
-		}
-		for _, old := range byID {
-			if old.Kind != memoryJobKindSessionAbstract || old.SessionRef != request.SessionRef || old.InputDigest == request.SessionDigest {
-				continue
-			}
-			switch old.State {
-			case memoryJobStatePending, memoryJobStateRunning, memoryJobStateRetryable, memoryJobStateInvalid, memoryJobStateComplete:
-				updated, terr := transitionMemoryJob(brainDir, old, memoryJobStateSuperseded, now, "")
-				if terr != nil {
-					return created, terr
-				}
-				byID[updated.JobID] = updated
-			}
-		}
-		job := memoryJob{
-			SchemaVersion: memoryJobSchemaVersion,
-			JobID:         jobID,
-			Kind:          memoryJobKindSessionAbstract,
-			RepoKey:       manifest.RepoKey,
-			SessionID:     view.Records[0].SessionID,
-			SessionRef:    request.SessionRef,
-			Branch:        conversationCanonicalBranch(view.Records[0], manifest),
-			InputDigest:   request.SessionDigest,
-			Trigger:       trigger,
-			State:         memoryJobStatePending,
-			CreatedAt:     now,
-			AvailableAt:   now,
-		}
-		if err := saveMemoryJob(brainDir, job); err != nil {
 			return created, err
 		}
 		byID[jobID] = job
@@ -873,9 +769,6 @@ func maintainMemoryWorkerStateLocked(brainDir string, now time.Time, snapshot *m
 	}
 	inventory := loadMemoryJobInventory(brainDir)
 	if err := memoryJobEnumerationError(inventory.Issues); err != nil {
-		return stats, err
-	}
-	if _, err := reconcileStaleAbstractEgressReceiptsLocked(brainDir, now); err != nil {
 		return stats, err
 	}
 	stats.JobsPruned, err = pruneMemoryJobsLocked(brainDir, inventory.Jobs, now)
@@ -1165,228 +1058,6 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 	return stats, err
 }
 
-func runMemoryAbstractLane(ctx context.Context, repoDir, brainDir string, now time.Time, owner string) (memoryWorkerStats, error) {
-	return runMemoryAbstractLaneWithClock(ctx, repoDir, brainDir, fixedMemoryClock(now), owner)
-}
-
-func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir string, clock memoryClock, owner string) (memoryWorkerStats, error) {
-	var stats memoryWorkerStats
-	var claimed *memoryJob
-	claimAt := memoryClockNow(clock)
-	err := brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
-		created, err := reconcileAbstractJobsLocked(brainDir, "worker", claimAt)
-		if err != nil {
-			return err
-		}
-		stats.JobsCreated = created
-		inventory := loadMemoryJobInventory(brainDir)
-		if err := memoryJobEnumerationError(inventory.Issues); err != nil {
-			return err
-		}
-		jobs := inventory.Jobs
-		for _, candidate := range runnableMemoryJobs(jobs, claimAt) {
-			if candidate.Kind != memoryJobKindSessionAbstract {
-				continue
-			}
-			if err := rejectMemoryAbstractJobForGlobalNoEgress(brainDir, candidate); err != nil {
-				return err
-			}
-			if candidate.State == memoryJobStateRetryable {
-				candidate, err = transitionMemoryJob(brainDir, candidate, memoryJobStatePending, claimAt, "")
-				if err != nil {
-					return err
-				}
-			}
-			running, err := transitionMemoryJob(brainDir, candidate, memoryJobStateRunning, claimAt, "")
-			if err != nil {
-				return err
-			}
-			running.OwnerToken = owner
-			heartbeat := claimAt
-			running.HeartbeatAt = &heartbeat
-			if err := saveMemoryJob(brainDir, running); err != nil {
-				return err
-			}
-			if request, err := loadMemoryCancellationRequest(brainDir, running.JobID); err != nil {
-				return err
-			} else if request != nil {
-				running.CancelRequestedAt = &request.RequestedAt
-				if _, err := transitionMemoryJob(brainDir, running, memoryJobStateCancelled, memoryClockNow(clock), ""); err != nil {
-					return err
-				}
-				if err := removeMemoryCancellationRequest(brainDir, running.JobID); err != nil {
-					return err
-				}
-				stats.JobsCancelled++
-				return nil
-			}
-			claimed = &running
-			break // one bounded abstract lane item per pass
-		}
-		return nil
-	})
-	if err != nil || claimed == nil {
-		return stats, err
-	}
-
-	// The provider runs without the Brain lock, so ordinary Brain-locked
-	// deterministic work and cancellation requests continue while egress is in
-	// flight.
-	providerCtx, cancelProvider := context.WithCancel(ctx)
-	defer cancelProvider()
-	runDone := make(chan error, 1)
-	go func() {
-		runDone <- runSessionAbstractJobGuardedWithOverride(providerCtx, repoDir, brainDir, claimed.SessionRef, claimed.InputDigest, claimAt, claimed.AbstractOverride, func() error {
-			current, err := memoryJobByID(brainDir, claimed.JobID)
-			if err != nil {
-				return err
-			}
-			if current.State != memoryJobStateRunning || current.OwnerToken != owner || !equalMemoryAbstractJobOverride(current.AbstractOverride, claimed.AbstractOverride) {
-				return fmt.Errorf("%s: abstract job ownership or provider selection changed before publication", brainstore.StateCorruptCode)
-			}
-			request, err := loadMemoryCancellationRequest(brainDir, claimed.JobID)
-			if err != nil {
-				return err
-			}
-			if request != nil {
-				return errMemoryCancellationRequested
-			}
-			return nil
-		})
-	}()
-	runDeterministicPass := func() error {
-		pass, err := runMemoryProjectionLaneWithClock(ctx, brainDir, clock, owner)
-		stats.add(pass)
-		return err
-	}
-	ticker := time.NewTicker(memoryAbstractCancellationPollInterval)
-	defer ticker.Stop()
-	var runErr error
-	var deterministicErr error
-	waiting := true
-	for waiting {
-		select {
-		case runErr = <-runDone:
-			waiting = false
-		case <-ticker.C:
-			request, cancelErr := loadMemoryCancellationRequest(brainDir, claimed.JobID)
-			if cancelErr != nil {
-				deterministicErr = cancelErr
-				cancelProvider()
-				runErr = <-runDone
-				waiting = false
-				continue
-			}
-			if request != nil {
-				cancelProvider()
-				runErr = <-runDone
-				waiting = false
-				continue
-			}
-			if err := runDeterministicPass(); err != nil {
-				deterministicErr = err
-				cancelProvider()
-				runErr = <-runDone
-				waiting = false
-			}
-		case <-ctx.Done():
-			cancelProvider()
-			runErr = <-runDone
-			waiting = false
-		}
-	}
-	if deterministicErr == nil {
-		if err := runDeterministicPass(); err != nil {
-			deterministicErr = err
-		}
-	}
-	// The abstract job's outcome is the PROVIDER result alone. The deterministic
-	// pass runs alongside it as a liveness and cancellation check, and its
-	// failure is reported through this lane's return value below; folding it
-	// into the settle decision marked a job whose artifact was already
-	// published (and whose hosted egress was already paid) as retryable_error,
-	// so the next pass re-ran it and paid the provider a second time for
-	// identical content. Where a deterministic failure genuinely aborted the
-	// run, it cancelled the provider first, so runErr is itself non-nil and the
-	// retryable path still fires.
-	settleErr := runErr
-	err = brainstore.WithBrainWriteLockSettlement(ctx, brainDir, func() error {
-		settledAt := memoryClockNow(clock)
-		current, err := memoryJobByID(brainDir, claimed.JobID)
-		if err != nil {
-			return err
-		}
-		if current.State != memoryJobStateRunning || current.OwnerToken != owner {
-			return fmt.Errorf("memory_state_corrupt: abstract job ownership changed during execution")
-		}
-		cancelRequest, err := loadMemoryCancellationRequest(brainDir, current.JobID)
-		if err != nil {
-			return err
-		}
-		if errors.Is(settleErr, errMemoryCancellationRequested) || (cancelRequest != nil && settleErr != nil) {
-			requestedAt := settledAt
-			if cancelRequest != nil {
-				requestedAt = cancelRequest.RequestedAt
-			}
-			current.CancelRequestedAt = &requestedAt
-			_, err = transitionMemoryJob(brainDir, current, memoryJobStateCancelled, settledAt, "")
-			if err != nil {
-				return err
-			}
-			if err := removeMemoryCancellationRequest(brainDir, current.JobID); err != nil {
-				return err
-			}
-			stats.JobsCancelled++
-			return nil
-		}
-		if cancelRequest != nil {
-			if err := removeMemoryCancellationRequest(brainDir, current.JobID); err != nil {
-				return err
-			} // publish already committed: cancellation is too late
-		}
-		if settleErr != nil {
-			_, err = transitionMemoryJob(brainDir, current, memoryJobStateRetryable, settledAt, memoryOperationalError(settleErr))
-			if err == nil {
-				stats.JobsRetried++
-			}
-			return err
-		}
-		_, err = transitionMemoryJob(brainDir, current, memoryJobStateComplete, settledAt, "")
-		if err == nil {
-			stats.JobsCompleted++
-		}
-		return err
-	})
-	if err != nil {
-		return stats, err
-	}
-	if deterministicErr != nil {
-		// The lane still REPORTS both failures; only the job's settle decision
-		// above is provider-only.
-		return stats, errors.Join(deterministicErr, runErr)
-	}
-	return stats, nil
-}
-
-func runMemoryAbstractDrain(ctx context.Context, repoDir, brainDir string, now time.Time, owner string, limit int) (memoryWorkerStats, error) {
-	return runMemoryAbstractDrainWithClock(ctx, repoDir, brainDir, fixedMemoryClock(now), owner, limit)
-}
-
-func runMemoryAbstractDrainWithClock(ctx context.Context, repoDir, brainDir string, clock memoryClock, owner string, limit int) (memoryWorkerStats, error) {
-	var total memoryWorkerStats
-	for i := 0; i < limit; i++ {
-		item, err := runMemoryAbstractLaneWithClock(ctx, repoDir, brainDir, clock, owner)
-		if err != nil {
-			return total, err
-		}
-		total.add(item)
-		if item.JobsCompleted+item.JobsRetried+item.JobsCancelled == 0 {
-			break
-		}
-	}
-	return total, nil
-}
-
 func newMemoryWorkerCommand(opts Options) *cobra.Command {
 	var once bool
 	var delay time.Duration
@@ -1543,13 +1214,6 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				outcome = "failed"
 				return err
 			}
-			const abstractJobsPerPass = 8
-			abstractStats, err := runMemoryAbstractDrainWithClock(cmd.Context(), repoDir, storage.BrainDir, clock, coordinator.token, abstractJobsPerPass)
-			if err != nil {
-				outcome = "failed"
-				return err
-			}
-			stats.add(abstractStats)
 			if next, ok, err := nextMemoryWorkerDelay(storage.BrainDir, opts.Now().UTC()); err != nil {
 				outcome = "failed"
 				return err

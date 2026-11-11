@@ -1496,7 +1496,6 @@ model or by fetching over the network:
 - fact distillation with `distill --agent ...`
 - query expansion with `recall --expand`
 - pattern verification and skill synthesis
-- explicitly configured session-abstract generation
 - judged evaluation commands
 - `memories sync` pushes and pulls repository memories with the hosted
   memory set over the per-fact wire; opt-in and off by default, requiring the

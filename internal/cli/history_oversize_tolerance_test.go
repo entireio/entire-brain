@@ -239,7 +239,7 @@ func TestShortTermDeltaRefusesEveryBoundBreachExceptTheTranscriptCap(t *testing.
 	}
 
 	// Any other input-too-large error is NOT a statement about one file.
-	other := fmt.Errorf("%s: bounded abstract input exceeds 16 bytes", brainstore.InputTooLargeCode)
+	other := fmt.Errorf("%s: bounded input exceeds 16 bytes", brainstore.InputTooLargeCode)
 	if !shortTermCanonicalInputRefusal(other) {
 		t.Fatalf("a non-transcript bound breach stopped refusing the delta: %v", other)
 	}

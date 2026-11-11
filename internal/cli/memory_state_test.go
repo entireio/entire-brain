@@ -973,59 +973,6 @@ func TestMemoryBranchlessHintRequiresExactlyOneScope(t *testing.T) {
 	}
 }
 
-func TestMemoryAutomaticAbstractUsesDurableLane(t *testing.T) {
-	brainDir, _ := writeSessionNavigationFixture(t)
-	now := time.Date(2026, 8, 9, 15, 0, 0, 0, time.UTC)
-	config := loadMemoryConfig(brainDir)
-	config.Abstracts.Enabled = true
-	config.Abstracts.Automatic = true
-	config.Abstracts.Provider = "fake"
-	if err := saveMemoryConfig(brainDir, config); err != nil {
-		t.Fatal(err)
-	}
-	oldFactory := memoryAbstractorFactory
-	defer func() { memoryAbstractorFactory = oldFactory }()
-	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) {
-		return &fakeAbstractor{}, nil
-	}
-	coordinator, err := acquireMemoryCoordinator(brainDir, now, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer coordinator.close(now.Add(time.Minute), "complete")
-	stats, err := runMemoryAbstractLane(context.Background(), t.TempDir(), brainDir, now, coordinator.token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stats.JobsCreated != 1 || stats.JobsCompleted != 1 {
-		t.Fatalf("abstract lane stats = %+v", stats)
-	}
-	jobs, issues := loadMemoryJobsChecked(brainDir)
-	if err := memoryStateError(issues); err != nil {
-		t.Fatal(err)
-	}
-	if len(jobs) != 1 || jobs[0].Kind != memoryJobKindSessionAbstract || jobs[0].State != memoryJobStateComplete {
-		t.Fatalf("abstract jobs = %+v", jobs)
-	}
-	if status, artifact := sessionAbstractStatus(brainDir, sessionViewForTest(t, brainDir)); status != abstractStatusCurrent || artifact == nil {
-		t.Fatalf("abstract status = %s artifact=%+v", status, artifact)
-	}
-	view := sessionViewForTest(t, brainDir)
-	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(abstractRel(sessionViewDigest(view))))); err != nil {
-		t.Fatal(err)
-	}
-	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		_, err := reconcileAbstractJobsLocked(brainDir, "repair", now.Add(time.Minute))
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	reactivated, err := memoryJobByID(brainDir, jobs[0].JobID)
-	if err != nil || reactivated.State != memoryJobStatePending {
-		t.Fatalf("missing abstract did not reactivate complete job: %+v err=%v", reactivated, err)
-	}
-}
-
 func TestMemoryMissingProjectionReceiptReactivatesCompletedJob(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	now := time.Date(2026, 8, 9, 17, 0, 0, 0, time.UTC)
@@ -1421,122 +1368,6 @@ func TestMemoryCancelRaceReportsTooLateAndRemovesMarker(t *testing.T) {
 	}
 }
 
-type firstFailureAbstractor struct {
-	calls int
-}
-
-func (f *firstFailureAbstractor) Identity() (string, string, string) {
-	return "local", "ollama", "fake-1"
-}
-
-func (f *firstFailureAbstractor) Abstract(ctx context.Context, repoDir string, input conversationAbstractInput) (sessionAbstract, error) {
-	f.calls++
-	if f.calls == 1 {
-		return sessionAbstract{}, errors.New("simulated provider failure with secret detail")
-	}
-	return (&fakeAbstractor{}).Abstract(ctx, repoDir, input)
-}
-
-type advancingFailureAbstractor struct {
-	advance func()
-}
-
-func (f *advancingFailureAbstractor) Identity() (string, string, string) {
-	return "local", "ollama", "fake-1"
-}
-
-func (f *advancingFailureAbstractor) Abstract(context.Context, string, conversationAbstractInput) (sessionAbstract, error) {
-	f.advance()
-	return sessionAbstract{}, errors.New("simulated long provider failure")
-}
-
-func TestMemoryLongProviderFailureBacksOffFromSettlementTime(t *testing.T) {
-	brainDir, _, _ := shortTermFixture(t)
-	startedAt := time.Date(2026, 8, 9, 20, 0, 0, 0, time.UTC)
-	_ = runMemoryProjectionLaneTest(t, brainDir, startedAt)
-	config := loadMemoryConfig(brainDir)
-	config.Abstracts.Enabled = true
-	config.Abstracts.Automatic = true
-	config.Abstracts.Provider = "fake"
-	if err := saveMemoryConfig(brainDir, config); err != nil {
-		t.Fatal(err)
-	}
-	current := startedAt
-	provider := &advancingFailureAbstractor{advance: func() { current = current.Add(2 * time.Minute) }}
-	oldFactory := memoryAbstractorFactory
-	defer func() { memoryAbstractorFactory = oldFactory }()
-	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) { return provider, nil }
-	coordinator, err := acquireMemoryCoordinator(brainDir, startedAt, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer coordinator.close(current, "complete")
-	stats, err := runMemoryAbstractLaneWithClock(context.Background(), t.TempDir(), brainDir, func() time.Time { return current }, coordinator.token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stats.JobsRetried != 1 {
-		t.Fatalf("abstract lane stats = %+v", stats)
-	}
-	var retry memoryJob
-	for _, job := range loadMemoryJobs(brainDir) {
-		if job.Kind == memoryJobKindSessionAbstract && job.State == memoryJobStateRetryable {
-			retry = job
-			break
-		}
-	}
-	if retry.JobID == "" || retry.FinishedAt == nil {
-		t.Fatalf("retryable abstract job missing: %+v", retry)
-	}
-	settledAt := startedAt.Add(2 * time.Minute)
-	if !retry.FinishedAt.Equal(settledAt) || !retry.AvailableAt.Equal(settledAt.Add(time.Minute)) {
-		t.Fatalf("retry timing: finished=%v available=%v, want settlement=%v available=%v", retry.FinishedAt, retry.AvailableAt, settledAt, settledAt.Add(time.Minute))
-	}
-	if runnable := runnableMemoryJobs([]memoryJob{retry}, settledAt); len(runnable) != 0 {
-		t.Fatalf("long-running failure retried immediately: %+v", runnable)
-	}
-	logData, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(memoryWorkerLogRel)))
-	if err != nil || !strings.Contains(string(logData), settledAt.Format(time.RFC3339)+" event=job_retryable_error_") {
-		t.Fatalf("retry transition log did not use settlement clock: err=%v log=%s", err, logData)
-	}
-}
-
-func TestMemoryAbstractDrainContinuesAfterFailure(t *testing.T) {
-	brainDir, _, _ := shortTermFixture(t)
-	now := time.Date(2026, 8, 9, 21, 0, 0, 0, time.UTC)
-	_ = runMemoryProjectionLaneTest(t, brainDir, now)
-	config := loadMemoryConfig(brainDir)
-	config.Abstracts.Enabled = true
-	config.Abstracts.Automatic = true
-	config.Abstracts.Provider = "fake"
-	if err := saveMemoryConfig(brainDir, config); err != nil {
-		t.Fatal(err)
-	}
-	provider := &firstFailureAbstractor{}
-	oldFactory := memoryAbstractorFactory
-	defer func() { memoryAbstractorFactory = oldFactory }()
-	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) { return provider, nil }
-	coordinator, err := acquireMemoryCoordinator(brainDir, now, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer coordinator.close(now.Add(time.Minute), "complete")
-	stats, err := runMemoryAbstractDrain(context.Background(), t.TempDir(), brainDir, now, coordinator.token, 8)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stats.JobsCreated != 2 || stats.JobsRetried != 1 || stats.JobsCompleted != 1 || provider.calls != 2 {
-		t.Fatalf("drain stats=%+v provider_calls=%d", stats, provider.calls)
-	}
-	for _, job := range loadMemoryJobs(brainDir) {
-		if job.Kind == memoryJobKindSessionAbstract && job.State == memoryJobStateRetryable {
-			if job.Error == nil || job.Error.Code != "memory_operation_failed" || strings.Contains(job.Error.Detail, "secret") {
-				t.Fatalf("job error is not structured/redacted: %+v", job.Error)
-			}
-		}
-	}
-}
-
 func TestMemoryReconcileWorkerAndReceipts(t *testing.T) {
 	brainDir, changedRel, _ := shortTermFixture(t)
 	now := time.Date(2026, 8, 8, 14, 0, 0, 0, time.UTC)
@@ -1635,4 +1466,32 @@ func TestMemoryReconcileWorkerAndReceipts(t *testing.T) {
 		t.Fatalf("states after supersede = %+v", states)
 	}
 
+}
+
+func TestNextMemoryWorkerDelayIgnoresLegacyAbstractJobs(t *testing.T) {
+	brainDir := t.TempDir()
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	legacy := memoryJob{
+		Kind: memoryJobKindSessionAbstract, RepoKey: "gh/example/repo", SessionID: "sess",
+		SessionRef: "conversation-session:scope", InputDigest: "sha256:a",
+		State: memoryJobStatePending, CreatedAt: now.Add(-time.Hour), AvailableAt: now.Add(-time.Hour),
+	}
+	legacy.JobID = memoryJobID(legacy.RepoKey, legacy.SessionRef, legacy.InputDigest, legacy.Kind)
+	if err := saveMemoryJob(brainDir, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if delay, ok, err := nextMemoryWorkerDelay(brainDir, now); err != nil || ok {
+		t.Fatalf("legacy abstract job scheduled a relaunch: delay=%v ok=%v err=%v", delay, ok, err)
+	}
+	projection := legacy
+	projection.Kind = memoryJobKindProjection
+	projection.InputDigest = "sha256:b"
+	projection.AvailableAt = now.Add(time.Minute)
+	projection.JobID = memoryJobID(projection.RepoKey, projection.SessionRef, projection.InputDigest, projection.Kind)
+	if err := saveMemoryJob(brainDir, projection); err != nil {
+		t.Fatal(err)
+	}
+	if delay, ok, err := nextMemoryWorkerDelay(brainDir, now); err != nil || !ok || delay != time.Minute {
+		t.Fatalf("projection delay = %v ok=%v err=%v, want 1m", delay, ok, err)
+	}
 }

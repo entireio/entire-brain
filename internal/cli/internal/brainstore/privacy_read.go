@@ -1,16 +1,13 @@
 package brainstore
 
 import (
-	"errors"
 	"fmt"
-	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
-)
 
-const privacyInventoryMaxEntries = 10_000
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+)
 
 // PrivacyArtifactInfo is the common fail-closed leaf check used by privacy
 // inventory and verification. In particular, it lstat's before any open so a
@@ -64,54 +61,6 @@ func ReadPrivacyArtifact(brainDir, rel, label string, maxBytes int64) ([]byte, b
 		return nil, true, fmt.Errorf("%s: read %s %s: %w", StateCorruptCode, label, filepath.ToSlash(clean), err)
 	}
 	return data, true, nil
-}
-
-// ReadPrivacyDirectory reads a bounded inventory without following symlinks.
-// Like PrivacyArtifactInfo, it reports present=false only for confirmed absence.
-// Open failures and oversized inventories are unsafe, not evidence of corruption.
-func ReadPrivacyDirectory(brainDir, rel, label string) ([]os.DirEntry, bool, error) {
-	clean, err := clibase.CleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
-	if err != nil {
-		return nil, true, fmt.Errorf("%s: %s has an unsafe path %q: %w", StateUnsafeCode, label, rel, err)
-	}
-	if err := clibase.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
-		return nil, true, fmt.Errorf("%s: inspect %s %s: %w", StateUnsafeCode, label, filepath.ToSlash(clean), err)
-	}
-	info, err := PrivacyLstat(filepath.Join(brainDir, clean))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, false, nil
-		}
-		return nil, true, fmt.Errorf("%s: inspect %s %s: %w", StateCorruptCode, label, filepath.ToSlash(clean), err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return nil, true, fmt.Errorf("%s: %s is not a directory: %s", StateUnsafeCode, label, filepath.ToSlash(clean))
-	}
-	path := filepath.Join(brainDir, clean)
-	dir, err := PrivacyOpen(path, os.O_RDONLY|clibase.FileLockOpenFlags()|clibase.MemoryStateReadOpenFlags(), 0)
-	if err != nil {
-		return nil, true, fmt.Errorf("%s: open %s %s: %w", StateUnsafeCode, label, filepath.ToSlash(clean), err)
-	}
-	defer dir.Close()
-	pathInfo, err := PrivacyLstat(path)
-	if err != nil {
-		return nil, true, fmt.Errorf("%s: validate opened %s %s: %w", StateCorruptCode, label, filepath.ToSlash(clean), err)
-	}
-	dirInfo, err := dir.Stat()
-	if err != nil {
-		return nil, true, fmt.Errorf("%s: validate opened %s %s: %w", StateCorruptCode, label, filepath.ToSlash(clean), err)
-	}
-	if pathInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(pathInfo, dirInfo) || !dirInfo.IsDir() {
-		return nil, true, fmt.Errorf("%s: %s changed or became unsafe while opening: %s", StateUnsafeCode, label, filepath.ToSlash(clean))
-	}
-	entries, err := PrivacyReadDir(dir, privacyInventoryMaxEntries+1)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, true, fmt.Errorf("%s: read %s %s: %w", StateCorruptCode, label, filepath.ToSlash(clean), err)
-	}
-	if len(entries) > privacyInventoryMaxEntries {
-		return nil, true, fmt.Errorf("%s: %s %s exceeds %d entries", StateUnsafeCode, label, filepath.ToSlash(clean), privacyInventoryMaxEntries)
-	}
-	return entries, true, nil
 }
 
 var (
