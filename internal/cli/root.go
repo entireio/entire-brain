@@ -57,6 +57,12 @@ func Execute(version string) error {
 	})
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// The first ctrl-c cancels the context (children die through
+	// exec.CommandContext); unregistering the handler right then means a
+	// SECOND ctrl-c falls through to the default action and kills the
+	// process. Without this, NotifyContext swallows every later SIGINT, and
+	// any phase slow to honor cancellation reads as unkillable.
+	context.AfterFunc(ctx, stop)
 	if os.Getenv(parentwatch.DetachedEnv) != "" {
 		ctx = brainstore.BackgroundWrites(ctx)
 	}

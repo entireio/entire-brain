@@ -342,3 +342,23 @@ func TestFormatCountGroupsThousands(t *testing.T) {
 		}
 	}
 }
+
+// Ctrl-c cancels the command context; the best-effort phases must not march
+// on through a canceled run (observed: the build swallowed per-component
+// failures and setup continued to install and prompt).
+func TestSetupAbortsOnACanceledContext(t *testing.T) {
+	f := newSetupTestFixture(t, "s1")
+	rec := &recordedSetup{agent: "codex"}
+	opts := defaultSetupOptions()
+	out := &bytes.Buffer{}
+	cmd := setupTestCommand(t, out, opts)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := runSetup(ctx, cmd, f.opts, opts, f.repoDir, rec.steps(f))
+	if err == nil || !strings.Contains(err.Error(), "interrupted") {
+		t.Fatalf("a canceled context must abort setup, got %v", err)
+	}
+	if rec.installCalls != 0 || rec.spawnCalls != 0 {
+		t.Fatalf("a canceled run must install and spend nothing: installs=%d spawns=%d", rec.installCalls, rec.spawnCalls)
+	}
+}

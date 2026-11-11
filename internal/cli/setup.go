@@ -962,6 +962,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		return err
 	}
 
+	if err := setupInterrupted(ctx); err != nil {
+		return err
+	}
 	// Phase 2 — BUILD. Per-component BEST-EFFORT: a component that fails is
 	// reported as one line and the phase carries on, because first-run
 	// onboarding must not die on one broken source. Losing the workspace, the
@@ -1085,6 +1088,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// still has a working brain — so a failure is one warning, never an exit
 	// code.
 
+	if err := setupInterrupted(ctx); err != nil {
+		return err
+	}
 	// Phase 3 — AGENTS. The hooks that make every later session feed the brain
 	// without anyone remembering to run anything.
 	agentsPhase := run.Begin(setupui.PhaseAgents)
@@ -1124,6 +1130,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		ui.ShortWarning(agentWarning, brainCmd)
 	}
 
+	if err := setupInterrupted(ctx); err != nil {
+		return err
+	}
 	// Phase 4 — FACTS. The only phase that can spend money, and the only one
 	// that asks first.
 	backfillStarted := time.Now()
@@ -1139,6 +1148,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
 	}
 
+	if err := setupInterrupted(ctx); err != nil {
+		return err
+	}
 	// Phase 5 — WORKSPACE.
 	workspaceStarted := time.Now()
 	workspacePhase := run.Begin(setupui.PhaseWorkspace)
@@ -1169,6 +1181,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		}
 	}
 
+	if err := setupInterrupted(ctx); err != nil {
+		return err
+	}
 	// Phase 6 — WATCHER. Nine reasons, one line. Whichever of them applies is
 	// the line; none of them is worth a row of its own.
 	daemonStarted := time.Now()
@@ -1490,6 +1505,18 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 // clear line and never an error: a machine with no agent CLI, or a repo with no
 // captured sessions yet, is a completely valid setup — it just has no facts to
 // extract.
+
+// setupInterrupted aborts a canceled run at the next phase boundary. The
+// phases are deliberately best-effort about their OWN failures, which made a
+// ctrl-c (context cancellation) invisible: every component failed quietly and
+// setup marched on to install the watcher and ask about spend.
+func setupInterrupted(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("setup interrupted")
+	}
+	return nil
+}
+
 // setupNoteWriter re-emits the sync engine's stderr lines through the sink, so
 // a line never lands mid-spinner (observed: "(20s)hosted sync: pushed…" glued
 // to the live task). The stats line is dropped here: its counts settle into

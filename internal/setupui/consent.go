@@ -250,6 +250,48 @@ func erasePrompt(out io.Writer, lines int) {
 	fmt.Fprintf(out, "\x1b[%dA\x1b[J", lines)
 }
 
+// stripTerminalNoise removes escape sequences and control bytes the TERMINAL
+// put on the line, not the person: arrow keys pressed while an earlier phase
+// ran, and query replies (cursor position, background color) a full-screen
+// prompt left in the stdin buffer. Observed live: "\x1b[B\x1b[Bn" — a plain n
+// after two fidgety arrow presses — was rejected as garbage and the question
+// re-asked.
+func stripTerminalNoise(line string) string {
+	var b strings.Builder
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if c == 0x1b {
+			i++
+			if i >= len(line) {
+				break
+			}
+			switch line[i] {
+			case '[': // CSI: parameter bytes, then one final byte in 0x40–0x7e
+				for i++; i < len(line) && (line[i] < 0x40 || line[i] > 0x7e); i++ {
+				}
+			case ']': // OSC: runs to BEL or ESC-backslash
+				for i++; i < len(line); i++ {
+					if line[i] == 0x07 {
+						break
+					}
+					if line[i] == 0x1b && i+1 < len(line) && line[i+1] == '\\' {
+						i++
+						break
+					}
+				}
+			case 'O': // SS3: one final byte
+				i++
+			}
+			continue
+		}
+		if c < 0x20 || c == 0x7f {
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
 // question is the prompt itself. "[y/N]" is not decoration: the capital is the
 // default, and it is the default.
 const question = "Distill now? [y/N]"
@@ -276,7 +318,7 @@ func askTwice(in io.Reader, out io.Writer, r *Renderer, compact bool) (answer, p
 		// prompt line, so each attempt occupies exactly one line for the erase.
 		lines++
 		line, err := reader.ReadString('\n')
-		got := strings.ToLower(strings.TrimSpace(line))
+		got := strings.ToLower(strings.TrimSpace(stripTerminalNoise(line)))
 		if err != nil && got == "" {
 			// EOF, a closed stdin, an interrupt that shut the pipe: No, with a
 			// newline so the next line does not land beside the prompt.
