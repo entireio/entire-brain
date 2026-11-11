@@ -258,8 +258,11 @@ func RunRemember(ctx context.Context, cmd *cobra.Command, cfg Config, rememberOp
 	// Large legacy verification must happen after the writer releases its lock.
 	if cleanup, err := factstore.CleanupLegacy(brainDir); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory cleanup deferred: %v\n", err)
-	} else if cleanup.State == "retained" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory cleanup retained recovery data: %v\n", cleanup.Retained)
+	} else if cleanup.State == "retained" && factstore.CleanupNoticeDue(brainDir, cleanup) {
+		// Gated on change and summarized to one line; the full list lives in
+		// facts/.cleanup-status.json and `memories storage`.
+		fmt.Fprintf(cmd.ErrOrStderr(), "\nwarning: memory cleanup kept recovery data from the pre-flat memory store; run `%s memories storage` for details\n\n",
+			base.SetupBrainCommand(base.SetupCommandPrefix(os.LookupEnv)))
 	}
 	record.Kind = storedKind // report what was actually persisted
 	// After the write, never before: a subscriber must not be told about a fact
