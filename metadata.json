@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M766BC3Y1TE5G9ZYG0F7HZR9",
+  "strategy": "manual-commit",
+  "branch": "evisdren/brain-setup-warning-wording",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/facts_admin_test.go",
+    "internal/cli/repo_fact_storage_cmd.go",
+    "internal/setupui/terse.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 48,
+    "cache_creation_tokens": 1217454,
+    "cache_read_tokens": 13595408,
+    "output_tokens": 11765,
+    "api_call_count": 24,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  },
+  "redaction": {
+    "replacements": 38,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 4,
+      "key_context": 34,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
