@@ -818,6 +818,48 @@ func TestSeedThatCannotRecordItsCopiesRemovesThem(t *testing.T) {
 	assertDocIndexLacks(t, outputDir, "zebra pipeline")
 }
 
+// TestReadmeFailureKeepsTheCopiesItsPublishedManifestLists: in an --output
+// other than the brain store that holds a pending-marker file no seed wrote,
+// a new copy has no record until the new manifest lists it. A seed whose
+// README write fails has already published that manifest, so its copies stay
+// recorded and in place, and the next seed still removes one whose source is
+// gone.
+func TestReadmeFailureKeepsTheCopiesItsPublishedManifestLists(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
+	outputDir := seedPruneRepo(t, map[string]string{seedPrunePendingPath: "this repository's own\n"})
+	seedPruneRun(t, repoDir, outputDir, "--update")
+	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/new.md": "# New\n\nThe zebra pipeline.\n"})
+	gitAt(t, repoDir, "add", "docs/new.md")
+	gitAt(t, repoDir, "commit", "-q", "-m", "add new doc")
+	readme := filepath.Join(outputDir, exportReadmeFileName)
+	if err := os.Remove(readme); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(readme, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: ExecRunner{}}
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--output", outputDir, "--update", repoDir); err == nil {
+		t.Fatalf("seed succeeded with a README it cannot write:\n%s", out)
+	}
+	manifest, err := bmanifest.Load(outputDir)
+	if err != nil || manifest.Sources == nil || manifest.Sources.Seed == nil ||
+		!slices.ContainsFunc(manifest.Sources.Seed.Documents, func(doc seedDocument) bool { return doc.SeedPath == "seed/docs/docs/new.md" }) {
+		t.Fatalf("the published manifest does not list the new copy: %v", err)
+	}
+	assertSeedDoc(t, outputDir, "docs/new.md", true)
+
+	if err := os.Remove(readme); err != nil {
+		t.Fatal(err)
+	}
+	gitAt(t, repoDir, "rm", "-q", "docs/new.md")
+	gitAt(t, repoDir, "commit", "-q", "-m", "drop new doc")
+	seedPruneRun(t, repoDir, outputDir, "--update")
+	assertSeedDoc(t, outputDir, "docs/new.md", false)
+	assertDocIndexLacks(t, outputDir, "zebra pipeline")
+}
+
 // TestBrainStoreSeedThatCannotMarkItsPruneCopiesNothing: the brain store's
 // pending marker goes down before any copy, so a seed that cannot write it
 // (seed/ is read-only, seed/docs is not) copies nothing into seed/docs that

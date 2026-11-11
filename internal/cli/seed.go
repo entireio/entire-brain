@@ -385,7 +385,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		// gets one only to carry the seed's documents that one of the two
 		// manifests does not list (beginSeedPrune).
 		if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
-			if seedWriteIsLive(err) {
+			if seedManifestIsPublished(err) {
 				return err
 			}
 			return removeUnrecordedSeedCopies(outputDir, ownership, err)
@@ -1144,6 +1144,15 @@ func writeSeedDocCopy(outputDir, rel string, data []byte, written map[string]boo
 func seedWriteIsLive(err error) bool {
 	var live *brainstore.AtomicReplaceDurabilityError
 	return errors.As(err, &live)
+}
+
+// seedManifestIsPublished reports whether a failed manifest write still left
+// the new manifest in place, listing every copy this seed wrote: its rename
+// took effect (seedWriteIsLive), or only the README written after it failed.
+// Those copies are then recorded and stay.
+func seedManifestIsPublished(err error) bool {
+	var readme *brainReadmeWriteError
+	return seedWriteIsLive(err) || errors.As(err, &readme)
 }
 
 // seedDocsOwnership says which files under seed/docs a prune may remove.

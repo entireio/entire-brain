@@ -235,11 +235,18 @@ func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) erro
 			return fmt.Errorf("write %s: %w", bmanifest.FileName, err)
 		}
 		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, exportReadmeFileName, []byte(renderBrainReadme(manifest)), 0o600); err != nil {
-			return fmt.Errorf("write brain readme: %w", err)
+			return &brainReadmeWriteError{err: fmt.Errorf("write brain readme: %w", err)}
 		}
 		return nil
 	})
 }
+
+// brainReadmeWriteError is a README write that failed after the manifest it
+// describes was published: the manifest on disk is already the new one.
+type brainReadmeWriteError struct{ err error }
+
+func (e *brainReadmeWriteError) Error() string { return e.err.Error() }
+func (e *brainReadmeWriteError) Unwrap() error { return e.err }
 
 func renderBrainReadme(manifest exportManifest) string {
 	if manifest.Sources == nil || (manifest.Sources.Seed == nil && manifest.Sources.Semantic == nil && manifest.Sources.History == nil) {
