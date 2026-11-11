@@ -90,7 +90,6 @@ type factsStatusCounts struct {
 	Distilled         int `json:"distilled"`
 	Authored          int `json:"authored"`
 	Imported          int `json:"imported"`
-	Proposals         int `json:"proposals"`
 	ProvenanceAnchors int `json:"provenance_anchors"`
 	VerifiedAnchors   int `json:"verified_anchors"`
 	UnsignedAnchors   int `json:"unsigned_anchors"`
@@ -264,7 +263,6 @@ func (counts *factsStatusCounts) add(other factsStatusCounts) {
 	counts.Distilled += other.Distilled
 	counts.Authored += other.Authored
 	counts.Imported += other.Imported
-	counts.Proposals += other.Proposals
 	counts.ProvenanceAnchors += other.ProvenanceAnchors
 	counts.VerifiedAnchors += other.VerifiedAnchors
 	counts.UnsignedAnchors += other.UnsignedAnchors
@@ -307,14 +305,13 @@ func printFactsStatus(cmd *cobra.Command, report factsStatusReport) {
 
 func printFactsStatusCounts(cmd *cobra.Command, counts factsStatusCounts) {
 	fmt.Fprintf(cmd.OutOrStdout(),
-		"active=%d total=%d distilled=%d authored=%d superseded=%d retracted=%d proposals=%d verified_anchors=%d unsigned_anchors=%d\n",
+		"active=%d total=%d distilled=%d authored=%d superseded=%d retracted=%d verified_anchors=%d unsigned_anchors=%d\n",
 		counts.Active,
 		counts.Facts,
 		counts.Distilled,
 		counts.Authored,
 		counts.Superseded,
 		counts.Retracted,
-		counts.Proposals,
 		counts.VerifiedAnchors,
 		counts.UnsignedAnchors,
 	)

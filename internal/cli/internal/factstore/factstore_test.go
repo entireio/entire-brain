@@ -118,12 +118,9 @@ func TestSummarizeFactSource(t *testing.T) {
 		{ID: "fact:main-2", Branch: "main", Origin: factstore.OriginAuthored, Status: factmerge.StatusActive, Provenance: []factmerge.Anchor{{SessionID: "s2"}}},
 		{ID: "fact:feature-1", Branch: "feature", Origin: factstore.OriginDistilled, Status: factmerge.StatusSuperseded, Provenance: []factmerge.Anchor{{SessionID: "s3"}}},
 	}
-	source := factstore.SummarizeSource(now, records, 100, 7, 4, []string{"w"})
+	source := factstore.SummarizeSource(now, records, 100, 7, []string{"w"})
 	if source.Facts != 3 {
 		t.Errorf("Facts = %d, want 3", source.Facts)
-	}
-	if source.Proposals != 4 {
-		t.Errorf("Proposals = %d, want 4", source.Proposals)
 	}
 	if source.Distilled != 2 || source.Authored != 1 {
 		t.Errorf("origin counts wrong: distilled=%d authored=%d", source.Distilled, source.Authored)
@@ -149,7 +146,7 @@ func TestSummarizeFactSource(t *testing.T) {
 	// its own damage as whole on the next `remember` or `refresh`, hiding the
 	// loss from the integrity cross-check that reads this number back.
 	records = append(records, factmerge.Record{Status: factmerge.StatusActive, Origin: factstore.OriginAuthored})
-	if got := factstore.SummarizeSource(now, records, 100, 7, 4, nil).Facts; got != 3 {
+	if got := factstore.SummarizeSource(now, records, 100, 7, nil).Facts; got != 3 {
 		t.Errorf("Facts = %d after adding an id-less line, want 3", got)
 	}
 }

@@ -66,10 +66,6 @@ type brainBriefOptions struct {
 	noSemantic  bool
 	graphBinary string
 	profileJSON string
-	// packetFormat selects an experimental compact serialization; the CLI
-	// "brief" verb selects between its text and JSON renderers with json above,
-	// and only the profiling path renders the compact packets.
-	packetFormat brainBriefPacketFormat
 	// surface names the caller for serve receipts; empty means the CLI
 	// "brief" verb.
 	surface string
@@ -134,8 +130,6 @@ type brainStatusFacts struct {
 	// explain their own numbers.
 	Imported     int            `json:"imported,omitempty"`
 	Superseded   int            `json:"superseded"`
-	Branches     int            `json:"branches"`
-	Proposals    int            `json:"proposals"`
 	Verification *verifySummary `json:"verification,omitempty"`
 	// MissingBranches names declared fact branches whose on-disk store is
 	// absent. Empty in the healthy case, so it is additive for readers.
@@ -1280,8 +1274,8 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	}
 	if f := report.Facts; f != nil {
 		fmt.Fprintln(out, "\nFacts")
-		fmt.Fprintf(out, "  counts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
-			f.Facts, f.Distilled, f.Authored, f.Superseded, f.Branches, f.Proposals)
+		fmt.Fprintf(out, "  counts: %d (%d distilled, %d authored, %d superseded)\n",
+			f.Facts, f.Distilled, f.Authored, f.Superseded)
 		// The counts above are the manifest's claim. When the store cannot
 		// produce it, say so on the next line rather than leaving a reader to
 		// assume the numbers were observed.
@@ -1395,10 +1389,6 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 			line := fmt.Sprintf("  conversation: %d exchanges", c.Exchanges)
 			if c.IncompleteExchanges > 0 {
 				line += fmt.Sprintf(" (%d incomplete)", c.IncompleteExchanges)
-			}
-			line += ", vectors " + c.VectorState
-			if c.VectorState == "current" {
-				line += fmt.Sprintf(" (%d, %s)", c.Vectors, c.VectorModelID)
 			}
 			fmt.Fprintln(out, line)
 		}
@@ -1773,8 +1763,8 @@ func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefO
 			status.Live.Head, task, receiptFactIDs)
 	}
 	// Every brief response is buffered so a render failure emits nothing;
-	// emitBrainBriefPacket dispatches text, legacy JSON, and the compact
-	// formats alike, so one wrapper covers all of them.
+	// emitBrainBriefPacket dispatches the text and JSON renderers alike, so
+	// one wrapper covers both.
 	if profile == nil {
 		var packet bytes.Buffer
 		packetCmd := &cobra.Command{}
@@ -4580,8 +4570,6 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 				Authored:   f.Authored,
 				Imported:   f.Imported,
 				Superseded: f.Superseded,
-				Branches:   len(f.Branches),
-				Proposals:  f.Proposals,
 			}
 			// One flat store: both paths cross-check declared vs readable (the
 			// fold is one store read; the old lightweight shortcut existed to

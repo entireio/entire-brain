@@ -7,6 +7,18 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Changed
 
+- Dead-code sweep (COR-2317). Removed: the retired semantic-relevance
+  calibration, the experimental compact brief serializers (no CLI flag ever
+  selected them; the brief renders text and JSON), the `--confidence` distill
+  flag (production reconcile never applied confidence; the old default stays
+  frozen inside existing cache keys), the proposal-framework counters
+  (always-zero `proposals`/`branches` in status, the brief and the detailed
+  status JSON), always-"removed" conversation vector-state render lines, and
+  four uncalled factgitmeta methods. The legacy store cleanup now also sweeps
+  known orphan files of removed subsystems (old `proposals.ndjson`,
+  per-branch `vitality.*` copies, `embeddings/`) so emptied branch
+  directories actually disappear instead of logging "retained" forever.
+
 - `ENTIRE_BRAIN_MEMORIES_BACKEND` is the canonical spelling of the memories
   sync backend variable; `ENTIRE_BRAIN_FACTS_BACKEND` keeps working as a
   fallback, like the `--facts-backend` flag alias. `docs/reference.md` now

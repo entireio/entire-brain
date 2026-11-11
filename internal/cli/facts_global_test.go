@@ -787,22 +787,6 @@ func TestBriefLabelsGlobalFactsAndChecksOnlyLocalLoci(t *testing.T) {
 	}
 }
 
-func TestCompactBriefLabelsGlobalFacts(t *testing.T) {
-	opts, _ := retrievalSurfaceFixture(t)
-	for _, format := range []brainBriefPacketFormat{brainBriefPacketCompactV1, brainBriefPacketCompactV2, brainBriefPacketCompactV3} {
-		cmd := &cobra.Command{}
-		var out bytes.Buffer
-		cmd.SetOut(&out)
-		cmd.SetErr(&bytes.Buffer{})
-		if err := runBrainBrief(context.Background(), cmd, opts, brainBriefOptions{limit: 10, packetFormat: format}, "orion"); err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(out.String(), "Memories from the global store") {
-			t.Fatalf("%s lost global scope: %s", format, out.String())
-		}
-	}
-}
-
 func TestUnifiedRetrievalChecksOnlyLocalLoci(t *testing.T) {
 	opts, brainDir := retrievalSurfaceFixture(t)
 	rememberGlobal(t, opts, "orion convention uses db/migrations/global.sql")
