@@ -778,6 +778,79 @@ func TestFailedDocumentWriteInAnotherOutputKeepsWhatItWroteOwned(t *testing.T) {
 	assertDocIndexLacks(t, outputDir, "zebra pipeline")
 }
 
+// TestSeedThatCannotRecordItsCopiesRemovesThem: in an --output other than
+// the brain store whose seed/ is read-only but whose seed/docs is not, a
+// seed copies a new document, then fails to write the file index and the
+// pending marker alike. No record would list the copy, so the seed removes
+// it rather than leave it searchable once its source is gone. Root writes
+// any directory and Windows does not stop it.
+func TestSeedThatCannotRecordItsCopiesRemovesThem(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod read-only directory semantics are not portable on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root writes a directory without permission")
+	}
+	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
+	outputDir := filepath.Join(t.TempDir(), "out")
+	seedPruneRun(t, repoDir, outputDir, "--worktree")
+	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/new.md": "# New\n\nThe zebra pipeline.\n"})
+	seedDir := filepath.Join(outputDir, seedDirName)
+	if err := os.Chmod(seedDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(seedDir, 0o700) })
+
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: ExecRunner{}}
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--output", outputDir, "--worktree", "--update", repoDir); err == nil {
+		t.Fatalf("the seed wrote into a read-only seed directory:\n%s", out)
+	}
+	assertSeedDoc(t, outputDir, "docs/new.md", false)
+	assertSeedDoc(t, outputDir, "README.md", true)
+
+	if err := os.Chmod(seedDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(repoDir, "docs", "new.md")); err != nil {
+		t.Fatal(err)
+	}
+	seedPruneRun(t, repoDir, outputDir, "--worktree", "--update")
+	assertDocIndexLacks(t, outputDir, "zebra pipeline")
+}
+
+// TestBrainStoreSeedThatCannotMarkItsPruneCopiesNothing: the brain store's
+// pending marker goes down before any copy, so a seed that cannot write it
+// (seed/ is read-only, seed/docs is not) copies nothing into seed/docs that
+// the manifest it keeps does not describe. Root writes any directory and
+// Windows does not stop it.
+func TestBrainStoreSeedThatCannotMarkItsPruneCopiesNothing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod read-only directory semantics are not portable on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root writes a directory without permission")
+	}
+	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
+	opts, brainDir := seedPruneBrainStore(t, repoDir)
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", repoDir); err != nil {
+		t.Fatalf("seed: %v\n%s", err, out)
+	}
+	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/new.md": "# New\n\nThe zebra pipeline.\n"})
+	gitAt(t, repoDir, "add", "docs/new.md")
+	gitAt(t, repoDir, "commit", "-q", "-m", "add new doc")
+	seedDir := filepath.Join(brainDir, seedDirName)
+	if err := os.Chmod(seedDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(seedDir, 0o700) })
+
+	if out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", repoDir); err == nil {
+		t.Fatalf("the seed wrote into a read-only seed directory:\n%s", out)
+	}
+	assertSeedDoc(t, brainDir, "docs/new.md", false)
+	assertSeedDoc(t, brainDir, "README.md", true)
+}
+
 // TestReadSeedPruneMarkerTakesOnlyItsOwnList: a file named like the marker is
 // a list only in the form a seed writes, naming files under seed/docs.
 func TestReadSeedPruneMarkerTakesOnlyItsOwnList(t *testing.T) {

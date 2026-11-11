@@ -297,26 +297,34 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		// Read before the new manifest replaces the one that says which
 		// documents under seed/docs an earlier seed there wrote.
 		ownership := seedDocsOwnershipOf(outputDir, inBrainStore)
-		writeErr := writeSeedArtifacts(outputDir, &scan)
-		// The pending marker is written as soon as the documents are, even
-		// when writing the rest failed: from here seed/docs no longer matches
-		// the manifest there, and anything that ends the refresh before
-		// the new manifest (a failed write, a failed required agent run,
-		// the final worktree check) keeps that manifest. In an explicit --output the marker is all
-		// that records a copy the manifest does not list, so without it a
-		// copy of a file gone from the tree before the next seed would be
-		// left as not a seed's, and stay searchable. In the brain store it
-		// makes the next refresh reseed, which puts seed/docs right.
+		// Once a copy is written, seed/docs no longer matches the manifest
+		// there, and anything that ends the refresh before the new manifest
+		// (a failed write, a failed required agent run, the final worktree
+		// check) keeps that manifest. The pending marker is written first.
+		// The brain store's names no documents, so it goes down before any
+		// copy, and a seed that cannot write it copies none; while it is
+		// there the next refresh reseeds, which puts seed/docs right. Any
+		// other --output's lists the copies the manifest does not, so it is
+		// written as soon as the documents are, even when writing the rest
+		// failed: without it a copy of a file gone from the tree before the
+		// next seed would be left as not a seed's, and stay searchable. A
+		// copy that seed could not record (the marker could not be written,
+		// or a file of that name is not a seed's) is removed again if it
+		// stops before its manifest lists the copy.
 		//
 		// seed/risks.md is already written, so a warning from here on (the
 		// marker's, then the prune's) is reported by writing it again, and
 		// the prune's by writing the manifest again too.
+		if err := markBrainStorePrunePending(outputDir, ownership); err != nil {
+			return err
+		}
+		writeErr := writeSeedArtifacts(outputDir, &scan)
 		reported := len(scan.Warnings)
 		if err := beginSeedPrune(outputDir, &scan, &ownership); err != nil {
-			return errors.Join(writeErr, err)
+			return removeUnrecordedSeedCopies(outputDir, ownership, errors.Join(writeErr, err))
 		}
 		if writeErr != nil {
-			return writeErr
+			return removeUnrecordedSeedCopies(outputDir, ownership, writeErr)
 		}
 
 		seedManifest = &seedSourceManifest{
@@ -342,7 +350,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			agentManifest, err := runSeedAgent(ctx, scan.contentRoot(), outputDir, scan, seedOpts)
 			if err != nil {
 				if seedOpts.requireAgent {
-					return err
+					return removeUnrecordedSeedCopies(outputDir, ownership, err)
 				}
 				seedManifest.Warnings = append(seedManifest.Warnings, err.Error())
 			}
@@ -353,10 +361,10 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		if seedOpts.worktree {
 			currentHash, err := worktreeFingerprint(ctx, opts.Runner, repoDir)
 			if err != nil {
-				return fmt.Errorf("recheck worktree fingerprint for seed: %w", err)
+				return removeUnrecordedSeedCopies(outputDir, ownership, fmt.Errorf("recheck worktree fingerprint for seed: %w", err))
 			}
 			if currentHash != worktreeHash {
-				return errors.New("worktree_changed: worktree content changed during seed refresh")
+				return removeUnrecordedSeedCopies(outputDir, ownership, errors.New("worktree_changed: worktree content changed during seed refresh"))
 			}
 		}
 		// Pruning waits until the new manifest is written. A refresh that is
@@ -377,7 +385,10 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		// gets one only to carry the seed's documents that one of the two
 		// manifests does not list (beginSeedPrune).
 		if err := writeBrainSeedSourceLocked(outputDir, storage.Key, seedManifest); err != nil {
-			return err
+			if seedWriteIsLive(err) {
+				return err
+			}
+			return removeUnrecordedSeedCopies(outputDir, ownership, err)
 		}
 		pruned := len(scan.Warnings)
 		retryPrune := pruneSeedDocs(outputDir, &scan, scan.writtenDocs, ownership)
@@ -1085,10 +1096,9 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			}
 			rendered := renderExtractedDocument(doc.Path, text)
 			doc.Bytes = int64(len(rendered))
-			if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), []byte(rendered), 0o600); err != nil {
+			if err := writeSeedDocCopy(outputDir, filepath.ToSlash(cleanDst), []byte(rendered), written); err != nil {
 				return err
 			}
-			written[filepath.ToSlash(cleanDst)] = true
 			continue
 		}
 		// Read only what can survive the truncation below, plus one byte to
@@ -1109,12 +1119,31 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		if truncated {
 			data = append(data, []byte("\n\n[truncated]\n")...)
 		}
-		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), data, 0o600); err != nil {
+		if err := writeSeedDocCopy(outputDir, filepath.ToSlash(cleanDst), data, written); err != nil {
 			return err
 		}
-		written[filepath.ToSlash(cleanDst)] = true
 	}
 	return nil
+}
+
+// writeSeedDocCopy writes one document's copy and adds it to written once
+// it is on disk, which includes a write that reports the replacement live
+// but not durably synced: the copy is there, and the marker and the prune
+// must know it is this seed's.
+func writeSeedDocCopy(outputDir, rel string, data []byte, written map[string]bool) error {
+	err := brainstore.WriteBrainRelativeFileAtomic(outputDir, rel, data, 0o600)
+	if err == nil || seedWriteIsLive(err) {
+		written[rel] = true
+	}
+	return err
+}
+
+// seedWriteIsLive reports whether a failed atomic write replaced its file all
+// the same: the rename took effect and only the directory sync after it
+// failed.
+func seedWriteIsLive(err error) bool {
+	var live *brainstore.AtomicReplaceDurabilityError
+	return errors.As(err, &live)
 }
 
 // seedDocsOwnership says which files under seed/docs a prune may remove.
@@ -1134,6 +1163,11 @@ type seedDocsOwnership struct {
 	// stale lists, once beginSeedPrune has run, the recorded documents this
 	// seed did not write: the ones its prune is to remove.
 	stale []string
+	// unrecorded lists, once beginSeedPrune has run, the copies this seed
+	// made that no record lists, when it could not record them: a seed
+	// that then stops before its manifest removes them
+	// (removeUnrecordedSeedCopies).
+	unrecorded []string
 }
 
 // seedPruneMarker is the state of an explicit --output's pending marker.
@@ -1196,21 +1230,20 @@ func readSeedPruneMarker(outputDir string) ([]string, seedPruneMarker) {
 	return listed, seedPruneMarkerOurs
 }
 
-// beginSeedPrune writes the pending marker once the documents are written,
-// before anything else can refuse the refresh. The brain store always gets
-// one. Any other --output gets one listing the seed's documents that one of
-// the two manifests does not: the recorded ones this seed did not write,
-// which the new manifest drops, and the ones it wrote that the manifest
-// there now does not list, which a refresh refused before the new manifest
-// is written, or a failed write of it, would leave unrecorded. It gets none
-// when there are none,
-// when seed/docs overlaps the repository (nothing is pruned there), or when
-// a file of that name is not a seed's.
+// beginSeedPrune writes an explicit --output's pending marker once the
+// documents are written, before anything else can refuse the refresh (the
+// brain store's went down before the copies: markBrainStorePrunePending).
+// It lists the seed's documents that one of the two manifests does not: the
+// recorded ones this seed did not write, which the new manifest drops, and
+// the ones it wrote that the manifest there now does not list, which a
+// refresh refused before the new manifest is written, or a failed write of
+// it, would leave unrecorded. There is none when there are none, when
+// seed/docs overlaps the repository (nothing is pruned there), or when a
+// file of that name is not a seed's. In that last case, and when the
+// marker cannot be written, ownership.unrecorded lists the copies no record
+// holds.
 func beginSeedPrune(outputDir string, scan *seedScanResult, ownership *seedDocsOwnership) error {
-	if ownership.all {
-		return brainstore.WriteBrainRelativeFileAtomic(outputDir, seedPrunePendingPath, []byte(seedPrunePendingText), 0o600)
-	}
-	if seedDocsOverlapRepository(filepath.Join(outputDir, seedDirName, seedDocsDirName), scan.RepoDir) {
+	if ownership.all || seedDocsOverlapRepository(filepath.Join(outputDir, seedDirName, seedDocsDirName), scan.RepoDir) {
 		return nil
 	}
 	for rel := range ownership.recorded {
@@ -1220,26 +1253,59 @@ func beginSeedPrune(outputDir string, scan *seedScanResult, ownership *seedDocsO
 	}
 	sort.Strings(ownership.stale)
 	pending := slices.Clone(ownership.stale)
+	var unrecorded []string
 	for rel := range scan.writtenDocs {
 		if !ownership.manifested[rel] {
 			pending = append(pending, rel)
+		}
+		if !ownership.recorded[rel] {
+			unrecorded = append(unrecorded, rel)
 		}
 	}
 	if len(pending) == 0 {
 		return nil
 	}
+	sort.Strings(unrecorded)
 	if ownership.marker == seedPruneMarkerForeign {
+		ownership.unrecorded = unrecorded
 		if len(ownership.stale) > 0 {
 			scan.Warnings = append(scan.Warnings, fmt.Sprintf("old seed documents not recorded for a retry: %s is not a seed's, so a document this seed cannot remove now is left for good", seedPrunePendingPath))
 		}
 		return nil
 	}
 	sort.Strings(pending)
-	if err := writeSeedPruneMarker(outputDir, pending); err != nil {
+	err := writeSeedPruneMarker(outputDir, pending)
+	if err != nil && !seedWriteIsLive(err) {
+		ownership.unrecorded = unrecorded
 		return err
 	}
 	ownership.marker = seedPruneMarkerOurs
-	return nil
+	return err
+}
+
+// markBrainStorePrunePending writes the brain store's pending marker, which
+// lists nothing: every file under its seed/docs is a seed's.
+func markBrainStorePrunePending(outputDir string, ownership seedDocsOwnership) error {
+	if !ownership.all {
+		return nil
+	}
+	return brainstore.WriteBrainRelativeFileAtomic(outputDir, seedPrunePendingPath, []byte(seedPrunePendingText), 0o600)
+}
+
+// removeUnrecordedSeedCopies removes the copies a seed made that no record
+// lists (ownership.unrecorded) because it is stopping, with err, before its
+// manifest lists them: left there, a copy whose source is gone before the
+// next seed would be kept as not a seed's and stay searchable. Each was
+// written by this seed, at a path no seed recorded. A copy it cannot remove
+// is named in the error returned with err.
+func removeUnrecordedSeedCopies(outputDir string, ownership seedDocsOwnership, err error) error {
+	errs := []error{err}
+	for _, rel := range ownership.unrecorded {
+		if removeErr := brainstore.RemoveBrainRelativeFile(outputDir, rel); removeErr != nil {
+			errs = append(errs, fmt.Errorf("remove seed document copy no record lists: %s: %w", rel, removeErr))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // writeSeedPruneMarker writes an explicit --output's pending marker listing
