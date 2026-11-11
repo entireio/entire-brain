@@ -524,9 +524,6 @@ type setupCommandOptions struct {
 	// repository already saved — a bare re-run never flips a strict repo back.
 	strict bool
 	normal bool
-	// explicitPath is true when the reader typed the repository path, which is
-	// consent to a nested target: the nested-repo warning stays quiet.
-	explicitPath bool
 	// yes answers the Facts phase's consent prompt without a human. It is the
 	// ONLY way to spend tokens non-interactively: a run with no terminal and no
 	// --yes distills nothing, because silence is not consent to spend.
@@ -702,7 +699,6 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 --effort the previous run was given unless you pass the flag again.`, base.SetupCommandPrefix(os.LookupEnv)),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			setupOpts.explicitPath = len(args) == 1
 			return runSetup(cmd.Context(), cmd, opts, setupOpts, agentSurfaceTarget(opts, args), setupSteps{})
 		},
 	}
@@ -742,21 +738,6 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 	if !local {
 		return fmt.Errorf("setup requires a local repository path: %s", target)
-	}
-	// Name both roots when this one sits inside another repository. Building
-	// the brain and writing the guide into a nested clone is silent and looks
-	// like success, and the instruction files land where the outer repository
-	// cannot see them. Warn BEFORE any phase runs — the person may want to
-	// abort — and only when no explicit path was given, which is consent to
-	// the nested target. The path in the SUGGESTED COMMAND is shell-quoted;
-	// the two in the prose are not, because they are prose. An unquoted path
-	// with a space — ordinary on macOS — made the remedy silently do the wrong
-	// thing when copied, and one with $ or a backtick would expand. See
-	// agentsetup.OuterRepo.
-	if outer := agentsetup.OuterRepo(repoDir); outer != "" && !setupOpts.explicitPath && !setupOpts.uninstallDaemon {
-		fmt.Fprintf(cmd.ErrOrStderr(),
-			"warning: %s is a git repository inside %s.\nThe brain, the guide, AGENTS.md and CLAUDE.md go to the inner one. If you meant the project, run:\n    %s %s\n\n",
-			repoDir, outer, base.BrainInvocation(os.LookupEnv, "setup"), shellQuotedRepoDir(outer))
 	}
 	// Refuse a non-repository UP FRONT. Everything below is a side effect --
 	// a workspace registration, a machine watch-plan row, a per-repo state

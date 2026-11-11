@@ -84,6 +84,10 @@ cd entire-brain
 Builds and registers Brain and Graph. It does not initialize a repository's
 memory or install the watcher.
 
+The clone is itself a git repository, and `setup` acts on the repository you
+run it in. Go back to your own project's directory before you run
+`entire brain setup`, or pass the project's path as an argument.
+
 </details>
 
 See [installation options](docs/operations.md#full-install) for choosing a Graph checkout, installing offline, or building Brain alone.
