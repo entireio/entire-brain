@@ -60,7 +60,7 @@ func TestCheckpointBlobReaderUsesCache(t *testing.T) {
 
 func TestCheckpointBlobReaderMissFetchesAndRecords(t *testing.T) {
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("git", "cat-file", "-p", v1MainRef+":aa/bb/metadata.json"): {stdout: `{"session_id":"fresh"}`},
+		fakeCommandKey("git", "cat-file", "-p", "oid-9"): {stdout: `{"session_id":"fresh"}`},
 	}}
 	cache := newCheckpointMetadataCache(nil)
 	reader := &checkpointBlobReader{
@@ -120,5 +120,57 @@ func TestCheckpointMetadataCacheRoundTripAndVersionGuard(t *testing.T) {
 	}
 	if got := loadCheckpointMetadataCache(path); len(got.prev) != 0 {
 		t.Fatalf("version mismatch not discarded: %+v", got.prev)
+	}
+}
+
+// The reader before version 2 could record a moved ref's bytes under an older
+// blob's id, so entries it wrote cannot be trusted as content-addressed.
+func TestCheckpointMetadataCacheDiscardsEntriesFromTheRacyReader(t *testing.T) {
+	path := filepath.Join(t.TempDir(), filepath.FromSlash(checkpointMetadataCachePath))
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	file := checkpointMetadataCacheFile{Version: 1, Blobs: map[string][]byte{"oid-1": []byte("possibly another blob's bytes")}}
+	if err := json.NewEncoder(gz).Encode(file); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("close gzip: %v", err)
+	}
+	if err := brainstore.WriteFileAtomic(path, buf.Bytes(), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if got := loadCheckpointMetadataCache(path); len(got.prev) != 0 {
+		t.Fatalf("version 1 entries were trusted: %+v", got.prev)
+	}
+}
+
+// Once a listing succeeded, a path it does not name is absent from that tree.
+// Reading it through the ref would mix two versions of the checkpoint.
+func TestCheckpointBlobReaderRefusesPathOutsideListing(t *testing.T) {
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "cat-file", "-p", v1MainRef+":aa/bb/metadata.json"): {stdout: `{"session_id":"from a later tree"}`},
+	}}
+	reader := &checkpointBlobReader{
+		runner: runner,
+		gitDir: "/repo",
+		ref:    v1MainRef,
+		oids:   map[string]string{"aa/bb/other.json": "oid-9"},
+		cache:  newCheckpointMetadataCache(nil),
+	}
+	if got, err := reader.read(context.Background(), "aa/bb/metadata.json"); err == nil {
+		t.Fatalf("read a path outside the listing through the ref: %q", got)
+	}
+}
+
+// A successful empty listing is an answer. Asking again could see a different
+// tree, or fail on a ref deleted in between, and report a healthy repository as
+// unreadable.
+func TestListCheckpointTreeTrustsASuccessfulEmptyListing(t *testing.T) {
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "ls-tree", "-r", v1MainRef): {stdout: ""},
+	}}
+	names, oids, _, err := listCheckpointTree(context.Background(), runner, "/repo", false, v1MainRef, true)
+	if err != nil || len(names) != 0 || len(oids) != 0 {
+		t.Fatalf("empty listing: names=%q oids=%v err=%v", names, oids, err)
 	}
 }

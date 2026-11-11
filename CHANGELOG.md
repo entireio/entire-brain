@@ -7,6 +7,18 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Changed
 
+- Dead-code sweep (COR-2317). Removed: the retired semantic-relevance
+  calibration, the experimental compact brief serializers (no CLI flag ever
+  selected them; the brief renders text and JSON), the `--confidence` distill
+  flag (production reconcile never applied confidence; the old default stays
+  frozen inside existing cache keys), the proposal-framework counters
+  (always-zero `proposals`/`branches` in status, the brief and the detailed
+  status JSON), always-"removed" conversation vector-state render lines, and
+  four uncalled factgitmeta methods. The legacy store cleanup now also sweeps
+  known orphan files of removed subsystems (old `proposals.ndjson`,
+  per-branch `vitality.*` copies, `embeddings/`) so emptied branch
+  directories actually disappear instead of logging "retained" forever.
+
 - `ENTIRE_BRAIN_MEMORIES_BACKEND` is the canonical spelling of the memories
   sync backend variable; `ENTIRE_BRAIN_FACTS_BACKEND` keeps working as a
   fallback, like the `--facts-backend` flag alias. `docs/reference.md` now
@@ -54,6 +66,20 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- A commit in another session no longer fails a history rebuild, such as the one
+  in `refresh` or the background history lane, with `memory_source_stale`.
+  Finalizing a checkpoint rewrites its transcript on the checkpoint ref, and a
+  rebuild read that transcript several times through the moving ref. A rebuild
+  now reads one fixed set of blobs, so a finalize that lands mid-rebuild belongs
+  to the next one (#580).
+- A background memory worker no longer fails `refresh history` (or any other
+  history rebuild) with `memory_source_stale`. The short-term overlay left the
+  projection identity: the rebuild derives from canonical sessions only, and
+  an overlay written mid-rebuild is voided by its base-generation pin exactly
+  like one written just after publish, so only real session changes abort a
+  rebuild now. `setup --no-daemon` also stops launching the detached
+  `memory worker --once` that used to outlive setup; the durable queue keeps
+  the work for the next notify or watch tick (#582).
 - A reseed now removes the documents under `seed/docs/` it did not write this
   time. A document deleted from the repository, or one an earlier
   `refresh --worktree` copied while it was untracked, used to keep its copy, and

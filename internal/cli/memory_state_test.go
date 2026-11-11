@@ -373,7 +373,7 @@ func TestReconcileMemoryAndLaunchPreservesDurableWorkOnLaunchFailure(t *testing.
 			if err := base.SetBackgroundPaused(env, paused); err != nil {
 				t.Fatal(err)
 			}
-			created, warning, err := reconcileMemoryAndLaunch(context.Background(), opts, repoDir, "watch")
+			created, warning, err := reconcileMemoryAndLaunch(context.Background(), opts, repoDir, "watch", true)
 			if err != nil {
 				t.Fatalf("reconciliation must remain successful after launch failure: %v", err)
 			}

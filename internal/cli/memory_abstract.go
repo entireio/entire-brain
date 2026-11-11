@@ -1947,9 +1947,14 @@ func sessionRefsForSessionID(brainDir string, manifest *exportManifest, sessionI
 }
 
 // purgeSessionAbstracts removes every stored abstract for the session's
-// scopes (called from the shared privacy cleanup). The inventory and every
-// leaf are descriptor-bound and fail closed; cleanup never follows or removes
-// an unknown/special entry merely because it appears under the directory.
+// scopes. NO PRODUCTION PATH CALLS IT today — the "shared privacy cleanup"
+// that used to was rewired past it; only its hardening tests keep it honest.
+// Its fate rides on COR-2323 (abstracts ship disabled: remove or commit): if
+// abstracts stay, privacy exclude needs this hook again; if they go, this
+// goes with them (COR-2317 deferred it for that reason). The inventory and
+// every leaf are descriptor-bound and fail closed; cleanup never follows or
+// removes an unknown/special entry merely because it appears under the
+// directory.
 func purgeSessionAbstracts(brainDir string, manifest *exportManifest, sessionID string) error {
 	refs := sessionRefsForSessionID(brainDir, manifest, sessionID)
 	return purgeSessionAbstractsForRefs(brainDir, refs)

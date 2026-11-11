@@ -518,10 +518,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 		add("conversation", "warn", "no conversation projection")
 	} else {
 		state := "ok"
-		detail := fmt.Sprintf("%d exchanges (%d incomplete), vectors %s", conversation.Exchanges, conversation.IncompleteExchanges, conversation.VectorState)
-		if conversation.VectorState == "current" {
-			detail += fmt.Sprintf(" (%d, %s)", conversation.Vectors, conversation.VectorModelID)
-		}
+		detail := fmt.Sprintf("%d exchanges (%d incomplete)", conversation.Exchanges, conversation.IncompleteExchanges)
 		if conversation.Exchanges == 0 && manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0 {
 			state = "warn"
 			detail += "; sessions exist but produced no exchanges"

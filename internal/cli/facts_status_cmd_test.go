@@ -35,7 +35,7 @@ func TestFactsStatusEmptyStoreJSON(t *testing.T) {
 	if report.FactsArmReady {
 		t.Fatalf("empty store should not be facts-arm ready: %+v", report)
 	}
-	if report.Totals.Facts != 0 || report.Totals.Active != 0 || report.Totals.Proposals != 0 {
+	if report.Totals.Facts != 0 || report.Totals.Active != 0 {
 		t.Fatalf("empty totals = %+v", report.Totals)
 	}
 	if report.ManifestFacts != nil {

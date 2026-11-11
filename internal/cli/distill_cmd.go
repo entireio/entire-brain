@@ -11,7 +11,6 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"maps"
-	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -502,21 +501,20 @@ type distillCommandOptions struct {
 	// sessions carry their cache entries through untouched, exactly like the
 	// branch filter. Incompatible with force: the single-session path skips
 	// the whole-corpus reconcile and stale-fact sweep a forced rebuild is for.
-	session             string
-	force               bool
-	json                bool
-	agent               string
-	agentCommand        []string
-	timeout             time.Duration
-	maxChunkBytes       int
-	confidenceThreshold float64
-	model               string
-	effort              string
-	dryRun              bool
-	cacheSalt           string
-	legacyCacheSalt     string
-	checkpointBacked    bool
-	transcriptMode      string
+	session          string
+	force            bool
+	json             bool
+	agent            string
+	agentCommand     []string
+	timeout          time.Duration
+	maxChunkBytes    int
+	model            string
+	effort           string
+	dryRun           bool
+	cacheSalt        string
+	legacyCacheSalt  string
+	checkpointBacked bool
+	transcriptMode   string
 	// newestFirst distills the most recent sessions BEFORE older ones. The
 	// default (false) keeps the established oldest-first order, where a later
 	// session's fact naturally supersedes an earlier one's. Newest-first is for
@@ -732,7 +730,7 @@ type distillDryRunSession struct {
 }
 
 func newDistillCommand(opts Options) *cobra.Command {
-	distillOpts := distillCommandOptions{agent: "auto", timeout: defaultDistillTimeout, maxChunkBytes: defaultDistillChunkSize, confidenceThreshold: defaultFactConfidenceThreshold, concurrency: defaultDistillConcurrency}
+	distillOpts := distillCommandOptions{agent: "auto", timeout: defaultDistillTimeout, maxChunkBytes: defaultDistillChunkSize, concurrency: defaultDistillConcurrency}
 	cmd := &cobra.Command{
 		Use:   "distill [path]",
 		Short: "Extract durable memories from sessions (requires an agent)",
@@ -755,7 +753,6 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&distillOpts.json, "json", false, "Emit the memory source summary as JSON")
 	cmd.Flags().StringVar(&distillOpts.agent, "agent", "auto", "Distillation agent: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringArrayVar(&distillOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
-	cmd.Flags().Float64Var(&distillOpts.confidenceThreshold, "confidence", defaultFactConfidenceThreshold, "Legacy confidence setting; all non-identical merges/supersedes now require review")
 	cmd.Flags().StringVar(&distillOpts.model, "model", "", "Override the agent model for codex/claude-code, or select the local Ollama model")
 	cmd.Flags().StringVar(&distillOpts.effort, "effort", "", "Override the reasoning effort for codex/claude-code (e.g. low) — pairs with --model for a cheap run")
 	cmd.Flags().BoolVar(&distillOpts.dryRun, "dry-run", false, "Estimate distill work without calling an agent or writing memories")
@@ -807,9 +804,6 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	// "use the default" for every in-process caller (runDistillForBrain reads
 	// threshold <= 0 that way), so the library contract has to stay intact while
 	// the flag stops silently swallowing a value it cannot honour.
-	if cmd.Flags().Changed("confidence") && (math.IsNaN(distillOpts.confidenceThreshold) || distillOpts.confidenceThreshold <= 0 || distillOpts.confidenceThreshold > 1) {
-		return fmt.Errorf("--confidence must be greater than 0 and at most 1 (agent confidence is a probability); got %g", distillOpts.confidenceThreshold)
-	}
 	// --dry-run is exempt: it returns before the agent runner is constructed
 	// and builds its report from local files and the local git transcript
 	// store only, so no-egress mode has nothing to block (COR-2208). Real runs
@@ -939,8 +933,8 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	for _, warning := range distillWarningsForDisplay(source.Warnings) {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored, %d superseded) across %d branch(es) from %d chunks\n",
-		source.Facts, source.Distilled, source.Authored, source.Superseded, len(source.Branches), source.ChunksScanned)
+	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored, %d superseded) from %d chunks\n",
+		source.Facts, source.Distilled, source.Authored, source.Superseded, source.ChunksScanned)
 	if source.CandidatesReconciled > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "reconciled %d candidates: %d promoted without an agent call, %d adjudicated in %d similarity cluster(s) (%d agent calls)\n",
 			source.CandidatesReconciled, source.PromotedWithoutAgent,
@@ -976,9 +970,6 @@ func distillProgressLabel(p distillProgress) string {
 // into per-branch stores, and records the fact source on the brain manifest.
 // repoDir is the working directory the agent runs in (sandboxed read-only).
 func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOpts distillCommandOptions, now time.Time) (*factSourceManifest, error) {
-	if math.IsNaN(distillOpts.confidenceThreshold) || math.IsInf(distillOpts.confidenceThreshold, 0) || distillOpts.confidenceThreshold > 1 {
-		return nil, errors.New("confidence must be finite and at most 1")
-	}
 	runStarted := time.Now()
 	ctx, usageCollector := withDistillUsageCollector(ctx)
 	ctx = withDistillAgentChildEnv(ctx, distillOpts.agent)
@@ -1020,14 +1011,10 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// (cheap) model. Both are no-ops when empty.
 	args = base.InjectAgentEffort(base.InjectAgentModel(args, distillOpts.agent, distillOpts.model), distillOpts.agent, distillOpts.effort)
 	reconcileArgs = base.InjectAgentEffort(base.InjectAgentModel(reconcileArgs, distillOpts.agent, distillOpts.model), distillOpts.agent, distillOpts.effort)
-	threshold := distillOpts.confidenceThreshold
-	if threshold <= 0 {
-		threshold = defaultFactConfidenceThreshold
-	}
 	distillOpts.checkpointBacked = checkpointBackedSessions(manifest)
 	distillOpts.transcriptMode = manifest.Sources.Sessions.TranscriptMode
-	distillOpts.legacyCacheSalt = distillCacheSaltVersion(prompt, reconcilePromptText, threshold, distillOpts, 0)
-	distillOpts.cacheSalt = distillCacheSalt(prompt, reconcilePromptText, threshold, distillOpts)
+	distillOpts.legacyCacheSalt = distillCacheSaltVersion(prompt, reconcilePromptText, distillCacheSaltThreshold, distillOpts, 0)
+	distillOpts.cacheSalt = distillCacheSalt(prompt, reconcilePromptText, distillCacheSaltThreshold, distillOpts)
 
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
 	// Excluded sessions must never produce new derived facts.
@@ -1517,7 +1504,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		if err != nil {
 			return err
 		}
-		source = factstore.SummarizeSource(now, stored, chunksScanned, chunksDistilled, 0, warnings)
+		source = factstore.SummarizeSource(now, stored, chunksScanned, chunksDistilled, warnings)
 		source.LastDistilledAt = now
 		source.CacheHits = cacheHits
 		source.FailedChunks = failedChunks
@@ -1530,7 +1517,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		source.Jobs = distillRequestedJobs(distillOpts)
 		source.ExtractionJobsCap = distillEffectiveExtractionJobs(extractionAgentCalls, distillOpts)
 		source.MaxChunkBytes = distillMaxChunkBytes(distillOpts)
-		source.Confidence = threshold
+		source.Confidence = distillCacheSaltThreshold
 		source.ExtractionCalls = extractionAgentCalls
 		source.ReconcileCalls = reconcileAgentCalls
 		source.CandidatesReconciled = batchTotals.Candidates
@@ -1600,7 +1587,7 @@ func buildDistillDryRunReportContext(ctx context.Context, brainDir string, disti
 		Jobs:                          distillRequestedJobs(distillOpts),
 		ExtractionJobsCap:             distillEffectiveExtractionJobs(len(plan.Work), distillOpts),
 		MaxChunkBytes:                 distillMaxChunkBytes(distillOpts),
-		Confidence:                    distillConfidenceThreshold(distillOpts),
+		Confidence:                    distillCacheSaltThreshold,
 		Sessions:                      plan.TotalSessions,
 		CachedSessions:                plan.CachedSessions,
 		SessionsToDistill:             plan.SessionsToDistill,
@@ -1726,13 +1713,6 @@ func distillMaxChunkBytes(distillOpts distillCommandOptions) int {
 		return distillOpts.maxChunkBytes
 	}
 	return defaultDistillChunkSize
-}
-
-func distillConfidenceThreshold(distillOpts distillCommandOptions) float64 {
-	if distillOpts.confidenceThreshold > 0 {
-		return distillOpts.confidenceThreshold
-	}
-	return defaultFactConfidenceThreshold
 }
 
 func buildDistillPlan(brainDir string, manifest *exportManifest, distillOpts distillCommandOptions, cacheSalt string) (distillPlan, error) {
@@ -2304,6 +2284,13 @@ func grandfatheredDistillFingerprint(cache distillCache, session exportSession, 
 	return false
 }
 
+// distillCacheSaltThreshold is the removed --confidence knob's default,
+// frozen as a cache-salt input only (COR-2317). The threshold never affected
+// production reconcile, but it is baked into every existing distill cache
+// key, and re-keying them would re-spend real agent tokens on the next
+// distill of every repository.
+const distillCacheSaltThreshold = 0.75
+
 func distillCacheSaltForBrain(brainDir string, distillOpts distillCommandOptions, now time.Time) (string, error) {
 	taxonomy, err := factstore.LoadTaxonomy(brainDir, now)
 	if err != nil {
@@ -2313,8 +2300,7 @@ func distillCacheSaltForBrain(brainDir string, distillOpts distillCommandOptions
 	if err != nil {
 		return "", err
 	}
-	threshold := distillConfidenceThreshold(distillOpts)
-	return distillCacheSalt(prompt, reconcilePrompt(), threshold, distillOpts), nil
+	return distillCacheSalt(prompt, reconcilePrompt(), distillCacheSaltThreshold, distillOpts), nil
 }
 
 // Bump whenever transcript preprocessing changes what the extractor sees.
