@@ -23,8 +23,4 @@ func TestPrivacyReadersReportFIFOPresentAndUnsafe(t *testing.T) {
 	if !present || err == nil || !strings.Contains(err.Error(), StateUnsafeCode) {
 		t.Fatalf("FIFO artifact: present=%v err=%v", present, err)
 	}
-	_, present, err = ReadPrivacyDirectory(root, "fifo", "fixture")
-	if !present || err == nil || !strings.Contains(err.Error(), StateUnsafeCode) {
-		t.Fatalf("FIFO directory: present=%v err=%v", present, err)
-	}
 }

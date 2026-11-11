@@ -29,9 +29,6 @@ type Deps struct {
 	// GetUnifiedBatch resolves prefixed ids to full records; it stays in cli
 	// with the conversation session views and the pattern corpus readers.
 	GetUnifiedBatch func(repoDir, brainDir, branch string, ids []string, gopts retrieval.GetOptions) (found []retrieval.Result, missing []string, err error)
-	// AbstractPreviews builds the bounded evidence-linked session previews for
-	// --include-abstract (conversation arm; read-only).
-	AbstractPreviews func(brainDir string, results []retrieval.Result) ([]retrieval.SessionAbstractPreview, bool, error)
 	// RequirePatternsReadable gates pattern:/theme: reads: corpus read-safety
 	// followed by the pattern-corpus availability check.
 	RequirePatternsReadable func(brainDir string) error

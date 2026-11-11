@@ -20,35 +20,26 @@ import (
 type mirrorCounts struct {
 	FactsDeleted    int
 	AnchorsStripped int
-	Abstracts       int
-	EgressReceipts  int
 }
 
 func (c mirrorCounts) empty() bool {
-	return c.FactsDeleted == 0 && c.AnchorsStripped == 0 && c.Abstracts == 0 && c.EgressReceipts == 0
+	return c.FactsDeleted == 0 && c.AnchorsStripped == 0
 }
 
 // checkpointCatalog is the mirror's membership set: every session the current
-// checkpoint refs still back, keyed three ways. It includes the sessions the
+// checkpoint refs still back, keyed two ways. It includes the sessions the
 // export dropped for want of locally servable bytes — those are still catalog
 // members, not deletions.
 type checkpointCatalog struct {
-	ids      map[string]bool
-	rels     map[string]bool
-	liveRefs map[string]bool
-	// refsComplete is false when a catalog session has no id, so its
-	// conversation-session ref cannot be computed; the abstract sweep then
-	// stands down rather than guessing.
-	refsComplete bool
+	ids  map[string]bool
+	rels map[string]bool
 }
 
 // catalogFromManifest derives the membership set, or ok=false when this
 // manifest cannot speak for the full checkpoint catalog (no session source,
 // or a branch-scoped / checkpoint-limited export wrote a partial catalog).
 func catalogFromManifest(manifest *exportManifest) (checkpointCatalog, bool) {
-	catalog := checkpointCatalog{
-		ids: map[string]bool{}, rels: map[string]bool{}, liveRefs: map[string]bool{}, refsComplete: true,
-	}
+	catalog := checkpointCatalog{ids: map[string]bool{}, rels: map[string]bool{}}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
 		return catalog, false
 	}
@@ -56,39 +47,18 @@ func catalogFromManifest(manifest *exportManifest) (checkpointCatalog, bool) {
 	if source.CheckpointLimit != 0 || (source.Scope != "" && source.Scope != exportScopeAll) {
 		return catalog, false
 	}
-	addRef := func(sessionID, branch string) {
-		// Same fallback chain as conversationCanonicalBranch: the computed
-		// refs must match the SessionRefs the abstract writer stored, or the
-		// sweep would treat every live session's abstract as missing.
-		if branch == "" {
-			branch = strings.TrimSpace(source.DefaultBranch)
-		}
-		if branch == "" {
-			branch = distillDefaultBranch
-		}
-		ref, _ := conversationSessionRef(manifest.RepoKey, branch, sessionID, "")
-		catalog.liveRefs[ref] = true
-	}
 	for _, session := range source.Sessions {
-		id := strings.TrimSpace(session.SessionID)
-		if id == "" {
-			catalog.refsComplete = false
-		} else {
+		if id := strings.TrimSpace(session.SessionID); id != "" {
 			catalog.ids[id] = true
-			addRef(id, strings.TrimSpace(session.Branch))
 		}
 		if rel := brainstore.NormalizeTranscriptPath(session.TranscriptPath); rel != "" {
 			catalog.rels[rel] = true
 		}
 	}
 	for _, session := range source.UnavailableSessions {
-		id := strings.TrimSpace(session.SessionID)
-		if id == "" {
-			catalog.refsComplete = false
-			continue
+		if id := strings.TrimSpace(session.SessionID); id != "" {
+			catalog.ids[id] = true
 		}
-		catalog.ids[id] = true
-		addRef(id, strings.TrimSpace(session.Branch))
 	}
 	return catalog, true
 }
@@ -121,10 +91,9 @@ func warnLegacyTombstones(out io.Writer, brainDir string) {
 
 // mirrorBrainToCheckpointCatalog applies the mirror rule to the artifacts a
 // session leaves outside the session tree: the brain serves only what the
-// checkpoint refs can back, so after a refresh every provenance anchor,
-// session abstract, and egress receipt citing a session gone from the catalog
-// is dropped. A distilled fact left with no provenance is deleted and the
-// proposals referencing it are pruned.
+// checkpoint refs can back, so after a refresh every provenance anchor citing
+// a session gone from the catalog is dropped. A distilled fact left with no
+// provenance is deleted.
 //
 // Facts this brain did not distill are never touched. Authored facts
 // (`remember`) have no session source to mirror. Anchors without a transcript
@@ -156,15 +125,7 @@ func mirrorBrainToCheckpointCatalogContext(ctx context.Context, brainDir string,
 			return err
 		}
 		counts.FactsDeleted, counts.AnchorsStripped = deleted, stripped
-		if !catalog.refsComplete {
-			return nil
-		}
-		counts.Abstracts, err = sweepAbstractsForMissingSessions(brainDir, catalog.liveRefs)
-		if err != nil {
-			return err
-		}
-		counts.EgressReceipts, err = sweepEgressReceiptsForMissingSessions(brainDir, catalog.liveRefs)
-		return err
+		return nil
 	})
 	return counts, err
 }
@@ -239,44 +200,4 @@ func dropFactsForMissingSessionsLocked(brainDir string, catalog checkpointCatalo
 		}
 	}
 	return deletedTotal, strippedTotal, updateFactSourceManifestLocked(brainDir, now)
-}
-
-// sweepAbstractsForMissingSessions removes every stored session abstract whose
-// conversation-session ref no longer names a catalog member. An abstract is an
-// LLM summary of transcript content, so it mirrors its session's checkpoint.
-func sweepAbstractsForMissingSessions(brainDir string, liveRefs map[string]bool) (int, error) {
-	missing := map[string]bool{}
-	inventory := loadSessionAbstractInventory(brainDir)
-	if err := memoryStateError(inventory.Issues); err != nil {
-		return 0, err
-	}
-	for _, entry := range inventory.ByDigest {
-		if !liveRefs[entry.Artifact.SessionRef] {
-			missing[entry.Artifact.SessionRef] = true
-		}
-	}
-	if len(missing) == 0 {
-		return 0, nil
-	}
-	return len(missing), purgeSessionAbstractsForRefs(brainDir, missing)
-}
-
-// sweepEgressReceiptsForMissingSessions removes abstract egress receipts of
-// sessions gone from the catalog. Receipts are metadata-only, but they retain
-// the identity and lifecycle of a session the refs no longer back.
-func sweepEgressReceiptsForMissingSessions(brainDir string, liveRefs map[string]bool) (int, error) {
-	files, err := loadAbstractEgressReceiptsChecked(brainDir)
-	if err != nil {
-		return 0, err
-	}
-	missing := map[string]bool{}
-	for _, file := range files {
-		if !liveRefs[file.Receipt.SessionRef] {
-			missing[file.Receipt.SessionRef] = true
-		}
-	}
-	if len(missing) == 0 {
-		return 0, nil
-	}
-	return len(missing), purgeAbstractEgressReceiptsForSessionRefs(brainDir, missing)
 }

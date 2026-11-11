@@ -165,71 +165,24 @@ func addMemoryAdminConversationFixture(t *testing.T, brainDir string, now time.T
 	return sessionViewForTest(t, brainDir).Ref
 }
 
-func TestManualAbstractMutationReceiptsAndDryRun(t *testing.T) {
-	opts, brainDir := memoryAdminCommandFixture(t)
-	ref := addMemoryAdminConversationFixture(t, brainDir, time.Date(2026, 8, 9, 21, 0, 0, 0, time.UTC))
-	provider := &privacyCountingAbstractor{}
-	oldFactory := memoryAbstractorFactory
-	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) { return provider, nil }
-	t.Cleanup(func() { memoryAbstractorFactory = oldFactory })
-
-	out, err := execute(t, newMemoryAbstractCommand(opts), ref, "--provider", "ollama", "--model", "test", "--dry-run", "--json")
+func sessionViewForTest(t *testing.T, brainDir string) conversationSessionView {
+	t.Helper()
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
-		t.Fatalf("abstract dry-run: %v\n%s", err, out)
+		t.Fatal(err)
 	}
-	var payload struct {
-		Receipt        memoryOperationReceipt `json:"receipt"`
-		JobID          string                 `json:"job_id"`
-		JobCreated     bool                   `json:"job_created"`
-		JobWouldCreate bool                   `json:"job_would_create"`
-		JobCompleted   bool                   `json:"job_completed"`
-	}
-	if err := json.Unmarshal([]byte(out), &payload); err != nil || !payload.Receipt.DryRun || payload.Receipt.FinishedAt.IsZero() || payload.JobID == "" || payload.JobCreated || !payload.JobWouldCreate || payload.JobCompleted || len(payload.Receipt.Artifacts) != 1 {
-		t.Fatalf("abstract dry-run payload=%+v err=%v\n%s", payload, err, out)
-	}
-	if provider.calls.Load() != 0 || len(loadMemoryJobs(brainDir)) != 0 {
-		t.Fatalf("abstract dry-run side effects: provider_calls=%d jobs=%+v", provider.calls.Load(), loadMemoryJobs(brainDir))
-	}
-	if _, ok := loadSessionAbstract(brainDir, sessionViewDigest(sessionViewForTest(t, brainDir))); ok {
-		t.Fatal("abstract dry-run published an artifact")
-	}
-
-	out, err = execute(t, newMemoryAbstractCommand(opts), ref, "--provider", "ollama", "--model", "test", "--json")
+	fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
 	if err != nil {
-		t.Fatalf("abstract generate: %v\n%s", err, out)
+		t.Fatal(err)
 	}
-	payload = struct {
-		Receipt        memoryOperationReceipt `json:"receipt"`
-		JobID          string                 `json:"job_id"`
-		JobCreated     bool                   `json:"job_created"`
-		JobWouldCreate bool                   `json:"job_would_create"`
-		JobCompleted   bool                   `json:"job_completed"`
-	}{}
-	if err := json.Unmarshal([]byte(out), &payload); err != nil || payload.Receipt.Operation != "abstract_generate" || payload.Receipt.DryRun || payload.Receipt.FinishedAt.IsZero() || !payload.JobCreated || !payload.JobCompleted || len(payload.Receipt.JobIDs) != 1 || len(payload.Receipt.Artifacts) < 2 {
-		t.Fatalf("abstract generation payload=%+v err=%v\n%s", payload, err, out)
+	views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest)
+	if len(views) != 1 {
+		t.Fatalf("views = %d, want 1", len(views))
 	}
-	if provider.calls.Load() != 1 || len(loadMemoryJobs(brainDir)) != 1 {
-		t.Fatalf("abstract generation effects: provider_calls=%d jobs=%+v", provider.calls.Load(), loadMemoryJobs(brainDir))
+	for _, view := range views {
+		return view
 	}
-
-	out, err = execute(t, newMemoryAbstractCommand(opts), ref, "--provider", "ollama", "--model", "test")
-	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "abstract") || strings.Contains(out, "operation_id=") {
-		t.Fatalf("repeat abstract plain output: err=%v\n%s", err, out)
-	}
-	if provider.calls.Load() != 2 || len(loadMemoryJobs(brainDir)) != 1 {
-		t.Fatalf("repeat generation duplicated identity: provider_calls=%d jobs=%+v", provider.calls.Load(), loadMemoryJobs(brainDir))
-	}
-
-	missing := newMemoryAbstractCommand(opts)
-	missing.SilenceErrors, missing.SilenceUsage = true, true
-	out, err = execute(t, missing, "conversation-session:not-found", "--generate", "--json")
-	if err == nil || !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("missing abstract error=%v out=%s", err, out)
-	}
-	var failure memoryOperationReceipt
-	if decodeErr := json.Unmarshal([]byte(out), &failure); decodeErr != nil || failure.Operation != "abstract_generate" || failure.ErrorCode != brainstore.SourceStaleCode || failure.FinishedAt.IsZero() {
-		t.Fatalf("missing abstract receipt=%+v decode=%v\n%s", failure, decodeErr, out)
-	}
+	panic("unreachable")
 }
 
 func TestMemoryAdminCommandsEmitFailureReceiptAfterCommittedMutation(t *testing.T) {
@@ -309,52 +262,6 @@ func TestMemoryAdminCommandsEmitFailureReceiptAfterCommittedMutation(t *testing.
 			t.Fatalf("receipt=%+v out=%s", receipt, out)
 		}
 	})
-}
-
-func TestConfigureAbstractsEmitsFinalizedReceiptAfterCommittedFailure(t *testing.T) {
-	opts, brainDir := memoryAdminCommandFixture(t)
-	jobsPath := filepath.Join(brainDir, filepath.FromSlash(memoryJobsDirRel))
-	if err := os.MkdirAll(filepath.Dir(jobsPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(jobsPath, []byte("not a directory\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cmd := newMemoryConfigureCommand(opts)
-	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	out, err := execute(t, cmd, "abstracts", "--disable", "--json")
-	if err == nil {
-		t.Fatalf("configure unexpectedly succeeded: %s", out)
-	}
-	var receipt memoryOperationReceipt
-	if decodeErr := json.Unmarshal([]byte(out), &receipt); decodeErr != nil || receipt.Operation != "configure_abstracts" || receipt.FinishedAt.IsZero() || receipt.ErrorCode == "" || len(receipt.Artifacts) != 1 || receipt.Artifacts[0].Path != memoryConfigRel || receipt.Artifacts[0].NewState != "written" || strings.Count(out, `"operation_id"`) != 1 {
-		t.Fatalf("configure failure receipt=%+v decode=%v\n%s", receipt, decodeErr, out)
-	}
-	stored, state, loadErr := loadMemoryConfigChecked(brainDir)
-	if loadErr != nil || state != memoryConfigCurrent || stored.Abstracts.Enabled {
-		t.Fatalf("committed config not reflected after later failure: stored=%+v state=%s err=%v", stored, state, loadErr)
-	}
-}
-
-func TestConfigureAbstractsValidationFailureKeepsPlainSurfaceQuiet(t *testing.T) {
-	opts, brainDir := memoryAdminCommandFixture(t)
-	oldFactory := memoryAbstractorFactory
-	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) {
-		return nil, errors.New("configured provider is unavailable")
-	}
-	t.Cleanup(func() { memoryAbstractorFactory = oldFactory })
-	cmd := newMemoryConfigureCommand(opts)
-	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	out, err := execute(t, cmd, "abstracts", "--enable", "--provider", "codex")
-	if err == nil || !strings.Contains(err.Error(), brainstore.ProviderUnavailCode) {
-		t.Fatalf("configure validation error=%v out=%s", err, out)
-	}
-	if out != "" {
-		t.Fatalf("configure plain failure wrote receipt telemetry=%q", out)
-	}
-	if _, state, loadErr := loadMemoryConfigChecked(brainDir); loadErr != nil || state != memoryConfigAbsent {
-		t.Fatalf("validation failure mutated config state=%s err=%v", state, loadErr)
-	}
 }
 
 func TestMemoryInstallHealthUsesTypedReadOnlyEvidence(t *testing.T) {
@@ -616,7 +523,7 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 	for _, check := range report.Checks {
 		checks[check.Name] = check
 	}
-	for _, name := range []string{"memory_install", "memory_coordinator", "write_lock", "memory_provider_egress", "memory_schemas", "memory_migrations", "memory_worker_log", "manifest"} {
+	for _, name := range []string{"memory_install", "memory_coordinator", "write_lock", "memory_schemas", "memory_migrations", "memory_worker_log", "manifest"} {
 		if _, ok := checks[name]; !ok {
 			t.Fatalf("doctor check %q missing: %+v", name, report.Checks)
 		}
@@ -655,21 +562,10 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 
 func TestMemoryReadOnlyHealthReportsStaleCoordinatorProviderSchemasLocksAndLog(t *testing.T) {
 	brainDir := t.TempDir()
-	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
-	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 	now := time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC)
 	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	if err := saveMemoryConfig(brainDir, memoryConfig{SchemaVersion: memoryConfigSchemaVersion, Abstracts: memoryAbstractsConfig{
-		Enabled: true, Automatic: true, Provider: "codex", Model: "explicit-model", HostedEgressAllowed: true,
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	oldFactory := memoryAbstractorFactory
-	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) { return &fakeAbstractor{hosted: true}, nil }
-	t.Cleanup(func() { memoryAbstractorFactory = oldFactory })
-
 	coordinator := memoryCoordinatorState{
 		SchemaVersion: memoryCoordinatorSchema,
 		OwnerToken:    "content-free-owner",
@@ -708,9 +604,6 @@ func TestMemoryReadOnlyHealthReportsStaleCoordinatorProviderSchemasLocksAndLog(t
 	if got := checks["write_lock"]; got.State != "ok" || !strings.Contains(got.Detail, "present_unproven") {
 		t.Fatalf("write lock check = %+v", got)
 	}
-	if got := checks["memory_provider_egress"]; got.State != "ok" || !strings.Contains(got.Detail, "hosted") || !strings.Contains(got.Detail, "global policy default") || !strings.Contains(got.Detail, "effective available_unverified") {
-		t.Fatalf("provider/egress check = %+v", got)
-	}
 	if got, ok := checks["memory_schema_capabilities"]; ok {
 		t.Fatalf("compiled-capability check is back in the report: %+v", got)
 	}
@@ -722,16 +615,11 @@ func TestMemoryReadOnlyHealthReportsStaleCoordinatorProviderSchemasLocksAndLog(t
 	if got := checks["memory_worker_log"]; got.State != "ok" || !strings.Contains(got.Detail, filepath.FromSlash(memoryWorkerLogRel)) || !strings.Contains(got.Detail, fmt.Sprint(memoryWorkerLogMaxBytes)) {
 		t.Fatalf("worker log check = %+v", got)
 	}
-	install, _ := snapshot.Payload["install"].(map[string]any)
-	provider, _ := install["provider_egress"].(map[string]any)
-	if provider["provider"] != "codex" || provider["model"] != "explicit-model" || provider["egress_class"] != "hosted" || provider["hosted_egress_allowed"] != true {
-		t.Fatalf("provider health = %#v", provider)
-	}
 	schemas, _ := snapshot.Payload["schemas"].(map[string]any)
 	compiled, _ := schemas["compiled_capabilities"].(map[string]any)
 	observed, _ := schemas["observed_health"].(map[string]any)
 	manifestObserved, _ := observed["brain_manifest"].(map[string]any)
-	if compiled["vector_progress"] != memoryVectorSchema || compiled["abstract_egress"] != abstractEgressSchemaVersion || compiled["job"] != memoryJobSchemaVersion || manifestObserved["state"] != "current" {
+	if compiled["vector_progress"] != memoryVectorSchema || compiled["job"] != memoryJobSchemaVersion || manifestObserved["state"] != "current" {
 		t.Fatalf("schema health = %#v", schemas)
 	}
 }
@@ -775,95 +663,6 @@ func TestMemoryDoctorSchemaHealthSeparatesCompiledCapabilitiesFromObservedState(
 		})
 	}
 
-	// The same separation applies to derived schemas. A supported Brain with a
-	// newer config must not inherit the compiled-capability "ok" state.
-	t.Run("newer abstract config", func(t *testing.T) {
-		brainDir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte(fmt.Sprintf("{\"schema_version\":%d}\n", bmanifest.SchemaVersion)), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		configPath := filepath.Join(brainDir, filepath.FromSlash(memoryConfigRel))
-		if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(configPath, []byte(fmt.Sprintf("{\"schema_version\":%d,\"abstracts\":{},\"future\":true}\n", memoryConfigSchemaVersion+1)), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		snapshot := memoryReadOnlyHealth(brainDir, now)
-		checks := map[string]doctorCheckResult{}
-		for _, check := range memoryDoctorChecks(snapshot) {
-			checks[check.Name] = check
-		}
-		if got := checks["memory_schemas"]; got.State != "error" || !strings.Contains(got.Detail, "observed schema health error") {
-			t.Fatalf("newer config schema check = %+v", got)
-		}
-		schemas, _ := snapshot.Payload["schemas"].(map[string]any)
-		observed, _ := schemas["observed_health"].(map[string]any)
-		configObserved, _ := observed["abstract_config"].(map[string]any)
-		if configObserved["state"] != memoryConfigUnsupported || configObserved["schema_version"] != memoryConfigSchemaVersion+1 || configObserved["supported_schema_version"] != memoryConfigSchemaVersion || configObserved["error_code"] != brainstore.UnsupportedVersionCode {
-			t.Fatalf("observed abstract config schema = %#v", configObserved)
-		}
-	})
-}
-
-func TestMemoryProviderEgressHealthReportsEffectivePolicy(t *testing.T) {
-	brainDir := t.TempDir()
-	oldFactory := memoryAbstractorFactory
-	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) {
-		return &fakeAbstractor{hosted: true}, nil
-	}
-	t.Cleanup(func() { memoryAbstractorFactory = oldFactory })
-
-	for _, tc := range []struct {
-		name          string
-		noEgress      string
-		acknowledged  bool
-		wantEffective string
-		wantPolicy    string
-		wantBlock     string
-		wantDoctor    string
-	}{
-		{name: "available with explicit acknowledgement", acknowledged: true, wantEffective: "available_unverified", wantPolicy: "default", wantDoctor: "ok"},
-		{name: "blocked by global no egress", noEgress: "1", acknowledged: true, wantEffective: "blocked_by_global_policy", wantPolicy: "local_only", wantBlock: "no_egress", wantDoctor: "warn"},
-		{name: "blocked without acknowledgement", acknowledged: false, wantEffective: "blocked_by_configuration", wantPolicy: "default", wantBlock: "hosted_egress_unacknowledged", wantDoctor: "warn"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("ENTIRE_BRAIN_NO_EGRESS", tc.noEgress)
-			t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
-			if err := saveMemoryConfig(brainDir, memoryConfig{SchemaVersion: memoryConfigSchemaVersion, Abstracts: memoryAbstractsConfig{
-				Enabled: true, Automatic: true, Provider: "codex", Model: "explicit", HostedEgressAllowed: tc.acknowledged,
-			}}); err != nil {
-				t.Fatal(err)
-			}
-			snapshot := memoryReadOnlyHealth(brainDir, time.Date(2026, 8, 10, 5, 0, 0, 0, time.UTC))
-			install, _ := snapshot.Payload["install"].(map[string]any)
-			health, _ := install["provider_egress"].(map[string]any)
-			gotBlock, _ := health["block_code"].(string)
-			if health["effective_state"] != tc.wantEffective || health["global_policy"] != tc.wantPolicy || gotBlock != tc.wantBlock {
-				t.Fatalf("provider/egress health = %#v", health)
-			}
-			allowed, _ := health["effective_provider_allowed"].(bool)
-			if allowed != (tc.wantEffective == "available_unverified") {
-				t.Fatalf("effective_provider_allowed=%v health=%#v", allowed, health)
-			}
-			checks := map[string]doctorCheckResult{}
-			for _, check := range memoryDoctorChecks(snapshot) {
-				checks[check.Name] = check
-			}
-			if got := checks["memory_provider_egress"]; got.State != tc.wantDoctor || !strings.Contains(got.Detail, tc.wantEffective) {
-				t.Fatalf("doctor provider check = %+v", got)
-			}
-			foundBlock := false
-			for _, issue := range snapshot.Issues {
-				if issue.Kind == "provider_policy" && issue.Code == tc.wantBlock {
-					foundBlock = true
-				}
-			}
-			if (tc.wantBlock != "") != foundBlock {
-				t.Fatalf("provider policy issue presence=%v issues=%+v", foundBlock, snapshot.Issues)
-			}
-		})
-	}
 }
 
 func TestDoctorSamplesMemoryReadOnlyHealthOnce(t *testing.T) {

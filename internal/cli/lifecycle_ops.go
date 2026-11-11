@@ -161,28 +161,11 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 			add("write_lock", state, detail)
 		}
 	}
-	if provider, ok := install["provider_egress"].(map[string]any); ok {
-		state := "ok"
-		detail := fmt.Sprintf("config %v; provider %v; configured egress %v; global policy %v; effective %v", provider["state"], provider["provider"], provider["egress_class"], provider["global_policy"], provider["effective_state"])
-		if code, _ := provider["error_code"].(string); code != "" {
-			state = "error"
-			detail = code
-		} else if effectiveState, _ := provider["effective_state"].(string); strings.HasPrefix(effectiveState, "blocked_") {
-			state = "warn"
-			if blockCode, _ := provider["block_code"].(string); blockCode != "" {
-				detail += "; " + blockCode
-			}
-		} else if providerState, _ := provider["provider_state"].(string); providerState == brainstore.ProviderUnavailCode {
-			state = "warn"
-			detail += "; " + providerState
-		}
-		add("memory_provider_egress", state, detail)
-	}
 	// There is deliberately no memory_schema_capabilities check either. Its
 	// state was the literal "ok" and its detail was formatted purely from
 	// untyped compile-time constants (bmanifest.SchemaVersion = 3,
 	// historyShortTermVersion = 3, historyFTSSchema = "3", memoryVectorSchema
-	// = 2, abstractSchemaVersion = 1, memoryJobSchemaVersion = 2): the same
+	// = 2, memoryJobSchemaVersion = 2): the same
 	// sentence for every brain built from a given binary. What this build
 	// SUPPORTS is a property of the build, not a diagnosis of the brain --
 	// memory_schemas below is the check that compares it with what is on disk.

@@ -32,7 +32,11 @@ const (
 	memoryHintSchemaVersion = 1
 	memoryJobSchemaVersion  = 2
 
-	memoryJobKindProjection      = "deterministic_projection"
+	memoryJobKindProjection = "deterministic_projection"
+	// memoryJobKindSessionAbstract is persisted-schema compat only (COR-2323):
+	// the abstracts feature is removed and no lane runs these jobs, but a brain
+	// written by an older build may still hold job files with this kind, and
+	// rejecting the kind would misreport those files as memory_state_corrupt.
 	memoryJobKindSessionAbstract = "session_abstract"
 
 	memoryJobStatePending    = "pending"
@@ -317,28 +321,27 @@ func removeMemoryHintIfCurrent(brainDir string, hint memoryLifecycleHint) (bool,
 // memoryJob is one durable, content-free unit of deterministic projection
 // work, keyed by repository, session scope, input digest, and kind.
 type memoryJob struct {
-	SchemaVersion     int                        `json:"schema_version"`
-	JobID             string                     `json:"job_id"`
-	Kind              string                     `json:"kind"`
-	RepoKey           string                     `json:"repo_key"`
-	SessionID         string                     `json:"session_id"`
-	SessionRef        string                     `json:"session_ref"`
-	Branch            string                     `json:"branch,omitempty"`
-	InputDigest       string                     `json:"input_digest"`
-	Trigger           string                     `json:"trigger"`
-	State             string                     `json:"state"`
-	Attempt           int                        `json:"attempt"`
-	CreatedAt         time.Time                  `json:"created_at"`
-	AvailableAt       time.Time                  `json:"available_at"`
-	StartedAt         *time.Time                 `json:"started_at,omitempty"`
-	FinishedAt        *time.Time                 `json:"finished_at,omitempty"`
-	HeartbeatAt       *time.Time                 `json:"heartbeat_at,omitempty"`
-	OwnerToken        string                     `json:"owner_token,omitempty"`
-	CancelRequestedAt *time.Time                 `json:"cancel_requested_at,omitempty"`
-	Supersedes        string                     `json:"supersedes,omitempty"`
-	AbstractOverride  *memoryAbstractJobOverride `json:"abstract_override,omitempty"`
-	Error             *memoryJobError            `json:"error,omitempty"`
-	HealthIssues      []string                   `json:"health_issues,omitempty"`
+	SchemaVersion     int             `json:"schema_version"`
+	JobID             string          `json:"job_id"`
+	Kind              string          `json:"kind"`
+	RepoKey           string          `json:"repo_key"`
+	SessionID         string          `json:"session_id"`
+	SessionRef        string          `json:"session_ref"`
+	Branch            string          `json:"branch,omitempty"`
+	InputDigest       string          `json:"input_digest"`
+	Trigger           string          `json:"trigger"`
+	State             string          `json:"state"`
+	Attempt           int             `json:"attempt"`
+	CreatedAt         time.Time       `json:"created_at"`
+	AvailableAt       time.Time       `json:"available_at"`
+	StartedAt         *time.Time      `json:"started_at,omitempty"`
+	FinishedAt        *time.Time      `json:"finished_at,omitempty"`
+	HeartbeatAt       *time.Time      `json:"heartbeat_at,omitempty"`
+	OwnerToken        string          `json:"owner_token,omitempty"`
+	CancelRequestedAt *time.Time      `json:"cancel_requested_at,omitempty"`
+	Supersedes        string          `json:"supersedes,omitempty"`
+	Error             *memoryJobError `json:"error,omitempty"`
+	HealthIssues      []string        `json:"health_issues,omitempty"`
 	sourcePaths       []string
 }
 
@@ -582,10 +585,6 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 		}
 		if job.Error != nil && (!validMemoryJobErrorCode(job.Error.Code) || len(job.Error.Detail) > memoryJobErrorMaxBytes) {
 			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: "memory_state_corrupt", Version: onDiskVersion, jobID: job.JobID, sessionRef: job.SessionRef})
-			continue
-		}
-		if (job.Kind != memoryJobKindSessionAbstract && job.AbstractOverride != nil) || !validMemoryAbstractJobOverride(job.AbstractOverride) {
-			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: brainstore.StateCorruptCode, Version: onDiskVersion, jobID: job.JobID, sessionRef: job.SessionRef})
 			continue
 		}
 		healthValid := true
@@ -848,9 +847,6 @@ func nextMemoryWorkerDelay(brainDir string, now time.Time) (time.Duration, bool,
 func memoryJobKindPriority(kind string) int {
 	if kind == memoryJobKindProjection {
 		return 0
-	}
-	if kind == memoryJobKindSessionAbstract {
-		return 10
 	}
 	return 100
 }

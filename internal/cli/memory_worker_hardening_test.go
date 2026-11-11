@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -141,7 +140,7 @@ func TestMemoryStateReadersRejectLeafAliases(t *testing.T) {
 	if err := os.WriteFile(outside, []byte(`{"schema_version":1}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{memoryConfigRel, memoryCoordinatorStateRel, memoryCancellationRel("job:test")} {
+	for _, rel := range []string{memoryCoordinatorStateRel, memoryCancellationRel("job:test")} {
 		path := filepath.Join(brainDir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
@@ -321,11 +320,6 @@ func TestProjectionCancellationRestoresUnrelatedClaimWithoutPenalty(t *testing.T
 	}
 }
 
-type blockingContextAbstractor struct {
-	started chan struct{}
-	done    chan struct{}
-}
-
 type memoryVectorTestStore struct{ vectors map[string][]float32 }
 
 func (s *memoryVectorTestStore) ids() (map[string]struct{}, bool) {
@@ -411,60 +405,5 @@ func TestMemoryMigrationDetectionClassifiesVectorProgressState(t *testing.T) {
 				t.Fatalf("vector progress migration findings = %+v", detectMemoryMigrations(brainDir, nil))
 			}
 		})
-	}
-}
-
-func (b *blockingContextAbstractor) Identity() (string, string, string) {
-	return "local", "ollama", "fake"
-}
-func (b *blockingContextAbstractor) Abstract(ctx context.Context, _ string, _ conversationAbstractInput) (sessionAbstract, error) {
-	close(b.started)
-	<-ctx.Done()
-	close(b.done)
-	return sessionAbstract{}, errors.New("provider drained after cancellation")
-}
-
-func TestDeterministicFailureCancelsDrainsAndSettlesAbstractProvider(t *testing.T) {
-	// The deterministic failure is observed on the lane's next poll tick;
-	// the production 5s interval is pure wait here.
-	prevPoll := memoryAbstractCancellationPollInterval
-	memoryAbstractCancellationPollInterval = 10 * time.Millisecond
-	t.Cleanup(func() { memoryAbstractCancellationPollInterval = prevPoll })
-	brainDir, _, _ := shortTermFixture(t)
-	now := time.Date(2026, 8, 9, 4, 0, 0, 0, time.UTC)
-	_ = runMemoryProjectionLaneTest(t, brainDir, now)
-	config := loadMemoryConfig(brainDir)
-	config.Abstracts.Enabled = true
-	config.Abstracts.Automatic = true
-	config.Abstracts.Provider = "fake"
-	if err := saveMemoryConfig(brainDir, config); err != nil {
-		t.Fatal(err)
-	}
-	provider := &blockingContextAbstractor{started: make(chan struct{}), done: make(chan struct{})}
-	originalFactory := memoryAbstractorFactory
-	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) { return provider, nil }
-	t.Cleanup(func() { memoryAbstractorFactory = originalFactory })
-	go func() {
-		<-provider.started
-		_ = os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{"), 0o600)
-	}()
-	coordinator, err := acquireMemoryCoordinator(brainDir, now, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	stats, runErr := runMemoryAbstractLane(ctx, t.TempDir(), brainDir, now, coordinator.token)
-	coordinator.close(now.Add(time.Minute), "failed")
-	if runErr == nil || !strings.Contains(runErr.Error(), "brain manifest") || !strings.Contains(runErr.Error(), "provider drained") {
-		t.Fatalf("combined deterministic/provider error = %v stats=%+v", runErr, stats)
-	}
-	select {
-	case <-provider.done:
-	default:
-		t.Fatal("provider goroutine was not drained before coordinator release")
-	}
-	if stats.JobsRetried != 1 {
-		t.Fatalf("claimed provider job was not settled: %+v", stats)
 	}
 }

@@ -437,19 +437,16 @@ func pruneMemoryJobsLocked(brainDir string, jobs []memoryJob, now time.Time) (in
 		source = manifest.Sources.History
 	}
 	receipts, receiptsCurrent := loadProjectionState(brainDir, source)
-	abstracts := newSessionAbstractResolver(brainDir)
 	hasTruthProof := func(job memoryJob) bool {
 		switch {
 		case job.State == memoryJobStateComplete && job.Kind == memoryJobKindProjection && receiptsCurrent:
 			receipt, ok := receipts.receiptFor(job.SessionRef)
 			return ok && receipt.InputDigest == job.InputDigest
-		case job.State == memoryJobStateComplete && job.Kind == memoryJobKindSessionAbstract:
-			entry, ok := abstracts.inventory.ByDigest[job.InputDigest]
-			if !ok || entry.State != sessionAbstractCurrent || entry.Artifact.SessionRef != job.SessionRef {
-				return false
-			}
-			view, err := loadConversationSessionViewByRef(brainDir, job.SessionRef)
-			return err == nil && validateSessionAbstract(entry.Artifact, view) == nil
+		case job.Kind == memoryJobKindSessionAbstract:
+			// Legacy kind written before the abstracts feature was removed
+			// (COR-2323); no lane runs it and no artifact depends on it, so a
+			// terminal record needs no further proof to prune.
+			return true
 		case job.State == memoryJobStateExcluded:
 			// Legacy terminal state written by the removed privacy layer;
 			// nothing produces it anymore, so it needs no further proof.
