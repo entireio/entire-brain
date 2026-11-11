@@ -191,44 +191,65 @@ func TestHistoryProjectionCancellationAtCommitPublishesNothing(t *testing.T) {
 	}
 }
 
-func TestHistoryProjectionOverlayChangeBeforeCommitPublishesNothing(t *testing.T) {
-	for _, test := range []struct {
-		name   string
-		mutate func(t *testing.T, brainDir string, now time.Time)
-	}{
-		{name: "overlay", mutate: func(t *testing.T, brainDir string, now time.Time) {
-			source, _ := activeHistoryProjection(t, brainDir)
-			overlay := shortTermIndex{
-				Version: historyShortTermVersion, BaseGeneratedAt: source.GeneratedAt,
-				SessionsFingerprint: source.SessionsFingerprint, GeneratedAt: now,
-				ReconcilerVersion: historyShortTermReconcilerVersion, Files: map[string]shortTermFile{},
-			}
-			if err := saveHistoryShortTerm(brainDir, overlay); err != nil {
-				t.Fatal(err)
-			}
-		}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			brainDir, _, now := historyProjectionFixture(t)
-			previous, _ := activeHistoryProjection(t, brainDir)
-			prepared, err := prepareBrainHistoryProjection(brainDir, now.Add(time.Minute), nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			test.mutate(t, brainDir, now.Add(2*time.Minute))
-			err = brainstore.WithBrainWriteLock(brainDir, func() error {
-				_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
-				return publishErr
-			})
-			if err == nil || !strings.Contains(err.Error(), "memory_source_stale") {
-				t.Fatalf("publish error = %v, want memory_source_stale", err)
-			}
-			current, _ := activeHistoryProjection(t, brainDir)
-			if current.IndexPath != previous.IndexPath {
-				t.Fatalf("identity-changing publish switched generation: before=%s after=%s", previous.IndexPath, current.IndexPath)
-			}
-		})
+// Issue #582: a background memory worker writes the short-term overlay while a
+// lock-free rebuild is running. The overlay is not an input to the rebuild, so
+// neither the prepare identity check nor the commit revalidation may fail on
+// it; the publish then voids the absorbed overlay through its base pin.
+func TestHistoryProjectionOverlayChangeDoesNotFailRebuild(t *testing.T) {
+	writeWorkerOverlay := func(t *testing.T, brainDir string, now time.Time) {
+		t.Helper()
+		source, _ := activeHistoryProjection(t, brainDir)
+		overlay := shortTermIndex{
+			Version: historyShortTermVersion, BaseGeneratedAt: source.GeneratedAt,
+			SessionsFingerprint: source.SessionsFingerprint, GeneratedAt: now,
+			ReconcilerVersion: historyShortTermReconcilerVersion, Files: map[string]shortTermFile{},
+		}
+		if err := saveHistoryShortTerm(brainDir, overlay); err != nil {
+			t.Fatal(err)
+		}
 	}
+
+	t.Run("between prepare and commit", func(t *testing.T) {
+		brainDir, _, now := historyProjectionFixture(t)
+		previous, _ := activeHistoryProjection(t, brainDir)
+		prepared, err := prepareBrainHistoryProjection(brainDir, now.Add(time.Minute), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeWorkerOverlay(t, brainDir, now.Add(2*time.Minute))
+		err = brainstore.WithBrainWriteLock(brainDir, func() error {
+			_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
+			return publishErr
+		})
+		if err != nil {
+			t.Fatalf("publish after a worker overlay write = %v, want success", err)
+		}
+		current, _ := activeHistoryProjection(t, brainDir)
+		if current.IndexPath == previous.IndexPath {
+			t.Fatalf("publish did not switch generation: %s", current.IndexPath)
+		}
+		if _, state := loadHistoryShortTermRaw(brainDir); state != shortTermStateAbsent {
+			t.Fatalf("overlay state after publish = %s, want %s", state, shortTermStateAbsent)
+		}
+	})
+
+	t.Run("during prepare scan", func(t *testing.T) {
+		brainDir, _, now := historyProjectionFixture(t)
+		changed := false
+		_, err := writeBrainHistoryIndexAndSource(brainDir, now.Add(time.Minute), func(done, total int) {
+			if changed || total == 0 {
+				return
+			}
+			changed = true
+			writeWorkerOverlay(t, brainDir, now.Add(2*time.Minute))
+		})
+		if err != nil {
+			t.Fatalf("rebuild with a worker overlay write = %v, want success", err)
+		}
+		if !changed {
+			t.Fatal("the overlay write never ran")
+		}
+	})
 }
 
 func TestHistoryProjectionChangeDuringPrepareStagesNothing(t *testing.T) {

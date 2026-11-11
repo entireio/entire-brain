@@ -116,7 +116,7 @@ single pass with the fix for each:
 
 - the Entire CLI, on `PATH` as `entire`
 - Git
-- a Go toolchain, 1.27 or newer, for `entire-brain`
+- a Go toolchain, 1.27.3 or newer, for `entire-brain`
 - a cgo-capable C compiler for `entire-graph`, which uses tree-sitter native
   parser bindings — `xcode-select --install` on macOS, `build-essential` on
   Debian/Ubuntu. `entire-brain` itself is a pure-Go build and does not need cgo.
@@ -711,18 +711,21 @@ Distillation is the egress-gated agent step that turns captured sessions into
 durable project knowledge: decisions, constraints, preferences, gotchas,
 conventions, and invariants.
 
+`memories` is the canonical command group; the pre-rename `facts` spellings
+(`entire brain facts …`, `--facts-backend`, `ENTIRE_BRAIN_FACTS_BACKEND`)
+remain as compatibility aliases.
+
 ```sh
 entire brain distill --dry-run --json                                  # estimate cost first
 entire brain distill --agent codex --model gpt-5.4-mini --effort low   # extract
-entire brain facts status --json
-entire brain facts tree --depth 1
+entire brain memories status --json
+entire brain memories tree --depth 1
 ```
 
 Distillation sends redacted transcript chunks to the selected agent unless you
 use a local loopback agent such as Ollama. It is incremental and cached:
-unchanged sessions are skipped, near-duplicate facts are reconciled against the
-branch's existing facts, and low-confidence merge/supersede decisions are queued
-for `entire brain facts review`.
+unchanged sessions are skipped. Extracted facts enter the repository-level
+memory store. There is no memory proposal or review queue.
 
 For active repos, keep the brain current with the watcher — deterministic
 refreshes are free; token-spending work is opt-in and separately gated:
@@ -787,6 +790,9 @@ queries or receives brain context. Which surface matters depends on the agent
 client and how the repository is configured.
 
 ### Capture layer: Entire hooks produce the raw material
+
+For Claude capture, follow the
+[capture requirements](memory-storage-compatibility.md#claude-capture-requirement).
 
 `entire-cli` installs lifecycle hooks for agents such as Claude Code, Codex,
 Gemini CLI, OpenCode, Cursor, Factory AI Droid, Copilot CLI, and Pi. Those hooks
@@ -1153,17 +1159,14 @@ entire brain workspace review platform "checkout regression" --json
 Durable facts are short, provenance-anchored statements about decisions,
 constraints, preferences, pitfalls, and standing rules. Humans write them
 directly when they know the rule; agents distill candidates from captured
-sessions when explicitly asked. Facts have a lifecycle: review queued
-merge/supersede proposals, promote branch facts that should carry forward,
-retract facts that are no longer true, and garbage-collect stale retractions.
+sessions when explicitly asked. Memories are shared across branches by default.
+Retract facts that are no longer true, then garbage-collect eligible retractions.
 
 ```sh
 entire brain remember "Prefer table-driven tests for parser edge cases" --path preferences.tests
 entire brain distill --agent codex --model gpt-5.4-mini --effort low
-entire brain facts review
-entire brain facts promote --from <branch> --strategy keep-both
-entire brain facts retract <fact-id>
-entire brain facts gc --force
+entire brain memories retract <memory-id>
+entire brain memories gc --force
 entire brain inspect blame <fact-id> --json
 ```
 
@@ -1199,9 +1202,9 @@ retriever or fact layer is actually helping — not required for everyday use, b
 the right surface before claiming a quality lift.
 
 ```sh
-entire brain facts eval-gen > facts-tasks.json
-entire brain facts eval --tasks facts-tasks.json --retriever facts --json > facts-eval.json
-entire brain facts eval-compare --a <before.json> --b <after.json>
+entire brain memories eval-gen > memories-tasks.json
+entire brain memories eval --tasks memories-tasks.json --retriever facts --json > memories-eval.json
+entire brain memories eval-compare --a <before.json> --b <after.json>
 entire brain bench index .
 entire brain status --json --details
 ```
@@ -1235,16 +1238,16 @@ and recording them in one repo's brain makes them invisible from the next.
 
 ```sh
 entire brain remember "We deploy on Thursdays." --global
-entire brain facts global                     # list them
-entire brain facts global --all --json
-entire brain facts retract <fact-id> --global
+entire brain memories global                  # list them
+entire brain memories global --all --json
+entire brain memories retract <memory-id> --global
 ```
 
 `global` cannot be combined with `branch`: a fact that applies everywhere has no
 branch to belong to.
 
 Global facts live in their own store beside the per-repo ones — `global/` next
-to `repos/` under the plugin data directory, which `entire brain facts global`
+to `repos/` under the plugin data directory, which `entire brain memories global`
 prints. They are ordinary facts: the same format, the same taxonomy, the same
 retraction and garbage collection.
 
@@ -1495,7 +1498,7 @@ model or by fetching over the network:
 - pattern verification and skill synthesis
 - explicitly configured session-abstract generation
 - judged evaluation commands
-- `memories sync` pushes and pulls this branch's memories with the hosted
+- `memories sync` pushes and pulls repository memories with the hosted
   memory set over the per-fact wire; opt-in and off by default, requiring the
   command plus a target — the connected binding by default, else explicit
   `--repo-id`/`--api-url`/`--token`

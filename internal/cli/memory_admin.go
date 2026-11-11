@@ -879,7 +879,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 					handled := true
 					switch finding.Path {
 					case historyShortTermPath:
-						migrateErr = brainstore.WithBrainWriteLock(brainDir, func() error {
+						migrateErr = brainstore.WithBrainWriteLockContext(cmd.Context(), brainDir, func() error {
 							_, err := buildHistoryShortTermLocked(brainDir, now)
 							return err
 						})
@@ -895,7 +895,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 								projectionRebuilt = migrateErr == nil
 							}
 						} else if strings.HasPrefix(finding.Path, memoryJobsDirRel+"/") {
-							migrateErr = brainstore.WithBrainWriteLock(brainDir, func() error {
+							migrateErr = brainstore.WithBrainWriteLockContext(cmd.Context(), brainDir, func() error {
 								return rewriteLegacyMemoryJob(brainDir, finding.Path)
 							})
 						} else {

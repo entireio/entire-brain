@@ -48,9 +48,12 @@ func WithRecencyOptions(opts Options, enabled bool, halfLife string) (Options, e
 //     Classic history records carry no time, and they must not be quietly
 //     demoted for it.
 //
-// It is opt-in. Turning it on silently would change every existing ranking
-// under callers who never asked for it, and a retrieval order that shifts for
-// unexplained reasons is worse than one that ignores time.
+// For fused query results it is opt-in: turning it on silently would change
+// every existing ranking under callers who never asked for it. Facts ranking
+// (recall, brief, the facts arms) applies it by default through RecencyPrior
+// (COR-2311): memories are the only default retrieval surface there, and a
+// store that keeps both a stale and a current answer needs time to break the
+// tie.
 const (
 	// The multiplier at age zero and at infinite age. A fresh record is worth
 	// at most 1.5x a dateless one, an ancient record at least 0.3x — so a
@@ -106,6 +109,34 @@ func recencyMultiplierFor(recordedAt string, now time.Time, halfLife time.Durati
 		return recencyNeutralMultiplier, false
 	}
 	return recencyMultiplier(now.Sub(parsed), halfLife), true
+}
+
+// The facts prior uses a much gentler spread than the fused opt-in weighting.
+// Near-duplicate facts (the stale-vs-current case the prior exists for) score
+// within ~1% of each other, so ±15% reorders every such tie — while a real
+// relevance gap stays decisive. The fused 1.5/0.3 spread was measured on the
+// 60-task provenance benchmark as a facts default and regressed tokens (+55,
+// p<.001) and useful-per-1k (-15%): it demoted old-but-relevant facts, not
+// just stale duplicates.
+const (
+	factRecencyCeiling = 1.15
+	factRecencyFloor   = 0.85
+)
+
+// RecencyPrior is the default-on facts-ranking multiplier for a fact's last
+// update time. A zero time means the record carries no usable timestamp and
+// gets the neutral 1.0 — same contract as recencyMultiplierFor: absence of
+// evidence is not evidence of age.
+func RecencyPrior(updatedAt, now time.Time) float64 {
+	if updatedAt.IsZero() {
+		return recencyNeutralMultiplier
+	}
+	age := now.Sub(updatedAt)
+	if age < 0 {
+		age = 0
+	}
+	decayed := math.Pow(0.5, age.Seconds()/defaultRecencyHalfLife.Seconds())
+	return factRecencyFloor + (factRecencyCeiling-factRecencyFloor)*decayed
 }
 
 // applyRecency reweights fused results in place and re-sorts them. It returns

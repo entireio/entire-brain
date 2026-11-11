@@ -21,12 +21,12 @@ var regressionCases = []mutationCase{
 		Package:    "./internal/cli",
 	},
 	{
-		Name:       "brief must preserve raw-only matches",
+		Name:       "brief must emit precedent from fact anchors",
 		File:       "internal/cli/agent_surface.go",
-		Before:     "rawMatches, rawErr := rawHistoryMatcher(status.Brain.Path, task, nil, briefOpts.limit, rawProfile)",
-		After:      "_ = rawProfile\n\t\t\trawMatches, rawErr := []brainTextMatch(nil), error(nil)",
-		Test:       "TestRawHistoryFallbackRetainsFallbackOnlyMatch",
-		Diagnostic: "end-to-end brief lost fallback-only match",
+		Before:     "report.Precedent = brainBriefPrecedents(status.Brain.Path, report.Facts)",
+		After:      "// MUTANT: drop the precedent section.\n\t\t\treport.Precedent = nil",
+		Test:       "TestBrainBriefEmitsPrecedentFromFactAnchors",
+		Diagnostic: "transcript-backed fact sources",
 		Package:    "./internal/cli",
 	},
 	{

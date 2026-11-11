@@ -42,15 +42,27 @@ func watchStepsForRepo(cmd *cobra.Command, opts base.Options, w watch.Flags, rep
 			return watchShortTermDelta(c, cmd, opts, repoDir)
 		},
 		Reconcile: func(c context.Context) error {
-			_, warning, err := reconcileMemoryAndLaunch(c, opts, repoDir, "watch")
+			_, warning, err := reconcileMemoryAndLaunch(c, opts, repoDir, "watch", true)
 			if warning != "" {
 				fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory coordinator: %s\n", warning)
 			}
 			return err
 		},
+		Maintain: func(c context.Context) error {
+			storage, err := repoStoragePaths(c, opts.Runner, opts.Env, repoDir)
+			if err != nil {
+				return err
+			}
+			maintainFactsStorage(c, cmd.ErrOrStderr(), opts, storage.BrainDir)
+			return nil
+		},
 		// The daemon's own tick is unattended: nobody watches its stderr, so it
 		// must not run the destructive transcript sweep.
-		Refresh: func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir, true) },
+		// Tick owns reconciliation after every foreground writer. Do not
+		// launch a worker here ahead of its gated seed/distill steps.
+		Refresh: func(c context.Context) error {
+			return watchRefreshComponents(c, cmd, opts, repoDir, watchTickBuildsHistoryProjection, false, nil, true)
+		},
 		Seed:    func(c context.Context) error { return watchSeed(c, cmd, opts, w, repoDir) },
 		Distill: func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
 		Paused:  func() bool { return base.BackgroundPaused(opts.Env) },
@@ -105,12 +117,9 @@ func watchFingerprint(ctx context.Context, runner CommandRunner, repoDir string)
 // decision cannot live inside this shared body -- see
 // watchDeterministicRefreshComponents.
 func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, skipTranscriptSweep bool) error {
-	return watchDeterministicRefreshComponents(ctx, cmd, opts, repoDir, watchTickBuildsHistoryProjection, false, nil, skipTranscriptSweep)
+	return watchDeterministicRefreshComponents(ctx, cmd, opts, repoDir, watchTickBuildsHistoryProjection, false, nil, skipTranscriptSweep, true)
 }
 
-// watchDeterministicRefreshComponents runs the free refresh with explicit failure
-// policy and an optional outcome observer. Setup chooses best effort; ticks fail fast.
-//
 // historyIndex separates the two callers that were previously identical. A
 // watch TICK passes false: it runs every few minutes, the per-tick delta
 // already makes new conversations recallable, and the coordinator consolidates
@@ -150,13 +159,16 @@ func watchDeterministicRefreshOptions(historyIndex bool) refreshCommandOptions {
 	}
 }
 
+// watchRefreshComponents refreshes foreground state without launching the
+// coordinator. The watch tick defers that launch until its gated writers finish.
+//
 // skipTranscriptSweep classifies by INVOKER, not by this function: the watch
 // daemon's tick is unattended and passes true; `setup` and
 // `workspace refresh --full` are user-invoked and pass false, same as
 // `refresh`/`path --ensure`/`export`. Hardcoding a value here once silently
 // disabled the sweep for setup.go:1925 and workspace.go's runWorkspaceRefresh
 // too, neither of which is unattended.
-func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, historyIndex, bestEffort bool, component func(name string, err error), skipTranscriptSweep bool) error {
+func watchRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, historyIndex, bestEffort bool, component func(name string, err error), skipTranscriptSweep bool) error {
 	perRepo := opts
 	perRepo.Env.RepoRoot = repoDir
 	refreshOpts := watchDeterministicRefreshOptions(historyIndex)
@@ -180,7 +192,7 @@ func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command
 	// before.
 	// Setup supplies the component reporter and consumes these progress lines
 	// as transient labels. Ordinary watch ticks retain their quiet behavior.
-	var entityTask, memoryTask *refreshProgressTask
+	var entityTask *refreshProgressTask
 	if component != nil {
 		entityTask = newProgress(cmd.OutOrStdout(), "refresh").Begin("entity index")
 	}
@@ -194,10 +206,23 @@ func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command
 	case entityErr != nil:
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: entity index refresh skipped: %v\n", entityErr)
 	}
+	return nil
+}
+
+// watchDeterministicRefreshComponents also reconciles memory for user-invoked
+// setup and workspace refresh, which have no enclosing tick to launch a worker.
+// Setup chooses best effort and supplies a component outcome observer.
+// launchWorker=false (`setup --no-daemon`) still reconciles the durable queue
+// but leaves no detached worker running after the command exits.
+func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, historyIndex, bestEffort bool, component func(name string, err error), skipTranscriptSweep, launchWorker bool) error {
+	if err := watchRefreshComponents(ctx, cmd, opts, repoDir, historyIndex, bestEffort, component, skipTranscriptSweep); err != nil {
+		return err
+	}
+	var memoryTask *refreshProgressTask
 	if component != nil {
 		memoryTask = newProgress(cmd.OutOrStdout(), "refresh").Begin("memory coordinator")
 	}
-	_, warning, err := reconcileMemoryAndLaunch(ctx, perRepo, repoDir, "watch")
+	_, warning, err := reconcileMemoryAndLaunch(ctx, opts, repoDir, "watch", launchWorker)
 	if memoryTask != nil {
 		memoryTask.Finish(err)
 	}
@@ -271,12 +296,11 @@ func watchDistillOptions(w watch.Flags) distillCommandOptions {
 		maxSessions = 0
 	}
 	return distillCommandOptions{
-		agent:               w.DistillAgent,
-		model:               w.Model,
-		effort:              w.Effort,
-		timeout:             defaultDistillTimeout,
-		maxChunkBytes:       defaultDistillChunkSize,
-		confidenceThreshold: defaultFactConfidenceThreshold,
+		agent:         w.DistillAgent,
+		model:         w.Model,
+		effort:        w.Effort,
+		timeout:       defaultDistillTimeout,
+		maxChunkBytes: defaultDistillChunkSize,
 		// The per-pass VOLUME cap. A capped pass is ordered newest-first,
 		// matching what `setup` says it did and what a reader wants first; the
 		// deferred remainder stays UNCACHED, so the next window picks it up

@@ -168,7 +168,7 @@ func TestFlatStoreWriteRefusesRecordWithoutID(t *testing.T) {
 	}
 }
 
-func TestFlatStoreWriteParksLegacyDirs(t *testing.T) {
+func TestFlatStoreWriteCleansVerifiedLegacyDirs(t *testing.T) {
 	root := t.TempDir()
 	legacy := repoStoreFact("legacy memory", "main")
 	writeLegacyFile(t, root, "main-abc123", []factmerge.Record{legacy})
@@ -185,8 +185,8 @@ func TestFlatStoreWriteParksLegacyDirs(t *testing.T) {
 	if dirs := legacyDirsOnDisk(t, root); len(dirs) != 0 {
 		t.Fatalf("legacy dirs must be parked after a write: %v", dirs)
 	}
-	if parked := parkedDirs(t, root); len(parked) != 1 {
-		t.Fatalf("legacy dir must be parked, not deleted: %v", parked)
+	if parked := parkedDirs(t, root); len(parked) != 0 {
+		t.Fatalf("verified redundant legacy dir remains: %v", parked)
 	}
 	byID := loadByID(t, root)
 	if _, ok := byID[legacy.ID]; !ok {

@@ -59,9 +59,6 @@ o	^	^	^	~	^	^	^
 @O=test_suggestion(id,kind,name,short_name,file,start,end,path,signature,language,score,confidence,reason,warning_codes,suggestion_reason)
 O	test:suggestion	function	TestValidateOrder	~	internal/a_test.go	32	44	~	~	~	~	~	~	~	"covers the boundary"
 O	^	^	^	~	^	^	^	~	~	~	~	~	~	~	"covers the boundary"
-@h=history(path,line,timestamp,score,matched_terms,excerpt)
-h	history/main.jsonl	8	"2026-07-01"	12	[validation,order]	"Decision: preserve validation order."
-h	^	8	^	^	^	"Decision: preserve validation order."
 @f=fact(id,paths,kind,locus,text,branch,origin,status,confidence,related_ids,superseded_by,anchors,verified_anchors,stale_locus)
 f	fact:1	[architecture.validation.order]	invariant	[pkg.Validate]	"Validation runs before persistence."	feature	distilled	active	high	[fact:2]	~	1	1	[OldValidate]
 f	^	^	^	^	"Validation runs before persistence."	^	^	^	^	^	~	1	1	^
@@ -91,4 +88,4 @@ g	"Inspect dirty files before trusting the snapshot."
 !	^	"live warning"
 !	brief	"brief warning"
 !	^	"brief warning"
-end	66	5925191912dbb9ad642b1160a9e7af43e0c23495177512de0aef8fc267c9735f
+end	64	c67fe3fa674298e1c35f15118ab6b05bfe1fc27bb97836f5f717d4af888b1d32

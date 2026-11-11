@@ -20,7 +20,10 @@ const (
 	// factsBackendHTTP is the hosted per-fact wire (factsync perfact.go) —
 	// the only sync backend.
 	factsBackendHTTP = "http"
-	// envFactsBackend selects the backend when --memories-backend is unset.
+	// envMemoriesBackend selects the backend when --memories-backend is unset.
+	envMemoriesBackend = "ENTIRE_BRAIN_MEMORIES_BACKEND"
+	// envFactsBackend is the pre-rename spelling, honored as a fallback the
+	// same way legacyFlagAlias keeps --facts-backend working (COR-2193).
 	envFactsBackend = "ENTIRE_BRAIN_FACTS_BACKEND"
 )
 
@@ -77,14 +80,14 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 
 	// Backend validation first: a removed or unknown value must fail the same
 	// way on every repo, before any state is read.
-	backend := resolveFactsBackendName(syncOpts.backend)
+	backend, backendSource := resolveFactsBackendName(syncOpts.backend)
 	switch backend {
 	case "", factsBackendHTTP:
 	case factsBackendLocalGitmeta:
-		return fmt.Errorf("memories sync: the %q backend was removed (COR-2236): memory sync is hosted-only; run '%s' to sync with the team, or drop --memories-backend/%s (memories stay local otherwise)",
-			factsBackendLocalGitmeta, base.BrainInvocation(os.LookupEnv, "connect"), envFactsBackend)
+		return fmt.Errorf("memories sync: the %q backend was removed (COR-2236): memory sync is hosted-only; run '%s' to sync with the team, or drop %s (memories stay local otherwise)",
+			factsBackendLocalGitmeta, base.BrainInvocation(os.LookupEnv, "connect"), backendSource)
 	default:
-		return fmt.Errorf("unknown --memories-backend %q: only %q (the hosted per-fact wire) is supported; the local-gitmeta backend was removed (COR-2236)", backend, factsBackendHTTP)
+		return fmt.Errorf("unknown memories backend %q (from %s): only %q (the hosted per-fact wire) is supported; the local-gitmeta backend was removed (COR-2236)", backend, backendSource, factsBackendHTTP)
 	}
 
 	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
@@ -205,11 +208,15 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
 }
 
 // resolveFactsBackendName folds the --memories-backend flag and the env
-// override into an explicit backend name. Empty means "no explicit choice":
-// the caller requires a connected repo and syncs hosted.
-func resolveFactsBackendName(flagVal string) string {
+// overrides into an explicit backend name plus the source it came from, so a
+// rejection can tell the user which setting to drop. Empty means "no explicit
+// choice": the caller requires a connected repo and syncs hosted.
+func resolveFactsBackendName(flagVal string) (name, source string) {
 	if v := strings.TrimSpace(flagVal); v != "" {
-		return v
+		return v, "--memories-backend"
 	}
-	return strings.TrimSpace(os.Getenv(envFactsBackend))
+	if v := strings.TrimSpace(os.Getenv(envMemoriesBackend)); v != "" {
+		return v, envMemoriesBackend
+	}
+	return strings.TrimSpace(os.Getenv(envFactsBackend)), envFactsBackend
 }

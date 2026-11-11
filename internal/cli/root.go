@@ -1,16 +1,20 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
+	"os/signal"
 	"reflect"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
@@ -52,7 +56,12 @@ func Execute(version string) error {
 		Version: version,
 		Env:     base.EnvFromOS(),
 	})
-	err := cmd.Execute()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if os.Getenv(parentwatch.DetachedEnv) != "" {
+		ctx = brainstore.BackgroundWrites(ctx)
+	}
+	err := cmd.ExecuteContext(ctx)
 	if err != nil && commandErrorWasRendered(err) {
 		return err
 	}
@@ -238,7 +247,7 @@ func setRootUsage(root *cobra.Command, commands []*cobra.Command) {
 			if c.Name() == "memories" {
 				// Surface operator paths without moving the everyday memories family
 				// or changing any child's registration or visibility.
-				for _, name := range []string{"import", "sync", "proposals", "gc", "vitality"} {
+				for _, name := range []string{"import", "sync", "gc", "vitality"} {
 					for _, child := range c.Commands() {
 						if child.Name() == name {
 							ordered = append(ordered, helpEntry{child, "memories " + name, "operations"})

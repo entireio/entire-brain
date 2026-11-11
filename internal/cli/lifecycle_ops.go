@@ -473,6 +473,10 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	switch {
 	case history.SessionsFingerprint == "":
 		add("history_freshness", "warn", "index predates fingerprinting; run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`")
+	case history.ExtractionVersion != historyScanCacheVersion:
+		// Unchanged sessions do not make an index current when an older
+		// extractor built it; only a full refresh rebuilds it.
+		add("history_freshness", "warn", "history index was built by "+extractorRevisionLabel(history.ExtractionVersion)+"; run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` to rebuild it")
 	case current == history.SessionsFingerprint:
 		add("history_freshness", "ok", "history and conversation projections were built from the current exported sessions")
 	case shortTermCovers && shortTerm.complete():
@@ -514,10 +518,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 		add("conversation", "warn", "no conversation projection")
 	} else {
 		state := "ok"
-		detail := fmt.Sprintf("%d exchanges (%d incomplete), vectors %s", conversation.Exchanges, conversation.IncompleteExchanges, conversation.VectorState)
-		if conversation.VectorState == "current" {
-			detail += fmt.Sprintf(" (%d, %s)", conversation.Vectors, conversation.VectorModelID)
-		}
+		detail := fmt.Sprintf("%d exchanges (%d incomplete)", conversation.Exchanges, conversation.IncompleteExchanges)
 		if conversation.Exchanges == 0 && manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0 {
 			state = "warn"
 			detail += "; sessions exist but produced no exchanges"

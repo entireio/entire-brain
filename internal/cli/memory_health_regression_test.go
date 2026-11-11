@@ -10,6 +10,23 @@ import (
 	"time"
 )
 
+// saveMemoryVectorProgress exists for tests and migration tooling that
+// fabricate or repair a legacy progress leaf; no production path writes one
+// anymore.
+func saveMemoryVectorProgress(brainDir string, progress memoryVectorProgress) error {
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
+		if _, _, err := loadMemoryVectorProgress(brainDir); err != nil {
+			return err
+		}
+		progress.SchemaVersion = memoryVectorSchema
+		data, err := json.Marshal(progress)
+		if err != nil {
+			return err
+		}
+		return brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryVectorProgressRel, data, 0o600)
+	})
+}
+
 func TestMemoryVectorHealthReportsPersistedStatesWithoutMutation(t *testing.T) {
 	currentDigest := "sha256:" + strings.Repeat("a", 64)
 	staleDigest := "sha256:" + strings.Repeat("b", 64)

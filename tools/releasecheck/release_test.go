@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -113,6 +114,156 @@ esac
 				t.Fatalf("installed unverified binary: %v", err)
 			}
 		})
+	}
+}
+
+// Without --version the installer asks the GitHub API for the newest release.
+// Unauthenticated API calls are capped per IP address, and an exhausted cap
+// answers 403 (or 429). The installer used to fetch with curl -f and discard
+// the error, so a rate-limited user was told to check their network (#555).
+//
+// runInstallerLookup runs the installer against a curl stub that answers the
+// release lookup with the given status and body the way real curl would:
+// -o writes the body and -w prints the status code. Anything past the lookup
+// is the download, which the stub fails visibly, and an API URL other than
+// the channel's lookup fails the same way. No network is used.
+func runInstallerLookup(t *testing.T, status int, body string, networkDown bool, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("installer is a POSIX shell script")
+	}
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "body"), []byte(body), 0600); err != nil {
+		t.Fatal(err)
+	}
+	curl := `#!/bin/sh
+out=""; fmt=""; url=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    -w) fmt="$2"; shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+case "$url" in
+  https://api.github.com/*)
+    [ "$url" = "$FIXTURE_API_URL" ] || { echo "unexpected API URL: $url (want $FIXTURE_API_URL)" >&2; exit 22; } ;;
+  *) echo "download not stubbed: $url" >&2; exit 22 ;;
+esac
+if [ "$FIXTURE_NETWORK_DOWN" = 1 ]; then
+  echo 'curl: (6) Could not resolve host: api.github.com' >&2
+  [ -n "$fmt" ] && printf 000
+  exit 6
+fi
+if [ -n "$out" ]; then cp "$FIXTURE_DIR/body" "$out"; else cat "$FIXTURE_DIR/body"; fi
+[ -n "$fmt" ] && printf '%s' "$FIXTURE_STATUS"
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(bin, "curl"), []byte(curl), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "entire"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	apiURL := "https://api.github.com/repos/entireio/entire-brain/releases/latest"
+	for _, arg := range args {
+		if arg == "--nightly" {
+			apiURL = "https://api.github.com/repos/entireio/entire-brain/releases?per_page=20"
+		}
+	}
+	down := "0"
+	if networkDown {
+		down = "1"
+	}
+	cmd := exec.Command("bash", append([]string{filepath.Join(root, "scripts/get-brain.sh")}, args...)...)
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "FIXTURE_DIR="+dir, "FIXTURE_STATUS="+strconv.Itoa(status), "FIXTURE_NETWORK_DOWN="+down, "FIXTURE_API_URL="+apiURL, "WANT_VERSION=", "ENTIRE_BRAIN_INSTALL_DIR="+filepath.Join(dir, "install"), "NO_COLOR=1")
+	var outBuf, errBuf strings.Builder
+	cmd.Stdout, cmd.Stderr = &outBuf, &errBuf
+	err = cmd.Run()
+	return outBuf.String(), errBuf.String(), err
+}
+
+const rateLimitBody = `{"message":"API rate limit exceeded for 203.0.113.7. (But here's the good news: Authenticated requests get a higher rate limit.)","documentation_url":"https://docs.github.com/rest/overview/rate-limits-for-the-rest-api"}`
+
+func requireNamesRateLimit(t *testing.T, stderr string, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("rate-limited lookup succeeded: %s", stderr)
+	}
+	if !strings.Contains(stderr, "rate limit") {
+		t.Fatalf("a rate-limited lookup must say so: %q", stderr)
+	}
+	if !strings.Contains(stderr, "--version") {
+		t.Fatalf("the error must name the --version escape hatch: %q", stderr)
+	}
+	if strings.Contains(stderr, "Check your network") {
+		t.Fatalf("a rate limit is not a network problem: %q", stderr)
+	}
+}
+
+func TestInstallerLookupRateLimitedStableNamesTheLimit(t *testing.T) {
+	_, stderr, err := runInstallerLookup(t, 403, rateLimitBody, false)
+	requireNamesRateLimit(t, stderr, err)
+	if !strings.Contains(stderr, "403") {
+		t.Fatalf("missing HTTP status: %q", stderr)
+	}
+}
+
+func TestInstallerLookupRateLimitedNightlyNamesTheLimit(t *testing.T) {
+	_, stderr, err := runInstallerLookup(t, 403, rateLimitBody, false, "--nightly")
+	requireNamesRateLimit(t, stderr, err)
+}
+
+func TestInstallerLookup429NamesTheLimit(t *testing.T) {
+	_, stderr, err := runInstallerLookup(t, 429, `{"message":"You have exceeded a secondary rate limit."}`, false)
+	requireNamesRateLimit(t, stderr, err)
+}
+
+func TestInstallerLookupOtherHTTPErrorsReportStatus(t *testing.T) {
+	_, stderr, err := runInstallerLookup(t, 502, "<html>Bad Gateway</html>", false)
+	if err == nil {
+		t.Fatalf("502 lookup succeeded: %s", stderr)
+	}
+	if !strings.Contains(stderr, "HTTP 502") {
+		t.Fatalf("missing HTTP status: %q", stderr)
+	}
+	if strings.Contains(stderr, "rate limit") {
+		t.Fatalf("a 502 is not a rate limit: %q", stderr)
+	}
+}
+
+func TestInstallerLookupUnreachableAPIPointsAtNetwork(t *testing.T) {
+	_, stderr, err := runInstallerLookup(t, 200, "", true)
+	if err == nil {
+		t.Fatalf("unreachable lookup succeeded: %s", stderr)
+	}
+	if !strings.Contains(stderr, "Check your network") {
+		t.Fatalf("an unreachable API should point at the network: %q", stderr)
+	}
+}
+
+func TestInstallerLookupSuccessResolvesTag(t *testing.T) {
+	// The download is deliberately unstubbed, so the run fails after the
+	// lookup; what matters is that the lookup picked the right tag.
+	stdout, stderr, _ := runInstallerLookup(t, 200, `{"tag_name": "v9.9.9", "name": "v9.9.9"}`, false)
+	if !strings.Contains(stdout, "Installing Entire Brain v9.9.9") {
+		t.Fatalf("stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestInstallerLookupSuccessNightlyPicksFirstNightly(t *testing.T) {
+	stdout, stderr, _ := runInstallerLookup(t, 200, `[{"tag_name": "v1.0.0"}, {"tag_name": "v1.1.0-nightly.202610280000.abc1234"}]`, false, "--nightly")
+	if !strings.Contains(stdout, "Installing Entire Brain v1.1.0-nightly.202610280000.abc1234") {
+		t.Fatalf("stdout=%q stderr=%q", stdout, stderr)
 	}
 }
 

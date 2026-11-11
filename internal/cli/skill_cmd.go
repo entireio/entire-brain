@@ -153,7 +153,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 	// The brain write lock keeps the accepted-dossier read, provider
 	// synthesis, and the skill-memory write consistent against a concurrent
 	// verify or corpus rebuild (WithCorpusMutationLocked requires it too).
-	return brainstore.WithBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		var cand *taskCandidate
 		var deep *deepSkillInput
 		// A theme skill is synthesized from the verified latent practice (its agent

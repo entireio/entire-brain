@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/entireio/cli/transcript"
 )
 
 // Episode tool/command extraction (Pattern Consolidation, Phase 2).
@@ -12,7 +14,8 @@ import (
 // From an episode's raw work segment, recover the ordered tool-call names and the
 // ordered normalized shell commands. These are the operational shape procedure
 // detection groups on. Deterministic and token-free; handles the Codex
-// (response_item), Claude/pi (assistant content blocks) dialects. Document-form
+// (response_item), Claude/pi (assistant content blocks) dialects and the Entire
+// Transcript Format (read through the CLI's transcript package). Document-form
 // (opencode) drops tool output, so sequences are empty there — acceptable, those
 // transcripts carry no tool calls in the parsed conversation.
 
@@ -48,11 +51,11 @@ func episodeToolAndCommandSequences(workText string) (tools []string, commands [
 		if !strings.HasPrefix(line, "{") {
 			continue
 		}
-		var obj map[string]any
-		if json.Unmarshal([]byte(line), &obj) != nil {
+		record, ok := decodeTranscriptRecord(line)
+		if !ok {
 			continue
 		}
-		for _, call := range toolCallsFromObj(obj) {
+		for _, call := range toolCallsFromRecord(record) {
 			if call.name == "" {
 				continue
 			}
@@ -65,42 +68,39 @@ func episodeToolAndCommandSequences(workText string) (tools []string, commands [
 	return tools, commands
 }
 
-func toolCallsFromObj(obj map[string]any) []episodeToolCall {
+func toolCallsFromRecord(record transcriptRecord) []episodeToolCall {
+	if record.etf != nil {
+		if !record.etfIs(transcript.TypeAssistant) {
+			return nil
+		}
+		return episodeToolCalls(etfToolUses(record.etf))
+	}
+	obj := record.obj
 	switch jsonString(obj["type"]) {
 	case "response_item":
 		p := jsonMap(obj["payload"])
 		switch jsonString(p["type"]) {
 		case "function_call":
-			name := strings.ToLower(strings.TrimSpace(jsonString(p["name"])))
+			name := normalizeToolName(jsonString(p["name"]))
 			return []episodeToolCall{{name: name, command: shellCommandFromInput(name, p["arguments"])}}
 		case "custom_tool_call":
-			return []episodeToolCall{{name: strings.ToLower(strings.TrimSpace(jsonString(p["name"])))}}
+			return []episodeToolCall{{name: normalizeToolName(jsonString(p["name"]))}}
 		}
 	case "assistant":
-		return toolCallsFromContent(jsonMap(obj["message"])["content"])
+		return episodeToolCalls(nativeToolUses(jsonMap(obj["message"])["content"]))
 	case "message": // pi wraps every turn as {"type":"message","message":{role,content}}
 		m := jsonMap(obj["message"])
 		if jsonString(m["role"]) == "assistant" {
-			return toolCallsFromContent(m["content"])
+			return episodeToolCalls(nativeToolUses(m["content"]))
 		}
 	}
 	return nil
 }
 
-func toolCallsFromContent(content any) []episodeToolCall {
-	blocks, ok := content.([]any)
-	if !ok {
-		return nil
-	}
+func episodeToolCalls(uses []toolUse) []episodeToolCall {
 	var out []episodeToolCall
-	for _, b := range blocks {
-		bm := jsonMap(b)
-		t := jsonString(bm["type"])
-		if t != "tool_use" && t != "tool" {
-			continue
-		}
-		name := strings.ToLower(strings.TrimSpace(firstNonEmptyString(bm["name"], bm["tool"])))
-		out = append(out, episodeToolCall{name: name, command: shellCommandFromInput(name, bm["input"])})
+	for _, use := range uses {
+		out = append(out, episodeToolCall{name: use.name, command: shellCommandFromInput(use.name, use.input)})
 	}
 	return out
 }

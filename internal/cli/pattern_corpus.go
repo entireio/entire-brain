@@ -103,11 +103,16 @@ func (g patternCorpusGraphContext) source(brainDir string, manifest *exportManif
 // transaction, removed transcripts are pruned, and an indexer-version bump forces
 // a full re-index. Deterministic and token-free.
 func buildPatternCorpus(brainDir string, now time.Time, graph ...patternCorpusGraphContext) error {
+	ctx := context.Background()
+	if len(graph) > 0 && graph[0].Context != nil {
+		ctx = graph[0].Context
+	}
+
 	// Session manifests, exported transcripts, facts, tombstones, corpus
 	// verifiers, and purge all use this lock for their mutation boundary. The
 	// deterministic build can therefore take a coherent input snapshot and a
 	// purge cannot verify clean before a stale corpus is published.
-	return brainstore.WithBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		return buildPatternCorpusLocked(brainDir, now, graph...)
 	})
 }
@@ -251,7 +256,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 		if err != nil {
 			return err
 		}
-		if factsFresh && corpusSessionUnchanged(db, id, size, mtime, sha) {
+		if factsFresh && corpusSessionUnchanged(db, id, size, mtime, sha, s.LatestCheckpoint) {
 			continue
 		}
 		if err := indexSessionIntoCorpus(db, repoKey, s, id, rel, content, size, mtime, sha, factsByBranch); err != nil {
@@ -356,18 +361,23 @@ func patternTranscriptEndLine(content string) int {
 	return strings.Count(content, "\n") + 1
 }
 
-func corpusSessionUnchanged(db *sql.DB, id string, size, mtime int64, sha string) bool {
+// corpusSessionUnchanged reports whether a session's stored episodes are
+// still what indexing it now would give. Besides the transcript and the
+// indexer version, that covers the checkpoint the session was exported from:
+// a later checkpoint can carry other files_touched for the same transcript,
+// and a compact codex session's FileChange root comes from them.
+func corpusSessionUnchanged(db *sql.DB, id string, size, mtime int64, sha, checkpointID string) bool {
 	var (
-		gotSize, gotMtime int64
-		gotSha            string
-		parser            int
+		gotSize, gotMtime  int64
+		gotSha, checkpoint string
+		parser             int
 	)
-	err := db.QueryRow(`SELECT size, mtime_unix_nano, content_sha, parser_version FROM indexed_sessions WHERE id = ?`, id).
-		Scan(&gotSize, &gotMtime, &gotSha, &parser)
+	err := db.QueryRow(`SELECT size, mtime_unix_nano, content_sha, parser_version, COALESCE(checkpoint_id, '') FROM indexed_sessions WHERE id = ?`, id).
+		Scan(&gotSize, &gotMtime, &gotSha, &parser, &checkpoint)
 	if err != nil {
 		return false
 	}
-	return gotSize == size && gotMtime == mtime && gotSha == sha && parser == patterncore.IndexerVersion
+	return gotSize == size && gotMtime == mtime && gotSha == sha && parser == patterncore.IndexerVersion && checkpoint == checkpointID
 }
 
 func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel string, content []byte, size, mtime int64, sha string, factsByBranch map[string][]factRecord) error {
@@ -397,6 +407,11 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 	}
 
 	endOfTranscript := patternTranscriptEndLine(string(content))
+	// A compact codex FileChange path is absolute. The session's own
+	// checkpoint says which checkout it was under, so the stored path is
+	// repo-relative whichever checkout or machine the session ran in, and
+	// whichever one builds the corpus.
+	repoRoot := codexSessionRoot(string(content), s.FilesTouched)
 	episodeCount := 0
 	for ord, seg := range segments {
 		feedback := ""
@@ -405,7 +420,7 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 		}
 		committed := workCommitted(seg.WorkText)
 		outcome, outcomeSource := corpusOutcome(feedback, committed)
-		tools, commands, files := corpusEpisodeOps(seg.WorkText)
+		tools, commands, files := corpusEpisodeOps(seg.WorkText, repoRoot)
 		exitFails := 0
 		for _, c := range commands {
 			if c.failed {

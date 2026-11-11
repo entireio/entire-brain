@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/entireio/cli/transcript"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
@@ -73,10 +74,22 @@ const (
 	// sole reuse authority — unchanged transcripts would keep those empty
 	// results forever, so an upgraded brain would never recover its history
 	// without a manual rebuild (COR-2289).
-	historyScanCacheVersion = 11
-	// Extraction revision 11 changes parser behavior, not the record schema.
-	// Keep the wire version readable by supported stable clients. Old clients
-	// drop extractor_version when rewriting, forcing the new parser to rescan.
+	// v12: also mine code facts from the tool output the compact dialect
+	// inlines into each tool_use block (tool_use.result.output) instead of a
+	// separate tool_result record. A v11 cache holds compact scans without
+	// those facts.
+	// v13: a record whose "message" is null or an empty object falls back to
+	// its top-level content. Pre-release revision 12 builds read nothing from
+	// such records, and their caches would otherwise stay current.
+	// The value is also persisted as the history source's ExtractionVersion
+	// so refresh rebuilds an otherwise-unchanged index built by an older
+	// extractor, and as the short-term overlay's extractor_version so a delta
+	// re-parses entries an older extractor built.
+	historyScanCacheVersion = 13
+	// Extraction revisions 11 to 13 change parser behavior, not the record
+	// schema. Keep the wire version readable by supported stable clients. Old
+	// clients drop extractor_version when rewriting, forcing the new parser to
+	// rescan.
 	historyScanCacheWireVersion = 10
 )
 
@@ -102,11 +115,17 @@ type historySessionFile struct {
 // the exact descriptor-rooted Brain/session-tree membership observed during
 // capture. os.SameFile comparisons catch same-size/same-mtime inode replacement
 // of the root, directories, supported transcripts, and irrelevant entries.
+//
+// The short-term overlay is deliberately NOT part of this identity. The
+// rebuild derives from canonical sessions only, and publish re-reads the
+// overlay under the write lock for its clear decision; an overlay written
+// mid-rebuild is voided by its BaseGeneratedAt pin, exactly like one written
+// just after publish. Comparing it here made every lock-free prepare lose the
+// race against a background memory worker's overlay write (issue #582).
 type historyProjectionIdentity struct {
 	SessionsFingerprint string
 	SessionFiles        string
 	SessionContents     string
-	Overlay             string
 	brainRoot           os.FileInfo
 	sessionEntries      []historySessionTreeEntry
 }
@@ -116,7 +135,7 @@ func (i historyProjectionIdentity) same(other historyProjectionIdentity) bool {
 }
 
 func (i historyProjectionIdentity) sameMetadata(other historyProjectionIdentity) bool {
-	if i.SessionsFingerprint != other.SessionsFingerprint || i.SessionFiles != other.SessionFiles || i.Overlay != other.Overlay {
+	if i.SessionsFingerprint != other.SessionsFingerprint || i.SessionFiles != other.SessionFiles {
 		return false
 	}
 	return sameHistorySessionMembership(i.brainRoot, i.sessionEntries, other.brainRoot, other.sessionEntries)
@@ -221,13 +240,13 @@ func writeBrainHistoryIndexAndSourceContext(ctx context.Context, outputDir strin
 		return nil, err
 	}
 	var source *historySourceManifest
-	err = brainstore.WithBrainWriteLock(outputDir, func() error {
+	err = brainstore.WithBrainWriteLockContext(ctx, outputDir, func() error {
 		var runErr error
 		source, runErr = publishBrainHistoryProjectionLocked(outputDir, prepared, nil)
 		return runErr
 	})
 	if err == nil {
-		finalizePreparedHistoryProjection(outputDir, prepared)
+		finalizePreparedHistoryProjectionContext(ctx, outputDir, prepared)
 	}
 	return source, err
 }
@@ -280,7 +299,7 @@ func prepareBrainHistoryProjectionContext(ctx context.Context, outputDir string,
 		return nil, err
 	}
 	if !identity.same(after) {
-		return nil, errors.New("memory_source_stale: sessions or short-term overlay changed while preparing history")
+		return nil, errors.New("memory_source_stale: sessions changed while preparing history")
 	}
 	// Retain the exact post-scan descriptor/root/tree snapshot for the short
 	// commit revalidation. The content aggregate already equals the immutable
@@ -357,7 +376,7 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 		return nil, err
 	}
 	if !current.sameMetadata(prepared.identity) {
-		return nil, errors.New("memory_source_stale: sessions or short-term overlay changed before history commit")
+		return nil, errors.New("memory_source_stale: sessions changed before history commit")
 	}
 	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
@@ -396,7 +415,7 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 		return nil, err
 	}
 	if !current.sameMetadata(prepared.identity) {
-		return nil, errors.New("memory_source_stale: sessions or short-term overlay changed at history commit")
+		return nil, errors.New("memory_source_stale: sessions changed at history commit")
 	}
 	bmanifest.Normalize(manifest)
 	// Normalization may fill default fields on the canonical sessions source.
@@ -450,13 +469,17 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 // FTS remains lazy: its fingerprint makes the old store unreadable for the new
 // index until a query rebuilds it.
 func finalizePreparedHistoryProjection(outputDir string, prepared *preparedHistoryProjection) {
+	finalizePreparedHistoryProjectionContext(context.Background(), outputDir, prepared)
+}
+
+func finalizePreparedHistoryProjectionContext(ctx context.Context, outputDir string, prepared *preparedHistoryProjection) {
 	if prepared == nil {
 		return
 	}
 	if len(prepared.cacheData) > 0 {
 		_ = brainstore.WriteBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
 	}
-	_ = brainstore.WithBrainWriteLock(outputDir, func() error {
+	_ = brainstore.WithBrainWriteLockContext(ctx, outputDir, func() error {
 		pruneInactiveHistoryGenerations(outputDir)
 		return nil
 	})
@@ -939,7 +962,7 @@ func captureHistoryProjectionMetadataIdentity(outputDir string) (historyProjecti
 // inventory in both modes. Preparation additionally hashes non-excluded
 // transcript bytes. Commit runs metadata-only under the Brain lock: supported
 // exporters take that lock and publish transcripts by atomic replacement, so
-// retained SameFile root/tree membership plus manifest/overlay identity
+// retained SameFile root/tree membership plus manifest identity
 // binds the post-scan content snapshot without O(corpus bytes) lock hold time.
 // A hostile local process that mutates an inode in place while forging its size
 // and timestamps is local store compromise, outside the cooperative-store
@@ -994,10 +1017,6 @@ func captureHistoryProjectionIdentityFromStore(ctx context.Context, outputDir st
 		}
 		contentIdentity = historyScanCacheContentIdentity(contentCache)
 	}
-	overlayIdentity, err := historyProjectionFileIdentity(outputDir, historyShortTermPath, clibase.DefaultMaxReadBytes)
-	if err != nil {
-		return historyProjectionIdentity{}, nil, err
-	}
 	return historyProjectionIdentity{
 		SessionsFingerprint: func() string {
 			if manifest.Sources == nil {
@@ -1007,31 +1026,9 @@ func captureHistoryProjectionIdentityFromStore(ctx context.Context, outputDir st
 		}(),
 		SessionFiles:    "sha256:" + hex.EncodeToString(fileHash.Sum(nil)),
 		SessionContents: contentIdentity,
-		Overlay:         overlayIdentity,
 		brainRoot:       inventory.rootInfo,
 		sessionEntries:  append([]historySessionTreeEntry(nil), inventory.entries...),
 	}, manifest, nil
-}
-
-func historyProjectionFileIdentity(outputDir, rel string, limit int64) (string, error) {
-	data, present, err := brainstore.ReadMemoryStateFile(outputDir, filepath.ToSlash(rel), "history projection input", limit)
-	if err != nil {
-		// An externally hardlinked input is unreadable here, but it must not
-		// veto the rebuild that supersedes it: these inputs are disposable
-		// projections, the rebuild derives from canonical sessions only, and
-		// publish clears a corrupt-classed overlay afterwards. The constant
-		// keeps the prepare and commit identity captures agreeing while the
-		// file stays in that state; any content change still differs.
-		if errors.Is(err, clibase.ErrFileHardlinked) {
-			return "unsafe-hardlinked", nil
-		}
-		return "", err
-	}
-	if !present {
-		return "absent", nil
-	}
-	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyIndexProgress) (historyIndex, *historySourceManifest, error) {
@@ -1213,6 +1210,7 @@ func buildBrainHistoryIndexSnapshotFromStore(ctx context.Context, outputDir stri
 	source := &historySourceManifest{
 		GeneratedAt:            now,
 		IndexPath:              historystore.IndexPath,
+		ExtractionVersion:      historyScanCacheVersion,
 		TranscriptsFingerprint: transcriptsFingerprint,
 		SessionsFingerprint: func() string {
 			if manifest == nil {
@@ -1859,9 +1857,8 @@ func scanHistoryFileReader(ctx context.Context, f io.ReadSeeker, rel, ext string
 		var fragments []historyFragment
 		parsedOK := false
 		if strings.HasPrefix(text, "{") {
-			var obj map[string]any
-			if json.Unmarshal([]byte(text), &obj) == nil {
-				fragments = extractHistoryJSONFragments(obj)
+			if record, ok := decodeTranscriptRecord(text); ok {
+				fragments = extractHistoryJSONFragments(record)
 				parsedOK = true
 			}
 		}
@@ -1915,9 +1912,8 @@ func scanHistoryLines(ctx context.Context, rel, ext string, reader io.Reader) ([
 		var fragments []historyFragment
 		parsedOK := false
 		if strings.HasPrefix(text, "{") {
-			var obj map[string]any
-			if json.Unmarshal([]byte(text), &obj) == nil {
-				fragments = extractHistoryJSONFragments(obj)
+			if record, ok := decodeTranscriptRecord(text); ok {
+				fragments = extractHistoryJSONFragments(record)
 				parsedOK = true
 			}
 		}
@@ -2028,19 +2024,29 @@ func historyDocumentRecords(rel string, messages []documentMessage) []historyRec
 // questions as queries). The v3 noise concern remains addressed the way it
 // always was: both rankers exclude kind=request from general ranking; the
 // records exist for trajectory surfaces, not retrieval.
-func extractHistoryJSONFragments(obj map[string]any) []historyFragment {
-	fragments := extractHistoryRecordFragments(obj)
-	// transcriptUserText handles all four transcript dialects (codex
-	// response_item/event_msg, Claude user, pi message); wrapper injections
-	// (environment context, caveats) are filtered with the same predicate
-	// every other request consumer uses.
-	if text := strings.TrimSpace(transcriptUserText(obj)); text != "" && !isWrapperRequest(text) {
+func extractHistoryJSONFragments(record transcriptRecord) []historyFragment {
+	fragments := extractHistoryRecordFragments(record)
+	// transcriptUserText handles every transcript dialect (codex
+	// response_item/event_msg, Claude user, pi message, the Entire Transcript
+	// Format); wrapper injections (environment context, caveats) are filtered
+	// with the same predicate every other request consumer uses.
+	if text := strings.TrimSpace(transcriptUserText(record)); text != "" && !isWrapperRequest(text) {
 		fragments = append(fragments, historyFragment{Text: text, Source: "user_prompt"})
 	}
 	return fragments
 }
 
-func extractHistoryRecordFragments(obj map[string]any) []historyFragment {
+func extractHistoryRecordFragments(record transcriptRecord) []historyFragment {
+	if record.etf != nil {
+		// A format user line carries only the request (read above), with no
+		// tool_result blocks: its tool results are inlined into the
+		// assistant's tool_use blocks.
+		if !record.etfIs(transcript.TypeAssistant) {
+			return nil
+		}
+		return extractETFFragments(record.etf, "assistant_message")
+	}
+	obj := record.obj
 	recordType := jsonString(obj["type"])
 	payload := jsonMap(obj["payload"])
 	switch recordType {
@@ -2143,12 +2149,37 @@ func extractClaudeToolResultFragments(obj map[string]any) []historyFragment {
 }
 
 func extractClaudeMessageFragments(obj map[string]any, role string) []historyFragment {
-	if message := jsonMap(obj["message"]); len(message) > 0 {
-		return extractContentFragments(message["content"], role+"_message")
+	return extractContentFragments(jsonMap(obj["message"])["content"], role+"_message")
+}
+
+// extractETFFragments returns the fragments of a format line's blocks, as
+// extractContentFragments does for a native message's: text is narrative, a
+// tool call is indexed with its input, and the tool's output, which the format
+// inlines into the tool_use block, is mined for code facts.
+func extractETFFragments(line *transcript.Line, source string) []historyFragment {
+	var fragments []historyFragment
+	for _, block := range line.Blocks {
+		switch block.Type {
+		case transcript.BlockToolUse:
+			fragments = append(fragments, toolCallFragments(block.Name, etfJSONValue(block.Input))...)
+			if block.Result != nil {
+				fragments = append(fragments, extractToolResultFacts(block.Result.Output)...)
+			}
+		default:
+			if block.Text != "" {
+				fragments = append(fragments, historyFragment{Text: block.Text, Source: source})
+			}
+		}
 	}
-	// ETF compact records carry the content blocks at the record's top level
-	// (see distillConversationText).
-	return extractContentFragments(obj["content"], role+"_message")
+	return fragments
+}
+
+// toolCallFragments indexes one tool call: its name and input, and any code
+// facts in them.
+func toolCallFragments(name string, input any) []historyFragment {
+	text := strings.TrimSpace(name + " " + compactJSONValue(input))
+	fragments := []historyFragment{{Text: text, Source: historyToolCallSource(name)}}
+	return append(fragments, extractToolResultFacts(text)...)
 }
 
 func extractContentFragments(content any, source string) []historyFragment {
@@ -2168,10 +2199,10 @@ func extractContentFragments(content any, source string) []historyFragment {
 			blockType := jsonString(block["type"])
 			switch blockType {
 			case "tool_use":
-				name := jsonString(block["name"])
-				text := strings.TrimSpace(name + " " + compactJSONValue(block["input"]))
-				fragments = append(fragments, historyFragment{Text: text, Source: historyToolCallSource(name)})
-				fragments = append(fragments, extractToolResultFacts(text)...)
+				fragments = append(fragments, toolCallFragments(jsonString(block["name"]), block["input"])...)
+				// A wrapped turn can inline its tool's output into the tool_use
+				// block, as the format does, instead of a tool_result block.
+				fragments = append(fragments, extractToolResultFacts(jsonString(jsonMap(block["result"])["output"]))...)
 			case "tool_result":
 				fragments = append(fragments, extractToolResultFacts(firstNonEmptyString(block["content"], block["text"]))...)
 			default:

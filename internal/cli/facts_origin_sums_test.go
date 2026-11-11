@@ -37,13 +37,15 @@ func TestCompactBriefShowsImportedOnlyWhenPresent(t *testing.T) {
 	if none := compactV1Int("imported", 0); none != "" {
 		t.Fatalf("a brain with no imported facts must not spend packet bytes on it; got %q", none)
 	}
-	// Non-vacuity: the brief must actually reference the field, or the two
-	// assertions above only test the helper.
-	data, err := os.ReadFile("brain_brief_compact.go")
+	// Non-vacuity: the projection must actually reference the field, or the
+	// two assertions above only test the helper. The compact serializers are
+	// test-only since COR-2317; the projection other tests assert through
+	// still has to explain its totals.
+	data, err := os.ReadFile("brain_brief_compact_fortest_test.go")
 	if err != nil {
-		t.Fatalf("read brain_brief_compact.go: %v", err)
+		t.Fatalf("read brain_brief_compact_fortest_test.go: %v", err)
 	}
 	if !strings.Contains(string(data), `compactV1Int("imported", facts.Imported)`) {
-		t.Error("the compact brief does not emit facts.Imported, so the packet still cannot explain its totals")
+		t.Error("the compact projection does not emit facts.Imported, so the packet still cannot explain its totals")
 	}
 }

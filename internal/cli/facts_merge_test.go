@@ -1,11 +1,21 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/factmerge"
 	"testing"
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
+
+// applyFactActions and the confidence default left production (COR-2317):
+// reconcile never applied confidence, so only these tests exercise
+// factmerge.ApplyActions through the cli aliases.
+const defaultFactConfidenceThreshold = factmerge.DefaultConfidenceThreshold
+
+func applyFactActions(active []factRecord, actions []factAction, threshold float64, now time.Time) []factRecord {
+	return factmerge.ApplyActions(active, actions, threshold, now)
+}
 
 func factFor(t *testing.T, text string, paths []string, now time.Time) factRecord {
 	t.Helper()

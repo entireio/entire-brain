@@ -7,20 +7,189 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Changed
 
-- Memory bodies now share one repository-level store. Existing branch visibility,
-  lifecycle state, and Brainstore sync records are preserved. Writes migrate their
-  target view and refresh migrates all views; legacy NDJSON projections remain readable
-  and writable by older clients during the compatibility window.
+- Dead-code sweep (COR-2317). Removed: the retired semantic-relevance
+  calibration, the experimental compact brief serializers (no CLI flag ever
+  selected them; the brief renders text and JSON), the `--confidence` distill
+  flag (production reconcile never applied confidence; the old default stays
+  frozen inside existing cache keys), the proposal-framework counters
+  (always-zero `proposals`/`branches` in status, the brief and the detailed
+  status JSON), always-"removed" conversation vector-state render lines, and
+  four uncalled factgitmeta methods. The legacy store cleanup now also sweeps
+  known orphan files of removed subsystems (old `proposals.ndjson`,
+  per-branch `vitality.*` copies, `embeddings/`) so emptied branch
+  directories actually disappear instead of logging "retained" forever.
+
+- `ENTIRE_BRAIN_MEMORIES_BACKEND` is the canonical spelling of the memories
+  sync backend variable; `ENTIRE_BRAIN_FACTS_BACKEND` keeps working as a
+  fallback, like the `--facts-backend` flag alias. `docs/reference.md` now
+  teaches the `memories` command group with a note that the `facts` spellings
+  remain aliases (COR-2193).
+
+- The seed freshness axis is drift-aware. One brain is shared by every
+  worktree of a repo, so `seed commit != HEAD` was the permanent state of all
+  but one worktree and the stale warning was permanent noise. A seed within 50
+  commits of HEAD on one line of history now reads ok with a "built from
+  <sha>, N commits behind/ahead" detail; real distance, divergence, or an
+  unreadable comparison still warns (COR-2315). Near drift does not skip the
+  other seed gates: a dirty tree keeps its dirty-unindexed cause line, and a
+  `--worktree` overlay built on another commit reads stale.
+
+- A dirty worktree no longer blocks the background refresh: the repository
+  context (seed) is built from a materialized committed-HEAD snapshot, so
+  permanently-dirty worktrees still get periodic full refreshes of
+  committed-state indexes. Uncommitted content stays excluded, `--worktree`
+  still opts into indexing it, and the old refusal remains only as the
+  fallback when the snapshot cannot be built (COR-2316). The snapshot is a
+  scratch-index `git checkout-index`, and its file list comes from
+  `git ls-tree`, so `export-ignore`/`export-subst` attributes and
+  denied-directory enumeration cannot make it differ from a clean worktree at
+  the same commit.
+
+- Facts ranking (recall, brief, the facts arms) changed in three ways
+  (COR-2311). The flat closed-negative score bonus is gone: it boosted ~17% of
+  the corpus on any match and let topically-similar closed-negatives displace
+  the decision fact; kind no longer affects ranking. A gentle recency prior
+  (±15%, 90-day half-life) now applies by default: it breaks stale-vs-current
+  ties between near-duplicate facts and leaves dateless facts neutral. Facts
+  cross-linked via `related_ids` get one primary rank — the highest-ranked
+  member represents the family, the freed slots backfill, and the other
+  members are demoted behind every unlinked result rather than dropped, so a
+  complementary (not duplicate) relative still surfaces when the limit leaves
+  room; `--all` skips the collapse. Each change was
+  gated on a 60-task provenance-labeled `memories eval` comparison with no
+  significant relevance regression.
+
+- Building from source needs Go 1.27.3 or newer (was 1.27). Brain now reads
+  compact transcripts with the CLI's own `transcript` package
+  (`github.com/entireio/cli` v0.13.1), whose module requires it. The source
+  installer's Go check compares the patch version too (#607).
+
+### Fixed
+
+- A commit in another session no longer fails a history rebuild, such as the one
+  in `refresh` or the background history lane, with `memory_source_stale`.
+  Finalizing a checkpoint rewrites its transcript on the checkpoint ref, and a
+  rebuild read that transcript several times through the moving ref. A rebuild
+  now reads one fixed set of blobs, so a finalize that lands mid-rebuild belongs
+  to the next one (#580).
+- A background memory worker no longer fails `refresh history` (or any other
+  history rebuild) with `memory_source_stale`. The short-term overlay left the
+  projection identity: the rebuild derives from canonical sessions only, and
+  an overlay written mid-rebuild is voided by its base-generation pin exactly
+  like one written just after publish, so only real session changes abort a
+  rebuild now. `setup --no-daemon` also stops launching the detached
+  `memory worker --once` that used to outlive setup; the durable queue keeps
+  the work for the next notify or watch tick (#582).
+- The pattern corpus now reads current Codex sessions (the cli's item path,
+  in cli 0.13.1 and later). A command that failed is stored as failed, with no
+  exit code since the session records none, and counts in `exit_fails`. A file
+  edit gives a file ref, stored relative to the repository root (taken from the
+  files the session's checkpoint touched) so it links to the file's symbols.
+  The indexer version moves, so the next refresh re-indexes existing
+  sessions (#600).
+- `recall --evidence` no longer returns harness-injected `<system-reminder>`
+  text as `role: "user"` evidence. User-role strings and text blocks now go
+  through the same wrapper filter as the conversation reader, so reminders,
+  `Caveat:` notes and environment envelopes are skipped like system-role
+  records already were. As in conversation, user text that itself starts with
+  `<` is skipped too. Assistant text is unchanged (#565).
+- The pattern corpus reads a Codex command's exit code only from the header
+  Codex writes before its `Output:` line. Exit-like text the command printed,
+  such as a test logging `child process exited with code 1`, is no longer
+  stored as the command's exit code or failure. The next corpus build
+  re-indexes existing sessions (#607).
+- The history-fragment reader now mines compact v1 transcripts: tool output
+  inlined as `tool_use.result.output` becomes code facts, and a history index,
+  scan cache or short-term overlay built by another extractor revision is
+  rebuilt once on the next refresh instead of being reused. `doctor` reports an
+  index built by a different revision instead of calling it current (#560).
+- Episode tool sequences, the pattern corpus, and `recall --evidence` now read
+  compact v1 transcripts. Compact sessions previously produced episodes with
+  empty tool and command sequences, no corpus tool ops or file refs, and no
+  evidence spans — each compact session was reported as unreadable or
+  unsupported content. The pattern corpus and episode layer rebuild once on
+  the first refresh after upgrading (#564).
+- Compact codex sessions now record `apply_patch` file refs and command exit
+  codes the same way native codex records do. A patch-only turn is no longer
+  classified read-only, and a failing command is no longer stored as a
+  success (#566, #567).
+
+## [0.5.1] - 2026-11-04
+
+### Fixed
+
+- Give waiting foreground writers priority over background work. Watchers,
+  memory workers, and detached backfills wait without spending job retries on
+  writer contention. Active atomic writes finish before another writer starts.
+- Fetch and filter hosted memories outside the writer lock. Recheck the feed
+  cache and connection before committing, and preserve concurrent local writes.
+- Limit hosted pull retries when concurrent syncs keep changing the feed cache.
+  Wait briefly between attempts, and allow cancellation during that wait.
+- Preserve completed distillation results and cache entries when cancellation
+  interrupts a wait for the writer lock.
+- Avoid re-reading the complete memory store when updating the manifest after
+  `remember` or a hosted pull. Storage and hosted wire formats remain unchanged.
+
+- Remove verified redundant legacy memory files automatically during normal
+  writes and refreshes, and during unchanged watcher passes. This also covers
+  copies retained by v0.5.0. Repository and global stores need no cleanup command.
+- Verify complete migrated records before cleanup. Preserve unrecognized or
+  unverified data, and resume interrupted cleanup from durable verification
+  receipts. Large-file verification runs outside the brain write lock.
+- Report pending cleanup, retained recovery data, and recorded reclaimed bytes
+  through `memories storage status --json`. Reads remain read-only. Background
+  pause settings remain effective.
+
+## [0.5.0] - 2026-11-03
+
+### Changed
+
+- Durable memories now use one repository-level `facts/store.json` file.
+  Memories are visible across branches by default. Migration merges copies with
+  the same ID and retains provenance and lifecycle state.
+- Local storage migration is one-way. Stable v0.2.0, v0.3.0, and v0.4.0 can
+  upgrade, but cannot read the migrated store.
+- Migration retains original branch directories under `facts/.legacy-*`.
+  Total disk usage can increase until these recovery copies are removed after
+  verification. Automatic removal is not included.
+- Hosted Brainstore sync keeps its per-fact wire format. Older and newer clients
+  can exchange memories through separate local stores.
 
 ### Added
 
-- `memories storage status`, `migrate`, and `rollback` (also with `--global`).
-  Rollback exports current memories, including changes made after migration.
-- Released-client checks cover upgrades from v0.1.0 through v0.4.0, plus
-  concurrent old/new writers and downgrade cycles for v0.2.0 through v0.4.0.
-  v0.1.0 retains its existing manifest schema limit after an upgrade.
+- `memories storage status` and `memories storage migrate`, also with `--global`.
+  Migration supports legacy branch files and the unreleased schema 1 and schema 2
+  layouts. Interrupted migration can be retried. Later legacy writes are imported
+  with a warning to update the older client.
+- Upgrade and hosted-sync checks against stable v0.2.0, v0.3.0, and v0.4.0.
+  The release compatibility matrix excludes v0.1.0 and nightly releases.
+
+### Upgrade requirements
+
+- Stop every writer that shares the local store before backup and migration.
+  Back up the complete Brain data and repository checkpoint refs.
+  `brain stop` pauses future background work; it does not wait for an active pass.
+- To use an older release, restore a complete pre-migration backup into a separate
+  environment. That backup does not contain later writes. A post-migration bundle
+  is not a downgrade format.
+- Do not run mixed old and new versions against the same migrated local directory.
+  Hosted compatibility requires separate local stores.
+- Verify migration and the backup before removing retained legacy directories.
+  Do not delete the flat store or checkpoint refs to reclaim disk space.
+- Claude capture requires Claude Code **2.1.78 or later** with the generated hooks.
+  Check `claude --version` and verify a checkpoint after a real turn and commit.
+  The CLI version-check fix will follow this release.
+- Large-store concurrent writers can still report `brain_locked`.
+  Keep affected stores' background work paused during initial migration and
+  verification. Run foreground writers one at a time with support.
+  This release does not resolve all writer contention.
 
 ### Removed
+
+- `memories storage rollback`. The flat store has no supported conversion back
+  to the released branch-file layout.
+- `memories promote` and `memories review`. Memories use the repository-level
+  store without branch promotion.
 
 - The brain-local privacy layer: the `privacy` command family
   (`list|exclude|include|purge|verify|retention`), session tombstones, read
@@ -52,12 +221,12 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
-- A commit in another session no longer fails a history rebuild, such as the one
-  in `refresh` or the background history lane, with `memory_source_stale`.
-  Finalizing a checkpoint rewrites its transcript on the checkpoint ref, and a
-  rebuild read that transcript several times through the moving ref. A rebuild
-  now reads one fixed set of blobs, so a finalize that lands mid-rebuild belongs
-  to the next one.
+- The watcher starts its memory worker after its own refresh, seed, and distillation
+  steps finish. This prevents that worker from blocking those steps in the same
+  pass. Other processes can still compete for the write lock.
+- Released-client repository visibility tests now use each binary's actual storage
+  path. Upgrades from v0.2.0, v0.3.0, and v0.4.0 execute without this test being skipped.
+
 - The conversation and history parsers now read the compact transcript
   dialect the Entire CLI stores per checkpoint (Entire Transcript Format:
   content blocks at the record's top level, no `message` wrapper). A default
@@ -65,9 +234,9 @@ All notable changes to `entire-brain` are recorded here. The format follows
   searchable exchanges, no user-prompt history records — until the user
   re-exported with `refresh sessions --raw` (COR-2289).
 
-  Upgrading rebuilds the history index once: the scan cache version is bumped
-  so caches filled by the pre-compact scanner — which recorded none of those
-  records — are discarded instead of reused. No re-export is needed; the next
+  The history extraction revision invalidates cached scan results. Caches filled
+  by the pre-compact scanner are discarded instead of reused. The cache wire
+  version remains compatible with supported stable clients. No re-export is needed; the next
   `refresh` rescans the transcripts already on disk, and stored memories,
   their anchors and their ids are unaffected.
 

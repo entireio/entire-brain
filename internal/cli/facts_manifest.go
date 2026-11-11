@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"context"
 	"time"
+
+	"github.com/entireio/entire-brain/factmerge"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
@@ -37,8 +40,12 @@ func updateFactSourceManifest(brainDir string, now time.Time) error {
 // older binary wrote) before the reclassify reads it. Ordinary read commands
 // remain read-only, including on read-only installations.
 func reclassifyAllFacts(brainDir string, now time.Time) (int, error) {
+	return reclassifyAllFactsContext(context.Background(), brainDir, now)
+}
+
+func reclassifyAllFactsContext(ctx context.Context, brainDir string, now time.Time) (int, error) {
 	changed := 0
-	err := brainstore.WithBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		if _, err := migrateFactStoreLocked(brainDir); err != nil {
 			return err
 		}
@@ -85,6 +92,11 @@ func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
 		return err
 	}
 
+	return updateFactSourceManifestRecordsLocked(brainDir, now, records)
+}
+
+// The records are the exact replacement just committed under the writer lock.
+func updateFactSourceManifestRecordsLocked(brainDir string, now time.Time, records []factmerge.Record) error {
 	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return err
@@ -93,7 +105,7 @@ func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
 	if manifest.Sources != nil && manifest.Sources.Facts != nil {
 		previous = manifest.Sources.Facts
 	}
-	source := factstore.SummarizeSource(now, records, 0, 0, 0, nil)
+	source := factstore.SummarizeSource(now, records, 0, 0, nil)
 	preserveFactDistillEvidence(source, previous)
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,7 +9,7 @@ import (
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
-func TestBriefOverlayPreservesPayloadWithCorruptJSONIndex(t *testing.T) {
+func TestOverlayPreservesPayloadWithCorruptJSONIndex(t *testing.T) {
 	fixture := newBrainBriefProfileFixture(t)
 	manifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
@@ -55,25 +54,21 @@ func TestBriefOverlayPreservesPayloadWithCorruptJSONIndex(t *testing.T) {
 	if _, used, err := rankHistoryViaFreshFTSCutoffDetailed(fixture.brainDir, &source, "history", query, 3, historyFTSRelevanceCutoff); err != nil || !used {
 		t.Fatalf("payload fixture unavailable: used=%v err=%v", used, err)
 	}
-	out, err := execute(t, NewRootCommand(fixture.opts), "brief", query, "--json")
+	ranked, _, _, err := rankFreshHistoryLexicalFromSource(fixture.brainDir, &source, "history", query, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var report brainBriefReport
-	if err := json.Unmarshal([]byte(out), &report); err != nil {
-		t.Fatal(err)
-	}
 	found := false
-	for _, hit := range report.History.Matches {
-		if hit.Path == "sessions/main/changed.jsonl" {
+	for _, hit := range ranked {
+		if hit.Record.Path == "sessions/main/changed.jsonl" {
 			t.Fatalf("obsolete replacement survived: %+v", hit)
 		}
-		if hit.Path == "sessions/main/indexed-only.jsonl" && hit.Line == 17 {
+		if hit.Record.Path == "sessions/main/indexed-only.jsonl" && hit.Record.Line == 17 {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("validated indexed history discarded: %s", out)
+		t.Fatalf("validated indexed history discarded: %+v", ranked)
 	}
 }
 

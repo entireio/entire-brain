@@ -207,7 +207,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			checkpointsScanned = loadedSnapshot.CheckpointCount
 			reportExportProgress(exportOpts.progress, checkpointsScanned, checkpointsScanned, len(selected))
 			if metadataCachePath != "" && metadataCacheBrainDir != "" {
-				_ = brainstore.WithBrainWriteLock(metadataCacheBrainDir, func() error {
+				_ = brainstore.WithBrainWriteLockContext(ctx, metadataCacheBrainDir, func() error {
 					saveCheckpointMetadataCache(metadataCachePath, metadataCache)
 					return nil
 				})
@@ -437,7 +437,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			// Kept as a virtual evidence address, never a materialized path.
 			session.TranscriptPath = sessionTranscriptRel(*session, branchDirs)
 		}
-		if err := brainstore.WithBrainWriteLock(outputDir, func() error {
+		if err := brainstore.WithBrainWriteLockContext(ctx, outputDir, func() error {
 			var err error
 			outputDir, err = prepareExportDir(outputDir, true)
 			if err != nil {

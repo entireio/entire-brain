@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/cli/transcript"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"hash"
@@ -234,11 +235,11 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 		if !strings.HasPrefix(text, "{") {
 			continue
 		}
-		var obj map[string]any
-		if json.Unmarshal([]byte(text), &obj) != nil {
+		record, ok := decodeTranscriptRecord(text)
+		if !ok {
 			continue
 		}
-		if request := conversationSubstantiveRequest(obj); request != "" {
+		if request := conversationSubstantiveRequest(record); request != "" {
 			// Some dialects carry the same user turn in two record shapes
 			// (codex response_item + event_msg). A repeat of the still-open
 			// request with no narrative between them is that duplication, not a
@@ -253,10 +254,10 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 		if open == nil {
 			continue
 		}
-		for _, chunk := range conversationAssistantNarrative(obj) {
+		for _, chunk := range conversationAssistantNarrative(record) {
 			appendConversationNarrative(open, chunk, conversationScanResponseMaxBytes)
 		}
-		open.ToolNames = appendConversationToolNames(open.ToolNames, conversationToolNames(obj))
+		open.ToolNames = appendConversationToolNames(open.ToolNames, conversationToolNames(record))
 	}
 	if err := scanner.Err(); err != nil {
 		return conversationScanResult{}, err
@@ -311,8 +312,8 @@ func scanDocumentConversation(messages []documentMessage, totalLines int) conver
 // and environment envelopes are filtered by the same predicate every other
 // request consumer uses, plus conversation-specific hook-injection patterns),
 // "" otherwise.
-func conversationSubstantiveRequest(obj map[string]any) string {
-	text := strings.TrimSpace(transcriptUserText(obj))
+func conversationSubstantiveRequest(record transcriptRecord) string {
+	text := strings.TrimSpace(transcriptUserText(record))
 	if text == "" || isWrapperRequest(text) || isConversationInjectedRequest(text) {
 		return ""
 	}
@@ -344,7 +345,20 @@ func isConversationNoiseNarrative(chunk string) bool {
 // results, and raw patch/command output are excluded by construction: only
 // explicit assistant text blocks qualify. Keep the dialect switch in sync with
 // extractHistoryJSONFragments / distillConversationText when adding a format.
-func conversationAssistantNarrative(obj map[string]any) []string {
+func conversationAssistantNarrative(record transcriptRecord) []string {
+	if record.etf != nil {
+		if !record.etfIs(transcript.TypeAssistant) {
+			return nil
+		}
+		var out []string
+		for _, text := range etfTexts(record.etf) {
+			if text = strings.TrimSpace(text); text != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	}
+	obj := record.obj
 	payload := jsonMap(obj["payload"])
 	switch jsonString(obj["type"]) {
 	case "agent_message":
@@ -364,12 +378,8 @@ func conversationAssistantNarrative(obj map[string]any) []string {
 			return conversationTextBlocks(payload["content"])
 		}
 	case "assistant":
-		if message := jsonMap(obj["message"]); len(message) > 0 {
-			return conversationTextBlocks(message["content"])
-		}
-		// ETF compact records carry the content blocks at the record's top
-		// level (see distillConversationText).
-		return conversationTextBlocks(obj["content"])
+		// claude-code nests the turn under "message".
+		return conversationTextBlocks(jsonMap(obj["message"])["content"])
 	case "message":
 		// pi: {"type":"message","message":{role,content}}.
 		if message := jsonMap(obj["message"]); jsonString(message["role"]) == "assistant" {
@@ -407,7 +417,23 @@ func conversationTextBlocks(content any) []string {
 
 // conversationToolNames returns compact tool names when the record already
 // exposes them safely; absence is never an extraction failure.
-func conversationToolNames(obj map[string]any) []string {
+func conversationToolNames(record transcriptRecord) []string {
+	if record.etf != nil {
+		if !record.etfIs(transcript.TypeAssistant) {
+			return nil
+		}
+		var names []string
+		for _, block := range record.etf.Blocks {
+			if block.Type != transcript.BlockToolUse {
+				continue
+			}
+			if name := strings.TrimSpace(block.Name); name != "" {
+				names = append(names, name)
+			}
+		}
+		return names
+	}
+	obj := record.obj
 	payload := jsonMap(obj["payload"])
 	switch jsonString(obj["type"]) {
 	case "response_item":
@@ -425,13 +451,7 @@ func conversationToolNames(obj map[string]any) []string {
 			return []string{"apply_patch"}
 		}
 	case "assistant":
-		message := jsonMap(obj["message"])
-		content, ok := message["content"].([]any)
-		if !ok {
-			// ETF compact records carry the content blocks at the record's
-			// top level (see distillConversationText).
-			content, ok = obj["content"].([]any)
-		}
+		content, ok := jsonMap(obj["message"])["content"].([]any)
 		if !ok {
 			return nil
 		}
@@ -759,11 +779,11 @@ func expandLineConversationRange(r io.Reader, record historyRecord) (conversatio
 		if !strings.HasPrefix(text, "{") {
 			continue
 		}
-		var obj map[string]any
-		if json.Unmarshal([]byte(text), &obj) != nil {
+		line, ok := decodeTranscriptRecord(text)
+		if !ok {
 			continue
 		}
-		if request := conversationSubstantiveRequest(obj); request != "" {
+		if request := conversationSubstantiveRequest(line); request != "" {
 			if out.Request == "" {
 				bounded, cut := truncateUTF8Bytes(request, conversationRequestMaxBytes)
 				out.Request = bounded
@@ -772,7 +792,7 @@ func expandLineConversationRange(r io.Reader, record historyRecord) (conversatio
 			}
 			continue
 		}
-		for _, chunk := range conversationAssistantNarrative(obj) {
+		for _, chunk := range conversationAssistantNarrative(line) {
 			appendBoundedNarrative(&response, chunk, responseBudget, &out.Truncated)
 		}
 	}

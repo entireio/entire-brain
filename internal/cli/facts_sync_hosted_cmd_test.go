@@ -29,7 +29,7 @@ func newHostedSyncCmdFixture(t *testing.T, fake *hostedFake) (verifyFixture, str
 	}
 	f.opts.Env.PluginCacheDir = t.TempDir()
 	f.runner.responses[fakeCommandKey("entire", "auth", "token")] = fakeCommandResponse{stdout: fakeJWT + "\n"}
-	for _, env := range []string{"ENTIRE_BRAIN_NO_EGRESS", "ENTIRE_BRAIN_LOCAL_ONLY", "ENTIRE_BRAIN_ALLOW_HOSTED", "ENTIRE_API_URL", "ENTIRE_API_TOKEN", "ENTIRE_REPO_ID", envFactsBackend} {
+	for _, env := range []string{"ENTIRE_BRAIN_NO_EGRESS", "ENTIRE_BRAIN_LOCAL_ONLY", "ENTIRE_BRAIN_ALLOW_HOSTED", "ENTIRE_API_URL", "ENTIRE_API_TOKEN", "ENTIRE_REPO_ID", envMemoriesBackend, envFactsBackend} {
 		t.Setenv(env, "")
 	}
 	return f, srv.URL
@@ -168,7 +168,7 @@ func TestMemoriesSyncUnconnectedFailsGracefully(t *testing.T) {
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	f := newVerifyFixture(t)
 	f.opts.Env.PluginCacheDir = t.TempDir()
-	for _, env := range []string{"ENTIRE_BRAIN_NO_EGRESS", "ENTIRE_BRAIN_LOCAL_ONLY", "ENTIRE_BRAIN_ALLOW_HOSTED", envFactsBackend} {
+	for _, env := range []string{"ENTIRE_BRAIN_NO_EGRESS", "ENTIRE_BRAIN_LOCAL_ONLY", "ENTIRE_BRAIN_ALLOW_HOSTED", envMemoriesBackend, envFactsBackend} {
 		t.Setenv(env, "")
 	}
 	f.writeFacts(t, "main", []factRecord{hostedSyncTestFact("local fact A", now)})
@@ -187,7 +187,7 @@ func TestMemoriesSyncUnconnectedFailsGracefully(t *testing.T) {
 // requests (compat rule from COR-2233).
 func TestMemoriesSyncLocalGitmetaBackendIsRemoved(t *testing.T) {
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
-	run := func(t *testing.T, f verifyFixture, args ...string) error {
+	run := func(t *testing.T, f verifyFixture, wantSource string, args ...string) error {
 		t.Helper()
 		out, err := execute(t, NewRootCommand(f.opts), args...)
 		if err == nil {
@@ -196,13 +196,16 @@ func TestMemoriesSyncLocalGitmetaBackendIsRemoved(t *testing.T) {
 		if !strings.Contains(err.Error(), "removed") || !strings.Contains(err.Error(), "local-gitmeta") {
 			t.Fatalf("error must say the backend was removed, got %v", err)
 		}
+		if !strings.Contains(err.Error(), wantSource) {
+			t.Fatalf("error must name the value's source %q, got %v", wantSource, err)
+		}
 		return err
 	}
 	t.Run("flag on a connected repo", func(t *testing.T) {
 		fake := &hostedFake{}
 		f, _ := newHostedSyncCmdFixture(t, fake)
 		f.writeFacts(t, "main", []factRecord{hostedSyncTestFact("local fact A", now)})
-		run(t, f, "memories", "sync", "--memories-backend", "local-gitmeta")
+		run(t, f, "--memories-backend", "memories", "sync", "--memories-backend", "local-gitmeta")
 		if fake.requestCount() != 0 {
 			t.Fatalf("a refused backend must make zero requests, got %d", fake.requestCount())
 		}
@@ -210,13 +213,19 @@ func TestMemoriesSyncLocalGitmetaBackendIsRemoved(t *testing.T) {
 	t.Run("legacy --facts-backend alias", func(t *testing.T) {
 		fake := &hostedFake{}
 		f, _ := newHostedSyncCmdFixture(t, fake)
-		run(t, f, "memories", "sync", "--facts-backend", "local-gitmeta")
+		run(t, f, "--memories-backend", "memories", "sync", "--facts-backend", "local-gitmeta")
 	})
 	t.Run("env spelling", func(t *testing.T) {
 		fake := &hostedFake{}
 		f, _ := newHostedSyncCmdFixture(t, fake)
+		t.Setenv(envMemoriesBackend, "local-gitmeta")
+		run(t, f, envMemoriesBackend, "memories", "sync")
+	})
+	t.Run("legacy env spelling still honored", func(t *testing.T) {
+		fake := &hostedFake{}
+		f, _ := newHostedSyncCmdFixture(t, fake)
 		t.Setenv(envFactsBackend, "local-gitmeta")
-		run(t, f, "memories", "sync")
+		run(t, f, envFactsBackend, "memories", "sync")
 	})
 	t.Run("unknown value names the one supported backend", func(t *testing.T) {
 		fake := &hostedFake{}
