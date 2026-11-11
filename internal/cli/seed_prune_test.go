@@ -712,6 +712,47 @@ func TestFailedManifestWriteInAnotherOutputKeepsWhatItWroteOwned(t *testing.T) {
 	}
 }
 
+// TestAFailedManifestWriteClaimsACopyOverAFileThatWasThere: a seed that
+// writes over a file of an --output's own and then fails its manifest write
+// claims that path in the marker by the bytes it wrote. Once the source is
+// gone the next seed removes its copy, but not a file put back in its place,
+// which no manifest ever listed.
+func TestAFailedManifestWriteClaimsACopyOverAFileThatWasThere(t *testing.T) {
+	for _, putBack := range []bool{false, true} {
+		t.Run(map[bool]string{false: "copy left", true: "file put back"}[putBack], func(t *testing.T) {
+			repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
+			outputDir := filepath.Join(t.TempDir(), "out")
+			seedPruneRun(t, repoDir, outputDir, "--worktree")
+			own := "# the output's own\n"
+			writeSeedPruneFiles(t, outputDir, map[string]string{"seed/docs/docs/new.md": own})
+			writeSeedPruneFiles(t, repoDir, map[string]string{"docs/new.md": "# New\n\nThe zebra pipeline.\n"})
+
+			saved := refreshSeedFailingItsManifestWrite(t, repoDir, outputDir, "docs/new.md")
+			if _, claims, marker := readSeedPruneMarkerEntries(outputDir); marker != seedPruneMarkerOurs || len(claims["seed/docs/docs/new.md"]) != 1 {
+				t.Fatalf("the marker = %v with claims %v; want the copy over the output's file claimed by its bytes", marker, claims)
+			}
+			if err := os.WriteFile(filepath.Join(outputDir, bmanifest.FileName), saved, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(filepath.Join(repoDir, "docs", "new.md")); err != nil {
+				t.Fatal(err)
+			}
+			if putBack {
+				writeSeedPruneFiles(t, outputDir, map[string]string{"seed/docs/docs/new.md": own})
+			}
+			seedPruneRun(t, repoDir, outputDir, "--worktree", "--update")
+			assertSeedDoc(t, outputDir, "docs/new.md", putBack)
+			if !putBack {
+				assertDocIndexLacks(t, outputDir, "zebra pipeline")
+				return
+			}
+			if data, err := os.ReadFile(filepath.Join(outputDir, "seed", "docs", "docs", "new.md")); err != nil || string(data) != own {
+				t.Errorf("the file put back = %q, %v; want %q", data, err, own)
+			}
+		})
+	}
+}
+
 // refreshSeedFailingItsManifestWrite runs a --worktree --update refresh of
 // outputDir that breaks the manifest at the final worktree check, once the
 // new file index lists wantDoc, so the manifest write right after it fails.

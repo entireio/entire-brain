@@ -139,6 +139,10 @@ type seedScanResult struct {
 	// the filesystem folds to it, or a file no seed recorded. A seed that
 	// stops early does not remove those (removeUnrecordedSeedCopies).
 	replacedDocs map[string]bool
+	// writtenClaims holds the size and digest of each copy written while
+	// copyClaimer is set, so the marker claims every copy no manifest lists
+	// yet by the bytes this seed wrote, also one over a file that was there.
+	writtenClaims map[string]seedCopyClaim
 	// copyClaimer, when set, journals each batch of new copies in an
 	// explicit --output's pending marker before writeSeedDocs makes them.
 	copyClaimer *seedCopyClaimer
@@ -1052,6 +1056,7 @@ func markSeedFileNotIndexed(scan *seedScanResult, path, reason string) {
 func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 	scan.writtenDocs = map[string]bool{}
 	scan.replacedDocs = map[string]bool{}
+	scan.writtenClaims = map[string]seedCopyClaim{}
 	copies := &seedDocCopies{outputDir: outputDir, scan: scan}
 	err := prepareSeedDocs(outputDir, scan, copies)
 	// The copies prepared before a failure are still made, as they were when
@@ -1208,6 +1213,9 @@ func (c *seedDocCopies) flush() error {
 		err := brainstore.WriteBrainRelativeFileAtomic(c.outputDir, cp.rel, cp.data, 0o600)
 		if err == nil || seedWriteIsLive(err) {
 			c.scan.writtenDocs[cp.rel] = true
+			if c.scan.copyClaimer != nil {
+				c.scan.writtenClaims[cp.rel] = seedCopyClaimOf(cp.data)
+			}
 		}
 		if err != nil {
 			return err
@@ -1531,6 +1539,19 @@ func (c *seedCopyClaimer) claimsNew(cp seedDocCopy) bool {
 	return seedPruneListable(cp.rel)
 }
 
+// seedWrittenCopyClaims returns the claims for a copy this seed wrote at rel:
+// those its batch made, and the bytes it wrote there.
+func seedWrittenCopyClaims(scan *seedScanResult, rel string) []seedCopyClaim {
+	var claims []seedCopyClaim
+	if c := scan.copyClaimer; c != nil {
+		claims = slices.Clone(c.claims[rel])
+	}
+	if written, ok := scan.writtenClaims[rel]; ok && !slices.Contains(claims, written) {
+		claims = append(claims, written)
+	}
+	return claims
+}
+
 // beginSeedPrune writes an explicit --output's pending marker once the
 // documents are written, before anything else can refuse the refresh (the
 // brain store's went down before the copies: markBrainStorePrunePending).
@@ -1574,10 +1595,11 @@ func beginSeedPrune(outputDir string, scan *seedScanResult, ownership *seedDocsO
 	for rel := range scan.writtenDocs {
 		if !ownership.manifested[rel] {
 			pending = append(pending, rel)
-			// A new copy stays claimed by its digest: until a manifest
-			// lists it, a file put in its place is not the seed's.
-			if c := scan.copyClaimer; c != nil && len(c.claims[rel]) > 0 {
-				claims[rel] = c.claims[rel]
+			// A copy stays claimed by its digest until a manifest lists
+			// it, so a file put in its place is not the seed's: a new
+			// copy, and one written over a file that was there before.
+			if pathClaims := seedWrittenCopyClaims(scan, rel); len(pathClaims) > 0 {
+				claims[rel] = pathClaims
 			}
 		}
 		if !ownership.recorded[rel] && !scan.replacedDocs[rel] {
