@@ -665,6 +665,11 @@ type setupReport struct {
 	Agents        setupAgentsState    `json:"agent_instructions"`
 	Facts         factsBackfillStatus `json:"facts"`
 	Warnings      []string            `json:"warnings,omitempty"`
+	// HostedConnectError is the hosted step's failure, verbatim, for the terse
+	// closing line (it replaces the generic connect offer there). json:"-":
+	// the JSON report is a published contract, and the same text already
+	// reaches it through Warnings.
+	HostedConnectError string `json:"-"`
 }
 
 func newSetupCommand(opts Options) *cobra.Command {
@@ -1578,20 +1583,26 @@ func setupSyncHosted(ctx context.Context, ui *setupSink, errW io.Writer, opts Op
 	outcome, err := steps.hostedSync(ctx, errW, opts, repoDir, storage)
 	switch {
 	case err != nil:
-		detail := "hosted sync failed: " + setupui.FlattenError(err) + "; memories stay local until a sync succeeds"
-		report.Warnings = append(report.Warnings, detail)
-		ui.ShortWarning(detail, brainCmd)
+		setupHostedFailed(report, "hosted sync failed: "+setupui.FlattenError(err)+"; memories stay local until a sync succeeds")
 	case !outcome.PullSucceeded:
 		verdict := "failed"
 		if !outcome.Attempted {
 			verdict = "did not run"
 		}
-		detail := "hosted sync " + verdict + " (details above); memories stay local until a sync succeeds"
-		report.Warnings = append(report.Warnings, detail)
-		ui.ShortWarning(detail, brainCmd)
+		setupHostedFailed(report, "hosted sync "+verdict+" (details above); memories stay local until a sync succeeds")
 	default:
 		ui.Note(setupui.Line{Text: "Connected: " + storage.Key + " — team memories pulled; new facts sync automatically", Accent: tui.PhaseDaemon, Flush: true})
 	}
+}
+
+// setupHostedFailed records a hosted-step failure once, in the two places the
+// two output modes read: the warnings block (verbose) and the terse closing
+// line, which replaces the generic connect offer — telling someone to run
+// connect right after connect-shaped work failed, with no reason shown, is
+// worse than no offer.
+func setupHostedFailed(report *setupReport, detail string) {
+	report.Warnings = append(report.Warnings, detail)
+	report.HostedConnectError = detail
 }
 
 // setupEstablishHosted runs the binding + first sync and records the choice.
@@ -1609,13 +1620,9 @@ func setupEstablishHosted(ctx context.Context, ui *setupSink, errW io.Writer, op
 		ui.Note(setupui.Line{Text: "Connected: " + result.StorageKey + " — team memories pulled; new facts sync automatically", Accent: tui.PhaseDaemon, Flush: true})
 	case result.Bound:
 		setupOpts.hostedChoice = "hosted"
-		detail := setupui.FlattenError(err)
-		report.Warnings = append(report.Warnings, detail)
-		ui.ShortWarning(detail, brainCmd)
+		setupHostedFailed(report, setupui.FlattenError(err))
 	default:
-		detail := "hosted store not connected: " + setupui.FlattenError(err) + "; continuing local-only"
-		report.Warnings = append(report.Warnings, detail)
-		ui.ShortWarning(detail, brainCmd)
+		setupHostedFailed(report, "hosted store not connected: "+setupui.FlattenError(err)+"; continuing local-only")
 	}
 }
 

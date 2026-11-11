@@ -258,3 +258,22 @@ func TestSetupLocalOnlyRunKeepsTheRememberedChoice(t *testing.T) {
 		t.Fatalf("a --local-only run must keep the remembered choice, got %q", record.HostedChoice)
 	}
 }
+
+// A failed connect attempt must own the closing line: printing the generic
+// "to share them, run connect" offer right after a connection error tells the
+// user to re-run the thing that just failed, with no hint why.
+func TestSetupTerseClosesWithTheConnectErrorWhenHostedFails(t *testing.T) {
+	f := newSetupTestFixture(t, "s1")
+	rec := &recordedSetup{agent: "codex", establishErr: errors.New(`connect: remote "origin" not found; pass --repo-id and --api-url explicitly`)}
+	opts := defaultSetupOptions()
+	opts.noDaemon, opts.noBackfill = true, true
+	opts.hosted = true
+	out := runSetupTerseForTest(t, f, opts, rec)
+
+	if !strings.Contains(out, `remote "origin" not found`) {
+		t.Fatalf("the closing line must carry the connection error:\n%s", out)
+	}
+	if strings.Contains(out, "To share them") {
+		t.Fatalf("the generic connect offer must not print after a failed connect:\n%s", out)
+	}
+}

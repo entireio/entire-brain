@@ -132,6 +132,12 @@ type TerseReport struct {
 	// shown on an up-to-date re-run: onboarding is a moment, and a line that
 	// reappears every run is a nag rather than a discovery.
 	OfferConnect bool
+
+	// HostedError is this run's hosted connect/sync failure, verbatim. It
+	// OWNS the closing line when set: printing the generic connect offer
+	// right after connect-shaped work failed tells the reader to re-run the
+	// thing that just failed, with the reason hidden.
+	HostedError string
 }
 
 func (rep TerseReport) command() string {
@@ -238,6 +244,9 @@ func RenderTerseNext(w io.Writer, rep TerseReport) {
 	// discovered on an unbound repo, and a failed build has to point at
 	// doctor.
 	switch {
+	case rep.Queryable && rep.HostedError != "":
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "%s\n", rep.HostedError)
 	case rep.Queryable && rep.OfferConnect:
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "Memories will stay local. To share them, run `%s connect` to sync.\n", brainCmd)
