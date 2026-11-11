@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -136,5 +138,83 @@ func TestDistillPlanStillRedispatchesGrownCachedSessions(t *testing.T) {
 	}
 	if plan.SessionsToDistill != 1 || plan.CoveredSessions != 0 {
 		t.Fatalf("a grown cached session must be re-planned, got distill=%d covered=%d", plan.SessionsToDistill, plan.CoveredSessions)
+	}
+}
+
+// The REAL distill run must honor coverage, not just the --dry-run plan: the
+// consent prompt's "distill the remaining K?" is priced on it.
+func TestRunDistillSkipsCoveredSessions(t *testing.T) {
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	brainDir := writeOrderedDistillFixture(t, now, "old", "new")
+	var visited []string
+	opts := distillCommandOptions{
+		agent:         "command",
+		agentCommand:  []string{"fake"},
+		run:           recordingDistillRunner(&visited),
+		maxChunkBytes: defaultDistillChunkSize,
+		timeout:       time.Minute,
+		concurrency:   1,
+		covered:       map[string]bool{"old": true},
+	}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range visited {
+		if strings.Contains(marker, "old") {
+			t.Fatalf("the covered session was distilled anyway: %v", visited)
+		}
+	}
+	if len(visited) == 0 {
+		t.Fatalf("the uncovered session must still be distilled, visited %v", visited)
+	}
+	// Covered sessions get no cache entry: they stay covered, never cached.
+	cache := loadDistillCache(brainDir)
+	if _, ok := cachedDistillSessionFingerprint(cache, "main", "old"); ok {
+		t.Fatal("a covered session must not gain a distill-cache entry")
+	}
+}
+
+// A candidate fact is a mid-run flush of THIS machine's unfinished distill
+// (facts land before the cache entry does), and an authored fact
+// (`brain remember --session X`) is not a distillation. Neither proves the
+// session was distilled; counting them silently drops the session forever.
+func TestCoveredSessionIDsIgnoresCandidatesAndAuthoredFacts(t *testing.T) {
+	t.Parallel()
+	brainDir := t.TempDir()
+	candidate := coverageRecord("fact:dddddddddddddddddddddddd", "sess-unfinished")
+	candidate.Status = "candidate"
+	authored := coverageRecord("fact:eeeeeeeeeeeeeeeeeeeeeeee", "sess-remembered")
+	authored.Origin = "authored"
+	if err := factstore.Write(brainDir, []factmerge.Record{candidate, authored}); err != nil {
+		t.Fatal(err)
+	}
+
+	covered := coveredSessionIDs(brainDir, "")
+
+	if covered["sess-unfinished"] {
+		t.Error("a candidate fact must not mark its session covered")
+	}
+	if covered["sess-remembered"] {
+		t.Error("an authored fact must not mark its session covered")
+	}
+}
+
+func TestDryRunReportAccountsForCoveredSessions(t *testing.T) {
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	brainDir := writeOrderedDistillFixture(t, now, "old", "mid", "new")
+	opts := distillCommandOptions{covered: map[string]bool{"mid": true}, maxChunkBytes: defaultDistillChunkSize}
+	report, err := buildDistillDryRunReport(brainDir, opts, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.SessionsToDistill != 2 || report.CoveredSessions != 1 {
+		t.Fatalf("report must say 2 to distill + 1 covered, got %d + %d", report.SessionsToDistill, report.CoveredSessions)
+	}
+	var toDistill int
+	for _, branch := range report.Branches {
+		toDistill += branch.SessionsToDistill
+	}
+	if toDistill != report.SessionsToDistill {
+		t.Fatalf("branch stats contradict the top-level count: %d vs %d", toDistill, report.SessionsToDistill)
 	}
 }

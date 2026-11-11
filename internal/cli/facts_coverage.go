@@ -5,16 +5,26 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
-// coveredSessionIDs reports every session cited by fact provenance: the local
-// store plus, when feedDir is non-empty, the hosted feed cache. The cache
-// matters because the pull filter drops some teammate facts from the local
-// store while their sessions were still distilled. Coverage is best-effort —
-// a missing or unreadable store covers nothing rather than failing, and every
-// status counts: a retracted fact still proves its session was distilled.
+// coveredSessionIDs reports every session a COMPLETED distillation cited: the
+// local store plus, when feedDir is non-empty, the hosted feed cache. The
+// cache matters because the pull filter drops some teammate facts from the
+// local store while their sessions were still distilled. Coverage is
+// best-effort — a missing or unreadable store covers nothing rather than
+// failing.
+//
+// Only distilled, non-candidate records count. A candidate is a mid-run flush
+// of an UNFINISHED distill on this machine (the cache entry lands only when
+// every chunk succeeds), and an authored fact is a human note, not a
+// distillation — counting either would silently drop its session from every
+// future backfill. A retracted distilled fact still counts: the distillation
+// happened.
 func coveredSessionIDs(brainDir string, feedDir string) map[string]bool {
 	covered := make(map[string]bool)
 	add := func(records []factmerge.Record) {
 		for _, rec := range records {
+			if rec.Origin != "distilled" || rec.Status == factStatusCandidate {
+				continue
+			}
 			for _, anchor := range rec.Provenance {
 				if anchor.SessionID != "" {
 					covered[anchor.SessionID] = true

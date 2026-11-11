@@ -165,6 +165,10 @@ type recordedSetup struct {
 	establishCalls  int
 	establishResult connect.EstablishResult
 	establishErr    error
+	// hostedSyncOutcome/hostedSyncErr script the already-bound sync path.
+	hostedSyncCalls   int
+	hostedSyncOutcome hostedSyncOutcome
+	hostedSyncErr     error
 }
 
 func (r *recordedSetup) plannedOS() string {
@@ -198,6 +202,10 @@ func (r *recordedSetup) steps(f *setupTestFixture) setupSteps {
 		establishHosted: func(context.Context, Options, io.Writer) (connect.EstablishResult, error) {
 			r.establishCalls++
 			return r.establishResult, r.establishErr
+		},
+		hostedSync: func(context.Context, io.Writer, Options, string, repoStorage) (hostedSyncOutcome, error) {
+			r.hostedSyncCalls++
+			return r.hostedSyncOutcome, r.hostedSyncErr
 		},
 		stopBackfill: func(pid int) error {
 			r.stopCalls++

@@ -35,9 +35,12 @@ type SelectRequest struct {
 }
 
 // SelectOutcome is the chosen index and whether a human actually chose it.
+// Interrupted is Ctrl-C: the caller must stop the whole command, not shrug the
+// question off — raw mode means the signal arrives as a key, not a SIGINT.
 type SelectOutcome struct {
-	Index    int
-	Answered bool
+	Index       int
+	Answered    bool
+	Interrupted bool
 }
 
 // Select asks one single-choice question. The prompt erases itself once
@@ -52,18 +55,22 @@ func Select(req SelectRequest, in io.Reader, out io.Writer, r *Renderer) SelectO
 		return SelectOutcome{Index: req.Default}
 	}
 	m, ok := final.(selectModel)
-	if !ok || !m.answered {
+	if !ok {
 		return SelectOutcome{Index: req.Default}
+	}
+	if !m.answered {
+		return SelectOutcome{Index: req.Default, Interrupted: m.interrupted}
 	}
 	return SelectOutcome{Index: m.cursor, Answered: true}
 }
 
 type selectModel struct {
-	req      itemsRequest
-	cursor   int
-	answered bool
-	done     bool
-	r        *Renderer
+	req         itemsRequest
+	cursor      int
+	answered    bool
+	done        bool
+	interrupted bool
+	r           *Renderer
 }
 
 // itemsRequest keeps the model independent of the outer request's TTY field.
@@ -101,8 +108,11 @@ func (m selectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		m.answered, m.done = true, true
 		return m, tea.Quit
-	case tea.KeyEsc, tea.KeyCtrlC:
+	case tea.KeyEsc:
 		m.done = true
+		return m, tea.Quit
+	case tea.KeyCtrlC:
+		m.done, m.interrupted = true, true
 		return m, tea.Quit
 	case tea.KeyRunes:
 		switch string(key.Runes) {

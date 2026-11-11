@@ -83,3 +83,19 @@ func TestSelectModelShortcutRunePicksOption(t *testing.T) {
 		t.Fatalf("typing an option number must choose it, got %+v", final)
 	}
 }
+
+// Ctrl-C arrives as a key event under bubbletea's raw mode; it must mean
+// "stop setup", not "dismiss the question and carry on installing".
+func TestSelectModelCtrlCMeansInterrupted(t *testing.T) {
+	t.Parallel()
+	m := newSelectModel(testSelectRequest(), rendererFor(tui.PlainCaps(), 60))
+	next, _ := m.Update(key(tea.KeyCtrlC))
+	final := next.(selectModel)
+	if final.answered || !final.done || !final.interrupted {
+		t.Fatalf("ctrl-c must end the prompt interrupted, got %+v", final)
+	}
+	esc, _ := m.Update(key(tea.KeyEsc))
+	if esc.(selectModel).interrupted {
+		t.Fatal("esc is a dismissal, not an interrupt")
+	}
+}

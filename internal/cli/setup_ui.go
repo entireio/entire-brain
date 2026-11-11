@@ -260,6 +260,25 @@ func (s *setupSink) Interject(lines ...setupui.Line) {
 	}
 }
 
+// Note writes result rows that must survive BOTH output modes. Interject is
+// verbose-only and ShortWarning is quiet-only; the hosted-choice step's
+// outcomes ("connected", "skipping hosted sync") are results, not phase noise,
+// and dropping them in the default (terse) view left the default run silent
+// about what connecting did.
+func (s *setupSink) Note(lines ...setupui.Line) {
+	if s == nil {
+		return
+	}
+	if !s.quiet {
+		s.Interject(lines...)
+		return
+	}
+	s.Suspend()
+	for _, line := range lines {
+		s.progress.EmitLine(s.rend.Line(line))
+	}
+}
+
 // Suspend ends the open transient line and writes nothing. A caller that is
 // about to write to the terminal itself — the consent prompt — calls this
 // first, because a prompt painted onto the row the repaints own is erased by

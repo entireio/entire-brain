@@ -598,6 +598,11 @@ type setupSteps struct {
 	// sync (connect.Establish); a step so tests exercise the hosted-choice
 	// decision table without a host CLI.
 	establishHosted func(ctx context.Context, opts Options, stderr io.Writer) (connect.EstablishResult, error)
+	// hostedSync runs one sync for an ALREADY-bound repo. Separate from
+	// establishHosted on purpose: a live binding must never be re-resolved or
+	// re-written (a custom --repo-id binding would silently move, and the
+	// no-access pause would be cleared).
+	hostedSync func(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage) (hostedSyncOutcome, error)
 }
 
 // setupBackfillPlan is the detached distill invocation.
@@ -943,8 +948,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// The hosted-or-local question comes before anything is built or spent: a
 	// coworker whose team already distilled this repo should pull those
 	// memories BEFORE the facts phase counts what is pending.
-	runSetupHostedChoice(ctx, ui, cmd.InOrStdin(), setupPromptWriter(promptOut), cmd.ErrOrStderr(),
-		perRepo, &setupOpts, steps, storage, &report, brainCmd)
+	if err := runSetupHostedChoice(ctx, ui, cmd.InOrStdin(), setupPromptWriter(promptOut), cmd.ErrOrStderr(),
+		perRepo, &setupOpts, steps, storage, repoDir, &report, brainCmd); err != nil {
+		return err
+	}
 
 	// Phase 2 — BUILD. Per-component BEST-EFFORT: a component that fails is
 	// reported as one line and the phase carries on, because first-run
@@ -1480,7 +1487,7 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 // syncs, a remembered "local" stays quiet, an interactive terminal gets the
 // prompt, and automation defaults to local with nothing recorded. Hosted
 // failures never fail setup: the remedy prints and the run continues local.
-func runSetupHostedChoice(ctx context.Context, ui *setupSink, in io.Reader, promptOut, errW io.Writer, opts Options, setupOpts *setupCommandOptions, steps setupSteps, storage repoStorage, report *setupReport, brainCmd string) {
+func runSetupHostedChoice(ctx context.Context, ui *setupSink, in io.Reader, promptOut, errW io.Writer, opts Options, setupOpts *setupCommandOptions, steps setupSteps, storage repoStorage, repoDir string, report *setupReport, brainCmd string) error {
 	connectCmd := base.SetupBrainCommand(brainCmd) + " connect"
 	rend := ui.Renderer()
 	hostedRows := func(text string) []setupui.Line {
@@ -1493,22 +1500,29 @@ func runSetupHostedChoice(ctx context.Context, ui *setupSink, in io.Reader, prom
 	binding, present, _ := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 	switch {
 	case present && binding.OptedOut:
-		ui.Interject(hostedRows("hosted sync is disconnected for this repo; memories stay local. Run `" + connectCmd + "` to re-enable it.")...)
-		return
+		ui.Note(hostedRows("hosted sync is disconnected for this repo; memories stay local. Run `" + connectCmd + "` to re-enable it.")...)
+		return nil
 	case setupOpts.localOnly:
 		if present {
-			ui.Interject(hostedRows("connected to the hosted store, but skipping hosted sync this run (--local-only). `" +
+			ui.Note(hostedRows("connected to the hosted store, but skipping hosted sync this run (--local-only). `" +
 				base.SetupBrainCommand(brainCmd) + " disconnect` opts out for good.")...)
 		}
-		return
-	case present, setupOpts.hosted, setupOpts.hostedChoice == "hosted":
+		return nil
+	case present:
+		// Already bound: sync only. Establish would re-resolve placement and
+		// overwrite the binding — moving a custom --repo-id binding and
+		// clearing the no-access pause.
+		setupOpts.hostedChoice = "hosted"
+		setupSyncHosted(ctx, ui, errW, opts, steps, storage, repoDir, report, brainCmd)
+		return nil
+	case setupOpts.hosted, setupOpts.hostedChoice == "hosted":
 		setupEstablishHosted(ctx, ui, errW, opts, setupOpts, steps, report, brainCmd)
-		return
+		return nil
 	case setupOpts.hostedChoice == "local":
-		return
+		return nil
 	}
 	if !setupCanAskAHuman(ui.tty, readerIsTerminal(in)) {
-		return
+		return nil
 	}
 	ui.Suspend()
 	outcome := setupui.Select(setupui.SelectRequest{
@@ -1519,15 +1533,46 @@ func runSetupHostedChoice(ctx context.Context, ui *setupSink, in io.Reader, prom
 		},
 		TTY: true,
 	}, in, promptOut, rend)
+	if outcome.Interrupted {
+		return fmt.Errorf("setup interrupted")
+	}
 	if !outcome.Answered {
-		return
+		return nil
 	}
 	if outcome.Index == 0 {
 		setupEstablishHosted(ctx, ui, errW, opts, setupOpts, steps, report, brainCmd)
-		return
+		return nil
 	}
 	setupOpts.hostedChoice = "local"
-	ui.Interject(hostedRows("memories stay local. If your team uses the hosted store, these sessions may already be distilled there — `" + connectCmd + "` joins them.")...)
+	ui.Note(hostedRows("memories stay local. If your team uses the hosted store, these sessions may already be distilled there — `" + connectCmd + "` joins them.")...)
+	return nil
+}
+
+// setupSyncHosted runs one sync for an already-bound repo and reports the
+// outcome without failing setup.
+func setupSyncHosted(ctx context.Context, ui *setupSink, errW io.Writer, opts Options, steps setupSteps, storage repoStorage, repoDir string, report *setupReport, brainCmd string) {
+	if base.BrainNoEgressMode() {
+		ui.Note(setupui.Line{Text: "Connected: " + storage.Key + " — nothing syncs while " + base.NoEgressToggleName() + " is set", Accent: tui.PhaseDaemon, Flush: true})
+		return
+	}
+	ui.StartTask("Syncing with the hosted memory store…")
+	outcome, err := steps.hostedSync(ctx, errW, opts, repoDir, storage)
+	switch {
+	case err != nil:
+		detail := "hosted sync failed: " + setupui.FlattenError(err) + "; memories stay local until a sync succeeds"
+		report.Warnings = append(report.Warnings, detail)
+		ui.ShortWarning(detail, brainCmd)
+	case !outcome.PullSucceeded:
+		verdict := "failed"
+		if !outcome.Attempted {
+			verdict = "did not run"
+		}
+		detail := "hosted sync " + verdict + " (details above); memories stay local until a sync succeeds"
+		report.Warnings = append(report.Warnings, detail)
+		ui.ShortWarning(detail, brainCmd)
+	default:
+		ui.Note(setupui.Line{Text: "Connected: " + storage.Key + " — team memories pulled; new facts sync automatically", Accent: tui.PhaseDaemon, Flush: true})
+	}
 }
 
 // setupEstablishHosted runs the binding + first sync and records the choice.
@@ -1539,10 +1584,10 @@ func setupEstablishHosted(ctx context.Context, ui *setupSink, errW io.Writer, op
 	switch {
 	case err == nil && result.NoEgress:
 		setupOpts.hostedChoice = "hosted"
-		ui.Interject(setupui.Line{Text: "Connected: " + result.StorageKey + " — binding recorded; nothing syncs while " + base.NoEgressToggleName() + " is set", Accent: tui.PhaseDaemon, Flush: true})
+		ui.Note(setupui.Line{Text: "Connected: " + result.StorageKey + " — binding recorded; nothing syncs while " + base.NoEgressToggleName() + " is set", Accent: tui.PhaseDaemon, Flush: true})
 	case err == nil:
 		setupOpts.hostedChoice = "hosted"
-		ui.Interject(setupui.Line{Text: "Connected: " + result.StorageKey + " — team memories pulled; new facts sync automatically", Accent: tui.PhaseDaemon, Flush: true})
+		ui.Note(setupui.Line{Text: "Connected: " + result.StorageKey + " — team memories pulled; new facts sync automatically", Accent: tui.PhaseDaemon, Flush: true})
 	case result.Bound:
 		setupOpts.hostedChoice = "hosted"
 		detail := setupui.FlattenError(err)
@@ -2126,6 +2171,9 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			return connect.Establish(ctx, connectConfig(opts), stderr, "", "")
 		}
 	}
+	if steps.hostedSync == nil {
+		steps.hostedSync = hostedFactsSyncAndPull
+	}
 	return steps
 }
 
@@ -2296,9 +2344,10 @@ func applySetupRecordDefaults(setupOpts setupCommandOptions, recorded setupComma
 	if changed == nil {
 		changed = func(string) bool { return false }
 	}
-	if !changed(setupFlagHosted) && !changed(setupFlagLocalOnly) {
-		setupOpts.hostedChoice = recorded.hostedChoice
-	}
+	// Always loaded: the flags override behavior for ONE run, never the
+	// remembered answer. --hosted overwrites the record only through a
+	// successful establish; --local-only never touches it.
+	setupOpts.hostedChoice = recorded.hostedChoice
 	if !changed(setupFlagDaemonName) {
 		setupOpts.daemonName = recorded.daemonName
 	}

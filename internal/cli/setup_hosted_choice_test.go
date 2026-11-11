@@ -173,3 +173,88 @@ func TestSetupLocalOnlySkipsSyncOnABoundRepo(t *testing.T) {
 		t.Fatal("--local-only must leave the binding in place")
 	}
 }
+
+// A live binding syncs without re-resolving placement or re-binding: a custom
+// --repo-id/--api-url binding (staging, another cell) must never be silently
+// moved to the host CLI's resolved placement, and the COR-2279 no-access pause
+// must survive a setup re-run.
+func TestSetupBoundRepoSyncsWithoutRebinding(t *testing.T) {
+	f := newSetupTestFixture(t, "s1")
+	custom := brainstore.HostedRepoBinding{RepoID: "custom-ulid", BaseURL: "https://staging.example.com"}
+	if err := brainstore.WriteHostedRepoBinding(f.storage.BrainDir, custom); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recordedSetup{agent: "codex", hostedSyncOutcome: hostedSyncOutcome{Attempted: true, PullSucceeded: true}}
+	opts := defaultSetupOptions()
+	opts.noDaemon, opts.noBackfill = true, true
+	runSetupForTest(t, f, opts, rec)
+
+	if rec.establishCalls != 0 {
+		t.Fatalf("a bound repo must not re-resolve placement or re-bind, got %d establish calls", rec.establishCalls)
+	}
+	if rec.hostedSyncCalls != 1 {
+		t.Fatalf("a bound repo must sync once per setup run, got %d", rec.hostedSyncCalls)
+	}
+	after, _, err := brainstore.ReadHostedRepoBinding(f.storage.BrainDir)
+	if err != nil || after.RepoID != "custom-ulid" || after.BaseURL != "https://staging.example.com" {
+		t.Fatalf("the binding must be byte-for-byte untouched, got %+v (err %v)", after, err)
+	}
+	if record := readSetupRecordForTest(t, f); record.HostedChoice != "hosted" {
+		t.Fatalf("a bound repo records hosted, got %q", record.HostedChoice)
+	}
+}
+
+// The short form is the DEFAULT output; the hosted step's results must survive
+// it, or the default run reports nothing about connecting at all.
+func TestSetupTerseReportsHostedOutcome(t *testing.T) {
+	f := newSetupTestFixture(t, "s1")
+	if err := brainstore.WriteHostedRepoBinding(f.storage.BrainDir,
+		brainstore.HostedRepoBinding{RepoID: "r", BaseURL: "https://cell.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	rec := &recordedSetup{agent: "codex", hostedSyncOutcome: hostedSyncOutcome{Attempted: true, PullSucceeded: true}}
+	opts := defaultSetupOptions()
+	opts.noDaemon, opts.noBackfill = true, true
+	out := runSetupTerseForTest(t, f, opts, rec)
+	if !strings.Contains(out, "team memories pulled") {
+		t.Fatalf("the default (terse) output must report the sync result:\n%s", out)
+	}
+
+	localOnly := defaultSetupOptions()
+	localOnly.noDaemon, localOnly.noBackfill = true, true
+	localOnly.localOnly = true
+	out = runSetupTerseForTest(t, f, localOnly, &recordedSetup{agent: "codex"})
+	if !strings.Contains(out, "skipping hosted sync") {
+		t.Fatalf("the default (terse) output must say --local-only skipped the sync:\n%s", out)
+	}
+}
+
+// A typed --local-only is a one-run override; it must not erase the remembered
+// choice when the record is re-saved at the end of the run.
+func TestSetupLocalOnlyRunKeepsTheRememberedChoice(t *testing.T) {
+	f := newSetupTestFixture(t, "s1")
+	first := defaultSetupOptions()
+	first.noDaemon, first.noBackfill = true, true
+	first.hosted = true
+	runSetupForTest(t, f, first, &recordedSetup{agent: "codex", establishResult: connect.EstablishResult{Bound: true, StorageKey: "gh/acme/repo"}})
+	if record := readSetupRecordForTest(t, f); record.HostedChoice != "hosted" {
+		t.Fatalf("precondition: first run must record hosted, got %q", record.HostedChoice)
+	}
+
+	second := defaultSetupOptions()
+	second.noDaemon, second.noBackfill = true, true
+	second.localOnly = true
+	second.agent = "codex"
+	second.verbose = true
+	out := &bytes.Buffer{}
+	cmd := setupTestCommand(t, out, second)
+	if err := cmd.Flags().Set(setupFlagLocalOnly, "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runSetup(context.Background(), cmd, f.opts, second, f.repoDir, (&recordedSetup{agent: "codex"}).steps(f)); err != nil {
+		t.Fatalf("runSetup: %v\n%s", err, out.String())
+	}
+	if record := readSetupRecordForTest(t, f); record.HostedChoice != "hosted" {
+		t.Fatalf("a --local-only run must keep the remembered choice, got %q", record.HostedChoice)
+	}
+}
