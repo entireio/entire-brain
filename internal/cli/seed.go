@@ -440,14 +440,12 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		}
 		return nil
 	}
-	// The brain store's write lock covers the prune too, so a seed that names
-	// the store with --output waits for it as well: the documents another
-	// writer is seeding there are never pruned from under it.
-	if inBrainStore {
-		if err := brainstore.WithBrainWriteLockContext(ctx, outputDir, commitSeed); err != nil {
-			return err
-		}
-	} else if err := commitSeed(); err != nil {
+	// The output's write lock covers everything from reading what it owns to
+	// the prune, in the brain store (which a seed naming it with --output
+	// waits for as well) and in any other output alike: two seeds into one
+	// output would otherwise each prune by what they read before the other's
+	// manifest, and could remove a document the other's manifest lists.
+	if err := brainstore.WithBrainWriteLockContext(ctx, outputDir, commitSeed); err != nil {
 		return err
 	}
 

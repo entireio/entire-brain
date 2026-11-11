@@ -350,8 +350,43 @@ func TestAnExplicitOutputNamingTheBrainStoreWaitsForItsWriteLock(t *testing.T) {
 	assertSeedDoc(t, brainDir, "docs/old.md", true)
 	gitAt(t, repoDir, "rm", "-q", "docs/old.md")
 	gitAt(t, repoDir, "commit", "-q", "-m", "drop old doc")
+	assertSeedWaitsForWriteLock(t, brainDir, "docs/old.md", func() error {
+		return seed("--update", "--output", brainDir)
+	})
+}
 
-	unlock, err := brainstore.AcquireBrainWriteLockContext(context.Background(), brainDir)
+// TestASeedIntoAnotherOutputWaitsForItsWriteLock: a seed into an explicit
+// --output takes that output's write lock too. Two seeds there each pruned by
+// the ownership they read before the other's manifest, so one could remove a
+// document the other's manifest lists. Only the brain store used to be locked.
+func TestASeedIntoAnotherOutputWaitsForItsWriteLock(t *testing.T) {
+	repoDir := seedPruneRepo(t, map[string]string{
+		"README.md":   "# readme\n",
+		"docs/old.md": "# Old guide\n",
+	})
+	outputDir := t.TempDir()
+	opts := Options{Version: "test", Env: semanticTestEnv(t, repoDir), Runner: ExecRunner{}}
+	seed := func() error {
+		out, err := execute(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--update", "--output", outputDir, repoDir)
+		if err != nil {
+			t.Logf("seed: %v\n%s", err, out)
+		}
+		return err
+	}
+	if err := seed(); err != nil {
+		t.Fatal(err)
+	}
+	assertSeedDoc(t, outputDir, "docs/old.md", true)
+	gitAt(t, repoDir, "rm", "-q", "docs/old.md")
+	gitAt(t, repoDir, "commit", "-q", "-m", "drop old doc")
+	assertSeedWaitsForWriteLock(t, outputDir, "docs/old.md", seed)
+}
+
+// assertSeedWaitsForWriteLock runs seed while another writer holds the write
+// lock of outputDir, and checks that it prunes doc only once the lock is free.
+func assertSeedWaitsForWriteLock(t *testing.T, outputDir, doc string, seed func() error) {
+	t.Helper()
+	unlock, err := brainstore.AcquireBrainWriteLockContext(context.Background(), outputDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,13 +397,13 @@ func TestAnExplicitOutputNamingTheBrainStoreWaitsForItsWriteLock(t *testing.T) {
 		}
 	}()
 	done := make(chan error, 1)
-	go func() { done <- seed("--update", "--output", brainDir) }()
+	go func() { done <- seed() }()
 	select {
 	case err := <-done:
-		t.Fatalf("the seed finished while another writer held the brain write lock: %v", err)
+		t.Fatalf("the seed finished while another writer held the write lock: %v", err)
 	case <-time.After(time.Second):
 	}
-	assertSeedDoc(t, brainDir, "docs/old.md", true)
+	assertSeedDoc(t, outputDir, doc, true)
 	unlock()
 	locked = false
 	select {
@@ -377,9 +412,9 @@ func TestAnExplicitOutputNamingTheBrainStoreWaitsForItsWriteLock(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(30 * time.Second):
-		t.Fatal("the seed did not finish once the brain write lock was released")
+		t.Fatal("the seed did not finish once the write lock was released")
 	}
-	assertSeedDoc(t, brainDir, "docs/old.md", false)
+	assertSeedDoc(t, outputDir, doc, false)
 }
 
 // TestRefreshReseedsWhileAPruneIsPending: a current manifest is no reason to
