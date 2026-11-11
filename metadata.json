@@ -1,0 +1,74 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M74M4A4MGHV7YB5PD0Y1W85X",
+  "strategy": "manual-commit",
+  "branch": "evisdren/cor-2322-eval-bench-deletion",
+  "checkpoints_count": 5,
+  "files_touched": [
+    ".github/workflows/nightly.yml",
+    ".github/workflows/test.yml",
+    "docs/benchmarks.md",
+    "docs/getting-started.md",
+    "docs/reference.md",
+    "internal/cli/bench_config.go",
+    "internal/cli/bench_scale.go",
+    "internal/cli/bench_scale_test.go",
+    "internal/cli/benchmarks_doc_test.go",
+    "internal/cli/command_regression_test.go",
+    "internal/cli/documented_commands_harness_test.go",
+    "internal/cli/documented_commands_release_test.go",
+    "internal/cli/documented_commands_test.go",
+    "internal/cli/eval_command_regression_test.go",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_admin_regression_test.go",
+    "internal/cli/facts_eval.go",
+    "internal/cli/facts_eval_arms.go",
+    "internal/cli/facts_eval_arms_test.go",
+    "internal/cli/facts_eval_compare.go",
+    "internal/cli/facts_eval_gen.go",
+    "internal/cli/facts_eval_gen_test.go",
+    "internal/cli/facts_eval_silver_compare_test.go",
+    "internal/cli/facts_eval_test.go",
+    "internal/cli/facts_expand_test.go",
+    "internal/cli/facts_stats.go",
+    "internal/cli/facts_stats_test.go",
+    "internal/cli/feature_matrix_test.go",
+    "internal/cli/harness_commands_tagged_test.go",
+    "internal/cli/history_eval.go",
+    "internal/cli/history_eval_test.go",
+    "internal/cli/root.go",
+    "internal/cli/root_test.go",
+    "internal/cli/semantic_bench_regression_test.go",
+    "mise.toml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 208,
+    "cache_creation_tokens": 204247,
+    "cache_read_tokens": 17012243,
+    "output_tokens": 68942,
+    "api_call_count": 104
+  },
+  "redaction": {
+    "replacements": 7,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 6,
+      "key_context": 1,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
