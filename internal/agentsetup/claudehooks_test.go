@@ -134,6 +134,34 @@ func TestPreEditHookMergeRespectsAHandWrittenEquivalent(t *testing.T) {
 	}
 }
 
+// The hook lines `entire brain setup` wires (internal/cli preEditHookCommandFor)
+// all carry the "hook pre-edit" substring, so this merge sees each as present:
+// the current windows form, the earlier windows form, and the POSIX form.
+func TestPreEditHookMergeRecognisesEveryWiredForm(t *testing.T) {
+	t.Parallel()
+	for name, command := range map[string]string{
+		"windows":        `cmd /c "set NoDefaultCurrentDirectoryInExePath=1& entire-brain hook pre-edit --claude-hook || entire brain hook pre-edit --claude-hook || exit /b 0"`,
+		"legacy windows": `cmd /c "entire-brain hook pre-edit --claude-hook || entire brain hook pre-edit --claude-hook || exit /b 0"`,
+		"posix":          `sh -c 'if command -v entire-brain >/dev/null 2>&1; then exec entire-brain hook pre-edit --claude-hook; fi; if command -v entire >/dev/null 2>&1; then exec entire brain hook pre-edit --claude-hook; fi; exit 0'`,
+	} {
+		root := t.TempDir()
+		encoded, err := json.Marshal(map[string]any{"hooks": map[string]any{"PreToolUse": []any{
+			map[string]any{"matcher": "Edit", "hooks": []any{map[string]any{"type": "command", "command": command}}},
+		}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeSettings(t, root, string(encoded))
+		changed, err := MergePreEditHook(root, "entire brain")
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if changed {
+			t.Fatalf("%s: an installed hook was not recognised and a duplicate was added", name)
+		}
+	}
+}
+
 // Unparseable or unexpected content is reported, never overwritten.
 func TestPreEditHookMergeRefusesRatherThanOverwrite(t *testing.T) {
 	t.Parallel()

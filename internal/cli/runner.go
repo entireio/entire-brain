@@ -7,10 +7,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // EnvironmentCommandRunner is the narrow capability used when a child process
@@ -136,9 +139,10 @@ func runExecCommand(ctx context.Context, dir string, env map[string]string, name
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	if mergedEnv != nil {
-		cmd.Env = mergedEnv
-	}
+	// Runner children usually run in a repository: nil (inherit) or the merged
+	// env, plus, on windows, the setting that makes bare command names resolve
+	// from PATH rather than from that directory.
+	cmd.Env = clibase.PathOnlyExeLookupEnv(runtime.GOOS, mergedEnv)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -195,9 +199,10 @@ func (ExecRunner) Stream(ctx context.Context, dir, name string, args ...string) 
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	if mergedEnv != nil {
-		cmd.Env = mergedEnv
-	}
+	// Runner children usually run in a repository: nil (inherit) or the merged
+	// env, plus, on windows, the setting that makes bare command names resolve
+	// from PATH rather than from that directory.
+	cmd.Env = clibase.PathOnlyExeLookupEnv(runtime.GOOS, mergedEnv)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
