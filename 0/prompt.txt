@@ -1,0 +1,32 @@
+<pasted_content id="ab7b">
+Two changes for Windows, both about which program a bare command name resolves to. On Windows, programs must be found on PATH, never in the working directory.
+
+1. Pre-edit hook command (`internal/cli/agent_wiring.go`, `preEditHookCommandFor`, the `windows` branch). Change the command to:
+
+   cmd /c "set NoDefaultCurrentDirectoryInExePath=1& entire-brain hook pre-edit --claude-hook || entire brain hook pre-edit --claude-hook || exit /b 0"
+
+   Build it from the existing `base.Setup…` constants as today. Keep the behaviour otherwise identical: try the standalone binary, then the host CLI's plugin verb, and exit 0 when neither is installed. The POSIX branch stays as it is.
+
+   Make sure setup still recognises an already installed hook in the old Windows form and in the POSIX form (the `hook pre-edit` substring match in `internal/agentsetup/claudehooks.go` and the detection in `agent_wiring.go`), and replaces the old Windows form with the new one on the next `entire brain setup` on Windows instead of leaving it or adding a second entry. State in your summary what a user has to run to get the new command into an existing `.claude/settings.json`.
+
+2. Agent child processes. Wherever entire-brain starts an agent CLI with a repository as the working directory, add `NoDefaultCurrentDirectoryInExePath=1` to the child's environment on Windows. Known places: `internal/cli/distill_cmd.go` (the `exec.CommandContext` near the `distillChildEnvKey` lookup; cover both the case where that key supplies an environment and the case where it does not) and `internal/cli/seed.go` (the seed agent command, which sets no environment today, so start from `os.Environ()`). Check `internal/cli/runner.go`, `internal/cli/setup_spawn.go` and `internal/cli/command/add/add.go` and apply the same where the child is an agent CLI or runs in a repository. Put the logic in one small helper that takes an environment slice and returns it with the entry appended on Windows and unchanged elsewhere. Take the OS as a parameter, as `preEditHookCommandFor` does, so both branches can be tested on any host.
+
+Tests:
+
+- Update the exact-string test for the Windows hook command, and add cases for upgrading an installed old-form hook and for idempotency with the new form.
+- Unit-test the environment helper for both OS values, including that an inherited value of the variable is overridden.
+- Add a Windows-only test that runs the hook command porary directory containing `entire-brain.cmd`,`entire-brain.bat`, `entire.cmd` and `entire.bat` files that each write a marker file, and asserts no marker is written and the      command exits 0. Add one for a child process if practe Windows CI job; make sure `GOOS=windows go vet./...` passes.                                                                                                                       
+Out of scope: the POSIX hook form, how the hook form is chosen per OS, the leading `cmd` of the hook line, and anything unrelated to these two points. Do not edit `CHANGELOG.md`.
+
+Process: read `CLAUDE.md` / `AGENTS.md` first and fol commands before committing. Keep commit messages,comments and docs descriptive of the behaviour (commands resolve from PATH, not the working directory). Commit on a new branch; do not push, open a PR or post comments until I ask. Whenged and what still needs a run on a real Windowsmachine.
+</pasted_content id="ab7b">
+
+---
+
+<task-notification>
+<task-id>b0sujye3r</task-id>
+<tool-use-id>toolu_01QXHhSSFr11EZiCcAKGNvs8</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-soph--herdr-worktrees-entire-brain-soph-windows-hardening/b33aff5d-00bc-4040-bd09-a2e3bdddd66b/tasks/b0sujye3r.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full uncached test suite with harness tag" completed (exit code 0)</summary>
+</task-notification>
