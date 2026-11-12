@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"os"
 	"strings"
 
 	factscmd "github.com/entireio/entire-brain/internal/cli/command/facts"
@@ -91,6 +92,46 @@ func describeFactScope(fact factRecord, globalIDs map[string]bool) string {
 	return strings.TrimSpace(fact.Branch)
 }
 
+// Global facts stay on the machine that recorded them.
+//
+// Hosted sync is repository-scoped: its wire is /api/v1/repos/{id}/brain/facts,
+// and the store it pushes is the repository's. There is no account-scoped
+// hosted store for global facts to go to, and pushing them into a repository's
+// store instead would hand them to the whole team: they carry no anchor, and
+// the pull filter adopts every unanchored fact. So a global fact recorded on
+// one machine is not recalled on another (#570), and the surfaces somebody
+// reaches for when they notice say so rather than reporting an empty store or a
+// successful sync as if nothing were missing.
+
+// globalFactActive reports whether a global fact is one a reader would see.
+func globalFactActive(fact factRecord) bool {
+	return fact.Status == "" || fact.Status == factStatusActive
+}
+
+// localOnlyGlobalFactCount counts the active global facts on this machine, for
+// sync to report what it did not carry. A missing store counts zero and is not
+// created.
+func localOnlyGlobalFactCount(env EntireEnv) (int, error) {
+	facts, err := factstore.LoadGlobal(env)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, fact := range facts {
+		if globalFactActive(fact) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// globalFactsStayLocalNote is the line that tells somebody where a global fact
+// they expected from another machine went.
+func globalFactsStayLocalNote() string {
+	return "global memories stay on the machine that recorded them: `" +
+		base.BrainInvocation(os.LookupEnv, "memories sync") + "` does not upload them"
+}
+
 // newFactsGlobalCommand lists what is in the global store.
 //
 // Global facts surface in every repository, which makes an unreviewable global
@@ -113,7 +154,7 @@ func newFactsGlobalCommand(opts Options) *cobra.Command {
 			}
 			active := make([]factRecord, 0, len(facts))
 			for _, fact := range facts {
-				if !includeAll && fact.Status != "" && fact.Status != factStatusActive {
+				if !includeAll && !globalFactActive(fact) {
 					continue
 				}
 				active = append(active, fact)
@@ -127,21 +168,28 @@ func newFactsGlobalCommand(opts Options) *cobra.Command {
 					"store": brainDir,
 					"count": len(active),
 					"facts": active,
+					// The machine-readable form of the note below: an agent
+					// on a second machine reading count 0 must be able to
+					// tell "none recorded" from "none synced here".
+					"synced": false,
 				})
 			}
 			out := cmd.OutOrStdout()
 			if len(active) == 0 {
 				// The empty state is where somebody learns the feature exists,
 				// so it says how to use it rather than only that there is
-				// nothing here.
+				// nothing here. It is also what a second machine shows for
+				// memories recorded on the first, so it says why.
 				fmt.Fprintln(out, "no global memories")
-				fmt.Fprintln(out, "  `entire-brain remember \"<memory>\" --global` records one for every repository")
+				fmt.Fprintln(out, "  `entire-brain remember \"<memory>\" --global` records one for every repository on this machine")
+				fmt.Fprintln(out, "  "+globalFactsStayLocalNote())
 				return nil
 			}
 			for _, fact := range active {
 				factscmd.PrintFactLine(out, fact)
 			}
 			fmt.Fprintf(out, "\n%d global memory(ies) in %s\n", len(active), brainDir)
+			fmt.Fprintln(out, globalFactsStayLocalNote())
 			return nil
 		},
 	}

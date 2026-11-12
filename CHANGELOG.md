@@ -63,6 +63,10 @@ All notable changes to `entire-brain` are recorded here. The format follows
   compact transcripts with the CLI's own `transcript` package
   (`github.com/entireio/cli` v0.13.1), whose module requires it. The source
   installer's Go check compares the patch version too (#607).
+- Say that global memories stay on the machine that recorded them.
+  `memories sync` reports how many it did not upload (`global_not_synced` in
+  JSON), and `memories global` and `remember --global` name the limit. Global
+  memories are still not synced across machines (#570).
 
 ### Fixed
 

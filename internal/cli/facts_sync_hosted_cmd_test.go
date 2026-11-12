@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -235,4 +236,126 @@ func TestMemoriesSyncLocalGitmetaBackendIsRemoved(t *testing.T) {
 			t.Fatalf("unknown backend must fail naming the supported one, got %v\n%s", err, out)
 		}
 	})
+}
+
+// TestMemoriesSyncReportsGlobalMemoriesItLeavesOnThisMachine pins #570's
+// honesty half: the hosted exchange is repository-scoped, so global memories
+// never ride it, and the sync must say how many it left behind instead of
+// reporting a clean sync that a second machine then contradicts. Retracted
+// global memories are not counted: nobody expects those to arrive anywhere.
+func TestMemoriesSyncReportsGlobalMemoriesItLeavesOnThisMachine(t *testing.T) {
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	localFact := hostedSyncTestFact("local fact A", now)
+	fake := &hostedFake{}
+	f, _ := newHostedSyncCmdFixture(t, fake)
+	f.writeFacts(t, "main", []factRecord{localFact})
+	kept := rememberGlobal(t, f.opts, "I prefer table-driven tests.")
+	retired := rememberGlobal(t, f.opts, "We deploy on Thursdays.")
+	retiredID := strings.Fields(retired)[1]
+	if out, err := execute(t, NewRootCommand(f.opts), "memories", "retract", retiredID, "--global"); err != nil {
+		t.Fatalf("retract --global: %v\n%s", err, out)
+	}
+
+	jsonOut, err := execute(t, NewRootCommand(f.opts), "memories", "sync", "--json")
+	if err != nil {
+		t.Fatalf("memories sync --json: %v\n%s", err, jsonOut)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(jsonOut), &payload); err != nil {
+		t.Fatalf("memories sync --json wrote non-JSON: %v\n%s", err, jsonOut)
+	}
+	if got := payload["global_not_synced"]; got != float64(1) {
+		t.Fatalf("global_not_synced = %v, want 1 (one active global memory, one retracted)\n%s", got, jsonOut)
+	}
+	if !fake.has(localFact.ID) {
+		t.Fatal("the repository's own memory must still upload")
+	}
+	if keptID := strings.Fields(kept)[1]; fake.has(keptID) || fake.has(retiredID) {
+		t.Fatal("a global memory reached the repository's hosted store, where every teammate would adopt it")
+	}
+
+	out, err := execute(t, NewRootCommand(f.opts), "memories", "sync")
+	if err != nil {
+		t.Fatalf("memories sync: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "not synced: 1 global memory(ies)") || !strings.Contains(out, "does not upload them") {
+		t.Fatalf("text sync must name the global memories it left on this machine, got %q", out)
+	}
+}
+
+// TestMemoriesSyncWithoutGlobalMemoriesSaysNothingAndCreatesNothing keeps the
+// report from becoming noise or a side effect: no global store means a zero
+// count, no note, and still no global directory.
+func TestMemoriesSyncWithoutGlobalMemoriesSaysNothingAndCreatesNothing(t *testing.T) {
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	fake := &hostedFake{}
+	f, _ := newHostedSyncCmdFixture(t, fake)
+	f.writeFacts(t, "main", []factRecord{hostedSyncTestFact("local fact A", now)})
+
+	jsonOut, err := execute(t, NewRootCommand(f.opts), "memories", "sync", "--json")
+	if err != nil {
+		t.Fatalf("memories sync --json: %v\n%s", err, jsonOut)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(jsonOut), &payload); err != nil {
+		t.Fatalf("memories sync --json wrote non-JSON: %v\n%s", err, jsonOut)
+	}
+	if got, ok := payload["global_not_synced"]; !ok || got != float64(0) {
+		t.Fatalf("global_not_synced = %v (present %v), want 0\n%s", got, ok, jsonOut)
+	}
+	out, err := execute(t, NewRootCommand(f.opts), "memories", "sync")
+	if err != nil {
+		t.Fatalf("memories sync: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "not synced") {
+		t.Fatalf("a sync with no global memories must not mention them, got %q", out)
+	}
+	globalDir, err := factstore.GlobalBrainDir(f.opts.Env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(globalDir); !os.IsNotExist(statErr) {
+		t.Fatalf("counting global memories created the global store at %s (stat err %v)", globalDir, statErr)
+	}
+}
+
+// TestMemoriesSyncReportsAnUnreadableGlobalStoreAsUnknown: a damaged global
+// store must not fail a sync that completed, and must not read as "no global
+// memories" either. JSON carries a null count and the reason.
+func TestMemoriesSyncReportsAnUnreadableGlobalStoreAsUnknown(t *testing.T) {
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	fake := &hostedFake{}
+	f, _ := newHostedSyncCmdFixture(t, fake)
+	f.writeFacts(t, "main", []factRecord{hostedSyncTestFact("local fact A", now)})
+	globalDir, err := factstore.GlobalBrainDir(f.opts.Env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A file where the store directory belongs: it exists, and nothing can
+	// load facts from it.
+	if err := os.WriteFile(globalDir, []byte("not a store"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewRootCommand(f.opts)
+	stdout, stderr := &strings.Builder{}, &strings.Builder{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"memories", "sync", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("an unreadable global store failed a completed sync: %v\n%s%s", err, stdout, stderr)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout.String()), &payload); err != nil {
+		t.Fatalf("memories sync --json wrote non-JSON: %v\n%s", err, stdout)
+	}
+	if got, ok := payload["global_not_synced"]; !ok || got != nil {
+		t.Fatalf("global_not_synced = %v (present %v), want null for an unreadable store\n%s", got, ok, stdout)
+	}
+	if reason, _ := payload["global_not_synced_error"].(string); reason == "" {
+		t.Fatalf("an unknown count must carry its reason\n%s", stdout)
+	}
+	if !strings.Contains(stderr.String(), "could not read the global memory store") {
+		t.Fatalf("stderr must warn about the unreadable store, got %q", stderr)
+	}
 }

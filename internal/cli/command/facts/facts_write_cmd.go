@@ -46,7 +46,7 @@ func NewRemember(cfg Config) *cobra.Command {
 	cmd.Flags().StringVar(&rememberOpts.Model, "model", "", "Model for codex/claude-code/ollama classification")
 	cmd.Flags().StringArrayVar(&rememberOpts.AgentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&rememberOpts.JSON, "json", false, "Emit the created memory as JSON")
-	cmd.Flags().BoolVar(&rememberOpts.Global, "global", false, "Record the memory globally, so every repository recalls it")
+	cmd.Flags().BoolVar(&rememberOpts.Global, "global", false, "Record the memory globally, so every repository on this machine recalls it (global memories are not synced)")
 	return cmd
 }
 
@@ -99,7 +99,7 @@ func globalFactNotice(explicit bool) string {
 	if explicit {
 		return ""
 	}
-	return "not in a repository, so this was remembered globally; it will be recalled from every repo"
+	return "not in a repository, so this was remembered globally; it will be recalled from every repo on this machine"
 }
 
 func RunRemember(ctx context.Context, cmd *cobra.Command, cfg Config, rememberOpts RememberCommandOptions, text string) error {

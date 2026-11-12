@@ -265,10 +265,11 @@ entire brain facts global                  # everything recorded globally
 entire brain facts retract <id> --global
 ```
 
-Global facts are recalled from every repository and labelled `(global)` when
-they surface, so a general convention is never mistaken for something this
-codebase declared. `--no-global`, or `ENTIRE_BRAIN_NO_GLOBAL_FACTS=1`, leaves
-them out.
+Global facts are recalled from every repository on the machine that recorded
+them and labelled `(global)` when they surface, so a general convention is never
+mistaken for something this codebase declared. `memories sync` does not upload
+them, so another machine does not see them. `--no-global`, or
+`ENTIRE_BRAIN_NO_GLOBAL_FACTS=1`, leaves them out.
 
 Running `remember` outside a checkout records the fact globally instead of
 failing — which is usually where you are when the thing you want to write down
