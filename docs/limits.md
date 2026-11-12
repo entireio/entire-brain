@@ -69,10 +69,8 @@ memory and filesystem performance.
   than failing the whole index. More than `maxDroppedSemanticRecords` (1000)
   drops is treated as a broken stream and fails. Set
   `ENTIRE_BRAIN_STRICT_INGEST=1` to restore fail-on-first-bad-record.
-- **Degrade-to-rebuild.** Vector/index/cache loaders (`embed_store`, vec store,
-  gzip caches, doc index) return empty / rebuild on corrupt input. The
-  `embed_store` binary loader preflights its length prefix against the remaining
-  file bytes before trusting it.
+- **Degrade-to-rebuild.** Index/cache loaders (gzip caches, doc index) return
+  empty / rebuild on corrupt input.
 - **Corrupt config quarantine.** A `brain.json` that fails to parse is moved
   aside to `brain.json.corrupt` and defaults are used, so a bad config cannot
   wedge repo-key resolution (`internal/config`).
@@ -95,7 +93,7 @@ memory and filesystem performance.
   **fail-closed**: any unrecognized toggle value is treated as enabled (with a
   warning), and only `--agent ollama`/`none` are permitted — any other or
   unknown agent name is denied (`agent_policy.go`).
-- Loopback-only HTTP clients (distill + embedder) disable proxies, restrict
+- Loopback-only HTTP clients (distill) disable proxies, restrict
   redirects to loopback, and re-resolve the dial target at connection time,
   rejecting any non-loopback IP. This defeats `localhost`-by-name trust, hostile
   `/etc/hosts`, and DNS rebinding.

@@ -18,9 +18,10 @@ benchmarked. Every claim about another product cites a page in `Source`, and
 
 **We chose the rows.** The first version had 31 and Graph or Brain answered Yes
 to all of them, which is what happens when the people who build the product pick
-the questions. It now has 51, and **18 are rows where neither of ours answers
+the questions. It now has 51, and **20 are rows where neither of ours answers
 Yes** — the count rose from 15 when the MCP, REST, and SDK surfaces were
-removed. Graph answers Yes to 19 of 51; Brain to 27, delegating
+removed, and from 18 when semantic retrieval was (trail #278).
+Graph answers Yes to 19 of 51; Brain to 25, delegating
 5 more to Graph — counted separately, because delegating is not having.
 
 ## Labels in the Notes column
