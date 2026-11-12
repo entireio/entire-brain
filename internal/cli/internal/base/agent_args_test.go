@@ -26,6 +26,17 @@ func TestDistillAgentCommandArgs(t *testing.T) {
 	if !slices.Contains(claude, `{"mcpServers":{}}`) {
 		t.Fatalf("claude args missing valid empty mcp-config: %v", claude)
 	}
+	// Issue #552: user plugin and settings hooks must not run inside the
+	// extraction worker. --safe-mode is rejected before Claude Code 2.1.169 and
+	// --bare skips logged-in auth, so neither may appear.
+	if i := slices.Index(claude, "--settings"); i < 0 || i+1 >= len(claude) || claude[i+1] != `{"disableAllHooks":true}` {
+		t.Fatalf("claude args must disable all hooks with --settings: %v", claude)
+	}
+	for _, banned := range []string{"--safe-mode", "--bare"} {
+		if slices.Contains(claude, banned) {
+			t.Fatalf("claude args must not use %s: %v", banned, claude)
+		}
+	}
 	cmd, err := DistillAgentCommandArgs("command", []string{"my-agent", "--flag"}, "PROMPT")
 	if err != nil || len(cmd) != 2 || cmd[0] != "my-agent" {
 		t.Fatalf("command args wrong: %v err=%v", cmd, err)

@@ -16,6 +16,20 @@ import (
 // that follows it and delivers the prompt out of band instead.
 const DistillAgentPromptMarker = "--entire-brain-agent-prompt-off-argv"
 
+// ClaudeDisableHooksSettings is the inline --settings value every built-in
+// claude-code argv carries (issue #552). The child is a headless extraction
+// worker, but `--setting-sources user` still loads the user's plugins and
+// settings hooks, so a session-memory plugin's SessionStart context reached
+// every extraction prompt and its Stop/SessionEnd hooks recorded each call as
+// a session. disableAllHooks turns every hook off on every Claude Code version
+// Brain supports. Settings `model`, `env` and `apiKeyHelper` still apply, so
+// Bedrock, Vertex and custom-endpoint setups keep working. The process
+// environment adds CLAUDE_CODE_SAFE_MODE=1 on top, which on Claude Code
+// 2.1.169+ also leaves out plugins and the user's CLAUDE.md. The safe-mode
+// flag itself is not used because older versions reject it, and --bare is
+// not used because it skips logged-in (OAuth) auth.
+const ClaudeDisableHooksSettings = `{"disableAllHooks":true}`
+
 // DistillAgentCommandArgs builds the argv that runs the seed agent with the
 // rendered distillation prompt. The prompt stays OFF the command line: it is
 // appended behind DistillAgentPromptMarker and prepareAgentExec moves it to a
@@ -36,7 +50,7 @@ func DistillAgentCommandArgs(agent string, agentCommand []string, prompt string)
 	case "codex":
 		return []string{"codex", "exec", "--json", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", DistillAgentPromptMarker, prompt}, nil
 	case "claude-code":
-		return []string{"claude", "--print", "--output-format", "json", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", DistillAgentPromptMarker, prompt}, nil
+		return []string{"claude", "--print", "--output-format", "json", "--no-session-persistence", "--setting-sources", "user", "--settings", ClaudeDisableHooksSettings, "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", DistillAgentPromptMarker, prompt}, nil
 	case "ollama":
 		// No marker: the ollama runner never spawns a process. It POSTs to a
 		// loopback /api/generate endpoint and sends this element as the JSON

@@ -2685,9 +2685,7 @@ func execDistillAgentWithPrompt(ctx context.Context, dir string, args []string, 
 	command := exec.CommandContext(runCtx, argv[0], argv[1:]...)
 	command.Dir = dir
 	command.Stdin = bytes.NewReader(stdin)
-	if env, ok := ctx.Value(distillChildEnvKey{}).([]string); ok {
-		command.Env = env
-	}
+	command.Env = distillAgentProcessEnv(ctx, command, args, carriesPrompt)
 	stdoutLimit := distillStdoutLimit(argv)
 	stdout := newCappedDistillBuffer(stdoutLimit)
 	stderr := newCappedDistillBuffer(distillMaxOutputBytes)
