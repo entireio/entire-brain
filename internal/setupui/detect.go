@@ -28,12 +28,9 @@ const (
 	RemedySemantic = "entire brain refresh"
 	// RemedyEntities is what to do about a missing entity index.
 	RemedyEntities = "entire brain refresh"
-	// RemedyHosted is what to do about an unbound hosted brain.
-	//
-	// It is NOT "setup will bind it for you". `entire repo view` and
-	// `entire repo whereami` do not exist, so setup cannot resolve a repo to a
-	// hosted brain on its own (COR-2029). Printing an automatic binding that
-	// cannot happen is worse than printing none.
+	// RemedyHosted is what to do about an unbound hosted brain. Setup also
+	// offers the binding itself (the hosted-or-local prompt), but the detect
+	// row is read-only and must stay accurate when the prompt was declined.
 	RemedyHosted = "entire brain connect"
 )
 
@@ -171,10 +168,7 @@ func (d Detected) hostedRow(r *Renderer) string {
 	}
 	note := d.Hosted.Note
 	if note == "" {
-		// Verified live: there is no command that resolves this repo to a
-		// hosted brain, so setup stays local-only and says which ticket owns
-		// the gap rather than implying it will fix itself.
-		note = "local-only (COR-2029)"
+		note = "memories stay local"
 	}
 	return detailRow("hosted", "not bound "+r.Dash()+" "+note+"; bind: "+remedy(d.Hosted.Remedy, RemedyHosted))
 }

@@ -169,6 +169,7 @@ type preparedSession struct {
 	session     exportSession
 	branch      string
 	skip        bool  // filtered out by --branch/--session: carry cache through
+	covered     bool  // fact provenance already cites it and no cache entry exists: no work, no cache write
 	deferred    bool  // --max-sessions budget spent: carry cache through, distill next run
 	readErr     error // canonical input refusal: abort without publication
 	cached      bool  // fingerprint matched: keep facts, no agent work
@@ -292,6 +293,20 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				}
 				continue
 			}
+			// Covered-but-never-cached: fact provenance (typically a teammate's
+			// pulled facts) already cites this session and this machine has no
+			// cache entry to grow from. Same rule as buildDistillPlanContext,
+			// and checked before the transcript read so a fresh clone pays no
+			// I/O or agent spend for its covered corpus.
+			if !distillOpts.force && distillOpts.covered[coveredSessionKey(session.SessionID, session.LatestCheckpoint)] &&
+				!distillCacheHasSession(prevCache, ps.branch, ps.session, duplicateKeys) {
+				ps.covered = true
+				f <- ps
+				if !enqueue(f) {
+					return
+				}
+				continue
+			}
 			select {
 			case workSem <- struct{}{}:
 			case <-ctx.Done():
@@ -380,7 +395,7 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 			case <-ctx.Done():
 				return
 			}
-			if ps.skip || ps.readErr != nil || ps.cached {
+			if ps.skip || ps.covered || ps.readErr != nil || ps.cached {
 				select {
 				case prepared <- ps:
 					continue
@@ -524,6 +539,15 @@ type distillCommandOptions struct {
 	// are visited first — every session is still visited, and the persisted
 	// distill cache means neither order re-spends on unchanged sessions.
 	newestFirst bool
+	// covered marks sessions already cited by fact provenance (a teammate's
+	// pulled facts count). A covered session with NO distill-cache entry is
+	// skipped instead of distilled; a session with a cache entry keeps the
+	// fingerprint-based incremental path so grown transcripts still
+	// re-dispatch. runDistill is the ONLY populate point (local store plus the
+	// hosted feed cache); nil means no coverage, identically for the dry-run
+	// plan and the run, so the two can never disagree. --force ignores
+	// coverage entirely.
+	covered map[string]bool
 	// onPassSkipped fires when the cross-process pass lock was already held, so
 	// this run did nothing and spent nothing. `distill` still exits 0 (another
 	// process is doing the work), but a caller that RESERVED a spend window
@@ -652,6 +676,9 @@ type distillPlan struct {
 	// were held back by --max-sessions. They remain uncached, so a later run
 	// picks them up.
 	BudgetDeferredSessions int
+	// CoveredSessions counts sessions skipped because fact provenance already
+	// cites them (typically a teammate's facts pulled from the hosted store).
+	CoveredSessions int
 }
 
 type distillSessionPlan struct {
@@ -661,7 +688,10 @@ type distillSessionPlan struct {
 	Cached      bool
 	// BudgetDeferred marks a session that needs distilling but was held back
 	// by --max-sessions. It is NOT cached: the next run distills it.
-	BudgetDeferred    bool
+	BudgetDeferred bool
+	// Covered marks a session skipped because fact provenance already cites
+	// it; no transcript is read and no work is planned for it.
+	Covered           bool
 	ReadFailed        bool
 	RawBytes          int
 	PreprocessedBytes int
@@ -680,20 +710,24 @@ type distillChunkWork struct {
 }
 
 type distillDryRunReport struct {
-	SchemaVersion                 int                    `json:"schema_version"`
-	GeneratedAt                   time.Time              `json:"generated_at"`
-	BrainPath                     string                 `json:"brain_path"`
-	Branch                        string                 `json:"branch,omitempty"`
-	Force                         bool                   `json:"force"`
-	Agent                         string                 `json:"agent,omitempty"`
-	Model                         string                 `json:"model,omitempty"`
-	Effort                        string                 `json:"effort,omitempty"`
-	Jobs                          int                    `json:"jobs"`
-	ExtractionJobsCap             int                    `json:"extraction_jobs_cap"`
-	MaxChunkBytes                 int                    `json:"max_chunk_bytes"`
-	Confidence                    float64                `json:"confidence_threshold"`
-	Sessions                      int                    `json:"sessions"`
-	CachedSessions                int                    `json:"cached_sessions"`
+	SchemaVersion     int       `json:"schema_version"`
+	GeneratedAt       time.Time `json:"generated_at"`
+	BrainPath         string    `json:"brain_path"`
+	Branch            string    `json:"branch,omitempty"`
+	Force             bool      `json:"force"`
+	Agent             string    `json:"agent,omitempty"`
+	Model             string    `json:"model,omitempty"`
+	Effort            string    `json:"effort,omitempty"`
+	Jobs              int       `json:"jobs"`
+	ExtractionJobsCap int       `json:"extraction_jobs_cap"`
+	MaxChunkBytes     int       `json:"max_chunk_bytes"`
+	Confidence        float64   `json:"confidence_threshold"`
+	Sessions          int       `json:"sessions"`
+	CachedSessions    int       `json:"cached_sessions"`
+	// CoveredSessions are skipped because fact provenance (typically a
+	// teammate's pulled facts) already cites them; additive with omitempty so
+	// pre-coverage consumers of this artifact see an unchanged document.
+	CoveredSessions               int                    `json:"covered_sessions,omitempty"`
 	SessionsToDistill             int                    `json:"sessions_to_distill"`
 	MissingTranscripts            int                    `json:"missing_transcripts"`
 	RawBytes                      int64                  `json:"raw_bytes"`
@@ -790,6 +824,10 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
 		return err
+	}
+	if distillOpts.covered == nil {
+		feedDir, _ := hostedFeedDirForKey(opts.Env, storage.Key)
+		distillOpts.covered = coveredSessionIDs(storage.BrainDir, feedDir)
 	}
 	if distillOpts.maxChunkBytes <= 0 {
 		return fmt.Errorf("--max-chunk-bytes must be greater than 0")
@@ -1306,6 +1344,16 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	defer pipeCancel()
 	for ps := range startSessionPrefetch(pipeCtx, brainDir, repoDir, args, sessions, prevCache, distillOpts, resolveBranch) {
 		session, branch := ps.session, ps.branch
+		if ps.covered {
+			// Like a cache hit for progress (the counter must reach N/N), but
+			// writes no cache entry: the session stays covered, never cached,
+			// so a later --force is the only way to re-derive it here.
+			sessionsDone++
+			if distillOpts.progress != nil {
+				distillOpts.progress(distillProgress{SessionsDone: sessionsDone, SessionsTotal: totalSessions, Branch: branch, Facts: factsFound})
+			}
+			continue
+		}
 		if ps.skip || ps.deferred {
 			if ps.deferred {
 				budgetDeferred++
@@ -1590,6 +1638,7 @@ func buildDistillDryRunReportContext(ctx context.Context, brainDir string, disti
 		Confidence:                    distillCacheSaltThreshold,
 		Sessions:                      plan.TotalSessions,
 		CachedSessions:                plan.CachedSessions,
+		CoveredSessions:               plan.CoveredSessions,
 		SessionsToDistill:             plan.SessionsToDistill,
 		MissingTranscripts:            plan.MissingTranscripts,
 		RawBytes:                      plan.RawBytes,
@@ -1612,9 +1661,14 @@ func buildDistillDryRunReportContext(ctx context.Context, brainDir string, disti
 		stat.Sessions++
 		stat.PreprocessedBytes += int64(session.PreprocessedBytes)
 		stat.ChunksIfUncached += session.ChunksIfUncached
-		if session.Cached {
+		switch {
+		case session.Cached:
 			stat.CachedSessions++
-		} else if !session.ReadFailed {
+		case session.Covered, session.BudgetDeferred, session.ReadFailed:
+			// None of these distill this run; counting them under
+			// SessionsToDistill made the branch rows contradict the top-level
+			// count (which comes from the plan and excludes all three).
+		default:
 			stat.SessionsToDistill++
 			stat.Chunks += len(session.ChunkIndexes)
 		}
@@ -1657,6 +1711,9 @@ func printDistillDryRunReport(cmd *cobra.Command, report distillDryRunReport) {
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "distill dry-run: %d sessions, %d cached, %d to distill, %d chunks\n",
 		report.Sessions, report.CachedSessions, report.SessionsToDistill, report.Chunks)
+	if report.CoveredSessions > 0 {
+		fmt.Fprintf(out, "covered by existing facts (skipped): %d\n", report.CoveredSessions)
+	}
 	if report.ChunksIfUncached != report.Chunks {
 		fmt.Fprintf(out, "chunks if uncached: %d\n", report.ChunksIfUncached)
 	}
@@ -1758,6 +1815,17 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		if fingerprint, hit := cachedCheckpointDistill(prevCache, session, branch, duplicateKeys, distillOpts); hit {
 			sessionPlan.Fingerprint, sessionPlan.Cached = fingerprint, true
 			plan.CachedSessions++
+			plan.Sessions = append(plan.Sessions, sessionPlan)
+			continue
+		}
+		// Covered-but-never-cached: a teammate's facts already cite this
+		// session, and this machine has no cache entry to grow from, so there
+		// is nothing incremental to protect. Checked before the transcript
+		// read, so a freshly cloned repo pays no I/O for its covered corpus.
+		if !distillOpts.force && distillOpts.covered[coveredSessionKey(session.SessionID, session.LatestCheckpoint)] &&
+			!distillCacheHasSession(prevCache, branch, session, duplicateKeys) {
+			sessionPlan.Covered = true
+			plan.CoveredSessions++
 			plan.Sessions = append(plan.Sessions, sessionPlan)
 			continue
 		}
@@ -2456,6 +2524,26 @@ func cachedDistillSessionFingerprint(cache distillCache, branch, sessionID strin
 		return "", false
 	}
 	return cache.Sessions[best], true
+}
+
+// distillCacheHasSession reports whether the cache holds ANY entry for this
+// session — current key, disambiguated key, affix-scanned key, or the
+// pre-upgrade bare session id. Presence is the question, not fingerprint
+// equality: the coverage skip must stand down whenever an incremental path
+// exists, whatever format its entry uses.
+func distillCacheHasSession(cache distillCache, branch string, session exportSession, duplicates map[string]bool) bool {
+	if _, ok := cachedDistillSessionFingerprint(cache, branch, session.SessionID); ok {
+		return true
+	}
+	if _, ok := cachedDistillFingerprintForKey(cache, distillSessionCacheKeyFor(branch, session, duplicates)); ok {
+		return true
+	}
+	if cache.Sessions != nil {
+		if _, ok := cache.Sessions[session.SessionID]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // cachedDistillFingerprintForKey looks a fingerprint up under an already-built

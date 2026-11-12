@@ -132,6 +132,12 @@ type TerseReport struct {
 	// shown on an up-to-date re-run: onboarding is a moment, and a line that
 	// reappears every run is a nag rather than a discovery.
 	OfferConnect bool
+
+	// HostedError is this run's hosted connect/sync failure, verbatim. It
+	// OWNS the closing line when set: printing the generic connect offer
+	// right after connect-shaped work failed tells the reader to re-run the
+	// thing that just failed, with the reason hidden.
+	HostedError string
 }
 
 func (rep TerseReport) command() string {
@@ -206,7 +212,7 @@ func RenderTerseBuild(w io.Writer, r *Renderer, rep TerseReport) {
 	}
 	if rep.UnnamedFailures > 0 {
 		// Counted, not named, and pointed at the command that names them.
-		fmt.Fprintf(w, "  %s %s did not build — `%s doctor` names them\n",
+		fmt.Fprintf(w, "  %s %s did not build. Run `%s doctor` to see the list.\n",
 			skip, plural(rep.UnnamedFailures, "other component"), brainCmd)
 	}
 }
@@ -238,9 +244,12 @@ func RenderTerseNext(w io.Writer, rep TerseReport) {
 	// discovered on an unbound repo, and a failed build has to point at
 	// doctor.
 	switch {
+	case rep.Queryable && rep.HostedError != "":
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "%s\n", rep.HostedError)
 	case rep.Queryable && rep.OfferConnect:
 		fmt.Fprintln(w)
-		fmt.Fprintf(w, "Memories stay on this machine. To share them: %s connect\n", brainCmd)
+		fmt.Fprintf(w, "Memories will stay local. To share them, run `%s connect` to sync.\n", brainCmd)
 	case !rep.Queryable:
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "Run `%s doctor` for what went wrong.\n", brainCmd)

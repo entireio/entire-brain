@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
@@ -62,8 +63,13 @@ func maintainFactsStorage(ctx context.Context, out io.Writer, opts Options, brai
 		if summary.StragglerFiles > 0 {
 			fmt.Fprintln(out, "warning: an older entire-brain wrote memories after migration; they were upgraded — update that machine")
 		}
-		if summary.Cleanup.State == "retained" {
-			fmt.Fprintf(out, "warning: memory cleanup retained recovery data: %v\n", summary.Cleanup.Retained)
+		// One line, and only when the retained set CHANGES: this set needs a
+		// human decision and never shrinks on its own, so an ungated warning
+		// reprinted the full list on every write, forever. The list itself
+		// lives in facts/.cleanup-status.json and `memories storage`.
+		if summary.Cleanup.State == "retained" && factstore.CleanupNoticeDue(target.dir, summary.Cleanup) {
+			fmt.Fprintf(out, "\nwarning: memory cleanup kept recovery data from the pre-flat memory store; run `%s memories storage` for details\n\n",
+				base.SetupBrainCommand(base.SetupCommandPrefix(os.LookupEnv)))
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -65,5 +66,46 @@ func TestGCFacts(t *testing.T) {
 	}
 	if indexOfFact(result.Kept, recentSuperseded.ID) < 0 {
 		t.Fatalf("recent superseded should be retained within the window")
+	}
+}
+
+// `memories storage status` is where the one-line cleanup warning points for
+// details; printing only "memory storage: repository" answered nothing.
+func TestStorageStatusRendersCleanupDetails(t *testing.T) {
+	t.Parallel()
+	var out strings.Builder
+	renderStorageStatus(&out, factstore.StorageStatus{
+		Format:  "repository",
+		Records: 42,
+		Cleanup: &factstore.CleanupStatus{
+			State:          "retained",
+			PendingDirs:    1,
+			ReclaimedBytes: 2048,
+			Retained: []string{
+				".legacy-123: retained directory a-9f79d2bb: removeat a-9f79d2bb: directory not empty; b-98742e3e: legacy record fact:fbdaddc8 has unpreserved fields",
+			},
+		},
+	})
+	got := out.String()
+	for _, want := range []string{
+		"memory storage: repository",
+		"records: 42",
+		"legacy cleanup: retained",
+		"recovery data from the pre-flat store is kept until a human decides; nothing was deleted",
+		"  retained directory a-9f79d2bb: removeat a-9f79d2bb: directory not empty",
+		"  b-98742e3e: legacy record fact:fbdaddc8 has unpreserved fields",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestStorageStatusStaysShortWhenCleanupIsComplete(t *testing.T) {
+	t.Parallel()
+	var out strings.Builder
+	renderStorageStatus(&out, factstore.StorageStatus{Format: "repository", Records: 7})
+	if got := out.String(); got != "memory storage: repository\nrecords: 7\n" {
+		t.Errorf("a clean store needs no cleanup section, got %q", got)
 	}
 }

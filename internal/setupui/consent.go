@@ -48,6 +48,12 @@ type ConsentRequest struct {
 	// Sessions, the prompt says both numbers — a reader deciding whether to
 	// spend needs to know the pool is 272 even when this run covers 2.
 	Total int
+	// Covered is how many sessions team memories already cover (fact
+	// provenance from the hosted store); Corpus is the whole session count.
+	// When Covered > 0 the prompt says so — the reader deciding whether to
+	// spend should know most of the corpus needs nothing.
+	Covered int
+	Corpus  int
 	// Agent is the agent CLI that would run. Empty means none was found.
 	Agent string
 	// Model and Effort qualify the agent, for the informed-decision line.
@@ -186,7 +192,10 @@ func writePrompt(out io.Writer, r *Renderer, req ConsentRequest) int {
 		if pool == 1 {
 			verb = "remains"
 		}
-		count := 0
+		// The question is its own block: a blank line keeps it from reading as
+		// one more status row. Counted, so the erase removes it too.
+		fmt.Fprintln(out)
+		count := 1
 		for i, text := range []string{
 			fmt.Sprintf("%s %s. Distill up to %d now?", plural(pool, "session"), verb, req.Sessions),
 			agent + bullet + "uses agent tokens",
@@ -210,10 +219,18 @@ func writePrompt(out io.Writer, r *Renderer, req ConsentRequest) int {
 	}
 	lines := []Line{
 		{Title: PhaseFacts.Title(), Text: pool + " can be distilled into durable facts.", Accent: PhaseFacts.Accent()},
-		{Text: agent, Accent: PhaseFacts.Accent()},
-		{Text: estimate, Accent: PhaseFacts.Accent()},
-		{Blank: true},
 	}
+	if req.Covered > 0 {
+		lines = append(lines, Line{
+			Text:   fmt.Sprintf("%d of %d sessions are already covered by team memories.", req.Covered, req.Corpus),
+			Accent: PhaseFacts.Accent(),
+		})
+	}
+	lines = append(lines,
+		Line{Text: agent, Accent: PhaseFacts.Accent()},
+		Line{Text: estimate, Accent: PhaseFacts.Accent()},
+		Line{Blank: true},
+	)
 	for _, line := range lines {
 		fmt.Fprintln(out, r.Line(line))
 	}
@@ -231,6 +248,48 @@ func erasePrompt(out io.Writer, lines int) {
 		return
 	}
 	fmt.Fprintf(out, "\x1b[%dA\x1b[J", lines)
+}
+
+// stripTerminalNoise removes escape sequences and control bytes the TERMINAL
+// put on the line, not the person: arrow keys pressed while an earlier phase
+// ran, and query replies (cursor position, background color) a full-screen
+// prompt left in the stdin buffer. Observed live: "\x1b[B\x1b[Bn" — a plain n
+// after two fidgety arrow presses — was rejected as garbage and the question
+// re-asked.
+func stripTerminalNoise(line string) string {
+	var b strings.Builder
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if c == 0x1b {
+			i++
+			if i >= len(line) {
+				break
+			}
+			switch line[i] {
+			case '[': // CSI: parameter bytes, then one final byte in 0x40–0x7e
+				for i++; i < len(line) && (line[i] < 0x40 || line[i] > 0x7e); i++ {
+				}
+			case ']': // OSC: runs to BEL or ESC-backslash
+				for i++; i < len(line); i++ {
+					if line[i] == 0x07 {
+						break
+					}
+					if line[i] == 0x1b && i+1 < len(line) && line[i+1] == '\\' {
+						i++
+						break
+					}
+				}
+			case 'O': // SS3: one final byte
+				i++
+			}
+			continue
+		}
+		if c < 0x20 || c == 0x7f {
+			continue
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
 
 // question is the prompt itself. "[y/N]" is not decoration: the capital is the
@@ -259,7 +318,7 @@ func askTwice(in io.Reader, out io.Writer, r *Renderer, compact bool) (answer, p
 		// prompt line, so each attempt occupies exactly one line for the erase.
 		lines++
 		line, err := reader.ReadString('\n')
-		got := strings.ToLower(strings.TrimSpace(line))
+		got := strings.ToLower(strings.TrimSpace(stripTerminalNoise(line)))
 		if err != nil && got == "" {
 			// EOF, a closed stdin, an interrupt that shut the pipe: No, with a
 			// newline so the next line does not land beside the prompt.
