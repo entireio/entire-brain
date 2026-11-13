@@ -33,7 +33,20 @@ func AcquireBrainWriteLockTimeout(brainDir string, timeout time.Duration) (func(
 }
 
 func WithBrainWriteLock(brainDir string, fn func() error) error {
-	unlock, err := AcquireBrainWriteLock(brainDir)
+	return WithBrainWriteLockTimeoutContext(context.Background(), brainDir, BrainWriteLockTimeout, fn)
+}
+
+// WithBrainWriteLockTimeoutContext preserves a caller's existing lock-wait
+// budget while allowing cancellation. Acquisition uses the same priority and
+// file-lock mechanism as the other write helpers; the callback owns settlement.
+func WithBrainWriteLockTimeoutContext(ctx context.Context, brainDir string, timeout time.Duration, fn func() error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout < 0 {
+		timeout = 0
+	}
+	unlock, err := acquirePriorityBrainWriteLock(ctx, brainDir, timeout, timeout == 0)
 	if err != nil {
 		return err
 	}

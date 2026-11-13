@@ -51,7 +51,7 @@ func openDocFTS(brainDir string, index docIndex) (*sql.DB, error) {
 
 func openDocFTSContext(ctx context.Context, brainDir string, index docIndex) (*sql.DB, error) {
 	var db *sql.DB
-	err := brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
+	err := brainstore.WithBrainWriteLockTimeoutContext(ctx, brainDir, brainstore.BrainWriteLockTimeout, func() error {
 		var runErr error
 		db, runErr = openDocFTSLockedContext(ctx, brainDir, index)
 		return runErr

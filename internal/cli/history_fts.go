@@ -143,7 +143,7 @@ func openHistoryFTSContext(ctx context.Context, brainDir string, index historyIn
 		return db, nil
 	}
 	var db *sql.DB
-	err := brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
+	err := brainstore.WithBrainWriteLockTimeoutContext(ctx, brainDir, brainstore.BrainWriteLockTimeout, func() error {
 		var runErr error
 		db, runErr = openHistoryFTSLockedIdentityContext(ctx, brainDir, index, identity)
 		return runErr
@@ -358,7 +358,7 @@ func rebuildHistoryFTSFromTruth(brainDir string, index historyIndex) error {
 }
 
 func rebuildHistoryFTSFromTruthContext(ctx context.Context, brainDir string, index historyIndex) error {
-	return brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
+	return brainstore.WithBrainWriteLockTimeoutContext(ctx, brainDir, brainstore.BrainWriteLockTimeout, func() error {
 		path, err := clibase.PrepareBrainRelativeSQLiteFile(brainDir, historyFTSDBRelPath())
 		if err != nil {
 			return err
@@ -519,11 +519,10 @@ func rankHistoryViaFreshFTSCutoffDetailedContext(ctx context.Context, brainDir s
 	// corruption. Wait once on the writer lock as a publication barrier, then
 	// re-read the manifest. The normal long rebuild path never waits here: while
 	// it runs, the old committed FTS metadata still matches and the read proceeds.
-	unlock, lockErr := brainstore.AcquireBrainWriteLockContext(ctx, brainDir)
+	lockErr := brainstore.WithBrainWriteLockTimeoutContext(ctx, brainDir, brainstore.BrainWriteLockTimeout, func() error { return nil })
 	if lockErr != nil {
 		return nil, false, lockErr
 	}
-	unlock()
 	current, err = currentHistorySource(brainDir)
 	if err != nil {
 		return nil, false, err

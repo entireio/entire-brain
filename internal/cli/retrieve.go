@@ -40,6 +40,7 @@ func retrievalEngineDepsContext(ctx context.Context) retrieval.Deps {
 			}
 			return scored, err
 		},
+		// FTS remains an optimization; cancellation never triggers its fallback.
 		RankDocs: func(brainDir string, index docIndex, query string, limit int) []scoredDocRecord {
 			scored, ok := rankDocsViaFTSContext(ctx, brainDir, index, query, limit)
 			if !ok && ctx.Err() == nil {
@@ -71,25 +72,6 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 // and its CPU, SQLite, and cache-lock dependencies.
 func retrieveUnifiedWithOptionsContext(ctx context.Context, repoDir, brainDir, branch, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
 	return retrieval.UnifiedWithOptionsContext(ctx, retrievalEngineDepsContext(ctx), repoDir, brainDir, branch, query, limit, mode, opts)
-}
-
-// rankHistoryLexicalForRetrieval adapts rankFreshHistoryLexicalFromSource's
-// diagnostic-rich signature to the engine seam, which needs only the scored
-// window.
-func rankHistoryLexicalForRetrieval(brainDir string, source *historySourceManifest, kind, query string, limit int) ([]scoredHistoryRecord, error) {
-	scored, _, _, rankErr := rankFreshHistoryLexicalFromSource(brainDir, source, kind, query, limit)
-	return scored, rankErr
-}
-
-// rankDocsForRetrieval ranks doc chunks for the engine.
-// FTS is an optimization, never load-bearing: fall back to the in-memory
-// lexical scorer so docs don't vanish when the doc FTS index can't open.
-func rankDocsForRetrieval(brainDir string, index docIndex, query string, limit int) []scoredDocRecord {
-	scored, ok := rankDocsViaFTS(brainDir, index, query, limit)
-	if !ok {
-		scored = rankDocsLexical(index, query, limit)
-	}
-	return scored
 }
 
 // errConversationVectorUnsupported answers a direct modeVector call on the
