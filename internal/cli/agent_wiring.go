@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
@@ -163,13 +164,71 @@ func preEditHookCommandFor(goos string) string {
 		// `exit /b 0` is the counterpart of the POSIX `exit 0`: a reader with
 		// neither binary gets a hook that does nothing, not one that errors on
 		// every edit.
-		return `cmd /c "` + base.SetupBrainBinaryName + " hook pre-edit --claude-hook || " +
+		//
+		// The leading `set NoDefaultCurrentDirectoryInExePath=1&` makes this
+		// cmd.exe resolve both bare names from PATH only. Without it cmd.exe
+		// looks in the working directory -- the repository -- first, so an
+		// entire-brain.cmd or entire.bat at the repository root would run on
+		// every edit. There is no space before `&`: cmd.exe would keep it as
+		// part of the value.
+		return `cmd /c "set ` + base.EnvNoDefaultCurrentDirectoryInExePath + "=1& " +
+			base.SetupBrainBinaryName + " hook pre-edit --claude-hook || " +
 			base.SetupEntireBinaryName + " " + base.SetupBrainPluginVerb + ` hook pre-edit --claude-hook || exit /b 0"`
 	}
 	plugin := base.SetupEntireBinaryName + " " + base.SetupBrainPluginVerb
 	return "sh -c 'if command -v " + base.SetupBrainBinaryName + " >/dev/null 2>&1; then exec " + base.SetupBrainBinaryName +
 		" hook pre-edit --claude-hook; fi; if command -v " + base.SetupEntireBinaryName + " >/dev/null 2>&1; then exec " +
 		plugin + " hook pre-edit --claude-hook; fi; exit 0'"
+}
+
+// legacyPreEditHookCommandsFor lists earlier spellings this binary wired for
+// goos that `setup` replaces with preEditHookCommandFor(goos). Only exact
+// matches are replaced: a command the reader adapted is theirs and stays.
+//
+// The windows entry is the form that let cmd.exe resolve entire-brain and
+// entire from the working directory before PATH.
+func legacyPreEditHookCommandsFor(goos string) []string {
+	if goos != "windows" {
+		return nil
+	}
+	return []string{
+		`cmd /c "` + base.SetupBrainBinaryName + " hook pre-edit --claude-hook || " +
+			base.SetupEntireBinaryName + " " + base.SetupBrainPluginVerb + ` hook pre-edit --claude-hook || exit /b 0"`,
+	}
+}
+
+// upgradeLegacyPreEditHooks rewrites, in place, every PreToolUse hook command
+// that is exactly a legacy spelling for goos, and reports whether it changed
+// any. The entry's matcher, position and other keys are kept.
+func upgradeLegacyPreEditHooks(entries []any, goos string) bool {
+	legacy := legacyPreEditHookCommandsFor(goos)
+	if len(legacy) == 0 {
+		return false
+	}
+	current := preEditHookCommandFor(goos)
+	changed := false
+	for _, entry := range entries {
+		matcher, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		inner, ok := matcher["hooks"].([]any)
+		if !ok {
+			continue
+		}
+		for _, item := range inner {
+			hook, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			command, _ := hook["command"].(string)
+			if slices.Contains(legacy, command) {
+				hook["command"] = current
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 // errSettingsShape reports a settings file whose `hooks` tree is not the shape
@@ -193,6 +252,12 @@ var errSettingsShape = errors.New("unexpected shape")
 var installPreEditHookRaceHook func()
 
 func installPreEditHook(repoDir string) (string, bool, error) {
+	return installPreEditHookFor(repoDir, runtime.GOOS)
+}
+
+// installPreEditHookFor is installPreEditHook for an explicit platform, so the
+// windows upgrade path is testable on any host.
+func installPreEditHookFor(repoDir, goos string) (string, bool, error) {
 	path := filepath.Join(repoDir, claudeSettingsDir, claudeSettingsFile)
 	// Everything below goes through an os.Root: `.claude/settings.json` is a
 	// repository-committed path like AGENTS.md, and a symlink there must not be
@@ -227,16 +292,22 @@ func installPreEditHook(repoDir string) (string, bool, error) {
 	if err != nil {
 		return path, false, fmt.Errorf("%s: hooks.PreToolUse: %w", path, err)
 	}
-	if preToolUseInvokesPreEdit(entries) {
+	// An exact earlier spelling is upgraded in place rather than counted as
+	// installed: leaving it would keep the old resolution behaviour, and
+	// appending beside it would run the hook twice.
+	upgraded := upgradeLegacyPreEditHooks(entries, goos)
+	if !upgraded && preToolUseInvokesPreEdit(entries) {
 		return path, false, nil
 	}
-	entries = append(entries, map[string]any{
-		"matcher": preEditHookMatcher,
-		"hooks": []any{map[string]any{
-			"type":    "command",
-			"command": preEditHookCommand(),
-		}},
-	})
+	if !upgraded {
+		entries = append(entries, map[string]any{
+			"matcher": preEditHookMatcher,
+			"hooks": []any{map[string]any{
+				"type":    "command",
+				"command": preEditHookCommandFor(goos),
+			}},
+		})
+	}
 	hooks["PreToolUse"] = entries
 	settings["hooks"] = hooks
 

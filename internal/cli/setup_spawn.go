@@ -6,8 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/parentwatch"
 )
@@ -40,7 +42,10 @@ func spawnDetached(plan setupBackfillPlan) (int, error) {
 	// daemon-reregister child's parent dies by design (launchctl bootout).
 	// Environ copies plan.Env (or os.Environ when nil), so the caller's slice
 	// is never written to.
-	cmd.Env = append(cmd.Environ(), parentwatch.DetachedEnv+"=1")
+	//
+	// The child runs in the repository and starts agent CLIs there, so on
+	// windows its bare command names resolve from PATH, not from that directory.
+	cmd.Env = base.PathOnlyExeLookupEnv(runtime.GOOS, append(cmd.Environ(), parentwatch.DetachedEnv+"=1"))
 	cmd.SysProcAttr = detachedSysProcAttr()
 
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
