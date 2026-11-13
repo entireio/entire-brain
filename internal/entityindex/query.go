@@ -484,6 +484,42 @@ func (s *Snapshot) IndexedCommits() []string {
 	return out
 }
 
+// CappedCommits lists the indexed commits whose stored delta does NOT carry
+// every entity the commit changed, sorted by sha so the output is stable.
+//
+// This is what lets a "no match" answer be honest. The reverse index is built
+// from these documents, so an entity the cap cut is simply absent from it and
+// `history` would otherwise report "no indexed entity matches X" — a silent
+// wrong answer shaped exactly like a true one. Measured on this repository,
+// one commit stored 2,000 of 14,839 changed entities.
+//
+// Two shapes count as capped: a document that says so, and a legacy unmarked
+// document sitting exactly on the old 2000 cap, which is indistinguishable
+// from a complete document of that size and so must be reported rather than
+// assumed whole. deltaNeedsRepair separates the same pair for a different
+// purpose — it decides whether re-diffing would recover more — while this
+// decides whether the answer available today is complete.
+//
+// An undecodable document is NOT counted, matching deltaNeedsRepair: an
+// unknown shape is not evidence of a cap.
+func (s *Snapshot) CappedCommits() []string {
+	if s == nil {
+		return nil
+	}
+	out := []string{}
+	for sha, raw := range s.forward {
+		var delta Delta
+		if json.Unmarshal([]byte(raw), &delta) != nil {
+			continue
+		}
+		if delta.Truncated || (delta.EntityCount == 0 && len(delta.Entities) == legacyUnmarkedDeltaCap) {
+			out = append(out, sha)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // HasOtherHistory is used only while rebuilding the derived query cache, never
 // on a backfill/freshness tick. A missing commit can be carried forward from a
 // different revision by migration. No old parser output is served as current.
