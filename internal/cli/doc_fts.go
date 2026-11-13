@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"path/filepath"
@@ -45,16 +46,24 @@ func docFTSFingerprint(index docIndex) string {
 }
 
 func openDocFTS(brainDir string, index docIndex) (*sql.DB, error) {
+	return openDocFTSContext(context.Background(), brainDir, index)
+}
+
+func openDocFTSContext(ctx context.Context, brainDir string, index docIndex) (*sql.DB, error) {
 	var db *sql.DB
-	err := brainstore.WithBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLockContext(ctx, brainDir, func() error {
 		var runErr error
-		db, runErr = openDocFTSLocked(brainDir, index)
+		db, runErr = openDocFTSLockedContext(ctx, brainDir, index)
 		return runErr
 	})
 	return db, err
 }
 
 func openDocFTSLocked(brainDir string, index docIndex) (*sql.DB, error) {
+	return openDocFTSLockedContext(context.Background(), brainDir, index)
+}
+
+func openDocFTSLockedContext(ctx context.Context, brainDir string, index docIndex) (*sql.DB, error) {
 	path, err := base.PrepareBrainRelativeSQLiteFile(brainDir, docFTSDBRelPath())
 	if err != nil {
 		return nil, err
@@ -67,15 +76,15 @@ func openDocFTSLocked(brainDir string, index docIndex) (*sql.DB, error) {
 	// apply to every query/build, not just whichever pooled connection ran them.
 	db.SetMaxOpenConns(1)
 	for _, pragma := range []string{"PRAGMA busy_timeout=5000;", "PRAGMA journal_mode=WAL;"} {
-		if _, err := db.Exec(pragma); err != nil {
+		if _, err := db.ExecContext(ctx, pragma); err != nil {
 			db.Close()
 			return nil, err
 		}
 	}
-	if docFTSFresh(db, index) {
+	if docFTSFreshContext(ctx, db, index) {
 		return db, nil
 	}
-	if err := buildDocFTS(db, index); err != nil {
+	if err := buildDocFTSContext(ctx, db, index); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -83,7 +92,11 @@ func openDocFTSLocked(brainDir string, index docIndex) (*sql.DB, error) {
 }
 
 func docFTSFresh(db *sql.DB, index docIndex) bool {
-	rows, err := db.Query(`SELECT key, value FROM doc_fts_meta`)
+	return docFTSFreshContext(context.Background(), db, index)
+}
+
+func docFTSFreshContext(ctx context.Context, db *sql.DB, index docIndex) bool {
+	rows, err := db.QueryContext(ctx, `SELECT key, value FROM doc_fts_meta`)
 	if err != nil {
 		return false
 	}
@@ -103,7 +116,11 @@ func docFTSFresh(db *sql.DB, index docIndex) bool {
 }
 
 func buildDocFTS(db *sql.DB, index docIndex) error {
-	tx, err := db.Begin()
+	return buildDocFTSContext(context.Background(), db, index)
+}
+
+func buildDocFTSContext(ctx context.Context, db *sql.DB, index docIndex) error {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -114,22 +131,22 @@ func buildDocFTS(db *sql.DB, index docIndex) error {
 		`CREATE TABLE doc_fts_meta(key TEXT PRIMARY KEY, value TEXT)`,
 		`CREATE VIRTUAL TABLE doc_fts USING fts5(content, rec_order UNINDEXED, tokenize='porter unicode61')`,
 	} {
-		if _, err := tx.Exec(stmt); err != nil {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("doc fts schema: %w", err)
 		}
 	}
-	ins, err := tx.Prepare(`INSERT INTO doc_fts(content, rec_order) VALUES (?, ?)`)
+	ins, err := tx.PrepareContext(ctx, `INSERT INTO doc_fts(content, rec_order) VALUES (?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer ins.Close()
 	for i, r := range index.Records {
-		if _, err := ins.Exec(docFTSContent(r), i); err != nil {
+		if _, err := ins.ExecContext(ctx, docFTSContent(r), i); err != nil {
 			return fmt.Errorf("doc fts insert: %w", err)
 		}
 	}
 	for k, v := range map[string]string{"schema": docFTSSchema, "fingerprint": docFTSFingerprint(index)} {
-		if _, err := tx.Exec(`INSERT INTO doc_fts_meta(key, value) VALUES (?, ?)`, k, v); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO doc_fts_meta(key, value) VALUES (?, ?)`, k, v); err != nil {
 			return err
 		}
 	}
@@ -144,6 +161,10 @@ func buildDocFTS(db *sql.DB, index docIndex) error {
 // SQLite/FTS is unavailable — mirroring history's substring fallback. Best-effort:
 // the only floor is "shares at least one query term".
 func rankDocsLexical(index docIndex, query string, limit int) []scoredDocRecord {
+	return rankDocsLexicalContext(context.Background(), index, query, limit)
+}
+
+func rankDocsLexicalContext(ctx context.Context, index docIndex, query string, limit int) []scoredDocRecord {
 	terms := historyQueryAllTerms(query)
 	if len(terms) == 0 || limit <= 0 {
 		return nil
@@ -154,6 +175,9 @@ func rankDocsLexical(index docIndex, query string, limit int) []scoredDocRecord 
 	}
 	scored := make([]sc, 0, len(index.Records))
 	for _, r := range index.Records {
+		if ctx.Err() != nil {
+			return nil
+		}
 		content := docFTSContent(r)
 		n := 0
 		for _, t := range terms {
@@ -184,6 +208,10 @@ func rankDocsLexical(index docIndex, query string, limit int) []scoredDocRecord 
 }
 
 func rankDocsViaFTS(brainDir string, index docIndex, query string, limit int) ([]scoredDocRecord, bool) {
+	return rankDocsViaFTSContext(context.Background(), brainDir, index, query, limit)
+}
+
+func rankDocsViaFTSContext(ctx context.Context, brainDir string, index docIndex, query string, limit int) ([]scoredDocRecord, bool) {
 	if limit <= 0 {
 		return nil, false
 	}
@@ -191,12 +219,12 @@ func rankDocsViaFTS(brainDir string, index docIndex, query string, limit int) ([
 	if expr == "" {
 		return nil, false
 	}
-	db, err := openDocFTS(brainDir, index)
+	db, err := openDocFTSContext(ctx, brainDir, index)
 	if err != nil {
 		return nil, false
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT CAST(rec_order AS INTEGER), bm25(doc_fts) FROM doc_fts WHERE doc_fts MATCH ? ORDER BY bm25(doc_fts) LIMIT ?`, expr, limit*4)
+	rows, err := db.QueryContext(ctx, `SELECT CAST(rec_order AS INTEGER), bm25(doc_fts) FROM doc_fts WHERE doc_fts MATCH ? ORDER BY bm25(doc_fts) LIMIT ?`, expr, limit*4)
 	if err != nil {
 		return nil, false
 	}

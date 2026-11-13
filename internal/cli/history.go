@@ -2653,6 +2653,10 @@ func rankHistoryRecords(index historyIndex, kind, query string, limit int) []his
 // surface why a record matched. minMatches relaxes the term-coverage threshold
 // (0 = strict default, 1 = best-effort partial matching).
 func rankHistoryRecordsScored(index historyIndex, kind, query string, limit, minMatches int) []scoredHistoryRecord {
+	return rankHistoryRecordsScoredContext(context.Background(), index, kind, query, limit, minMatches)
+}
+
+func rankHistoryRecordsScoredContext(ctx context.Context, index historyIndex, kind, query string, limit, minMatches int) []scoredHistoryRecord {
 	if limit <= 0 {
 		return nil
 	}
@@ -2660,6 +2664,9 @@ func rankHistoryRecordsScored(index historyIndex, kind, query string, limit, min
 	scored := make([]scoredHistoryRecord, 0, min(len(index.Records), limit))
 	seen := map[string]struct{}{}
 	for i, record := range index.Records {
+		if ctx.Err() != nil {
+			return nil
+		}
 		if len(allowed) > 0 {
 			if _, ok := allowed[record.Kind]; !ok {
 				continue
