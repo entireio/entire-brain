@@ -145,7 +145,7 @@ func TestRetrievalContextStopsFactScoring(t *testing.T) {
 	for i := range facts {
 		facts[i] = factRecord{Text: "retry checkpoint", Status: factStatusActive}
 	}
-	if got := newBM25CorpusContext(ctx, facts); len(got.docTokens[len(facts)-1]) != 0 {
+	if got := newBM25CorpusContext(ctx, facts, []string{"retry"}); got.docLengths[len(facts)-1] != 0 {
 		t.Fatal("corpus scan continued after cancellation")
 	}
 	if !errors.Is(parent.Err(), context.Canceled) {

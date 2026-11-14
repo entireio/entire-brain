@@ -92,14 +92,14 @@ func rankFactsAtContext(ctx context.Context, facts []factRecord, query string, l
 
 	queryLocus := base.FactLocus(query)
 	terms := factQueryTerms(query)
-	corpus := newBM25CorpusContext(ctx, candidates)
+	corpus := newBM25CorpusContext(ctx, candidates, terms)
 	scored := make([]scoredFact, 0, len(candidates))
 	for i := range candidates {
 		f := &candidates[i]
 		if ctx.Err() != nil {
 			return nil
 		}
-		if score := factBM25Score(*f, corpus, i, terms, queryLocus); score > 0 {
+		if score := factBM25Score(*f, corpus, i, queryLocus); score > 0 {
 			// Recency prior (COR-2311): a soft multiplier, never a filter — it
 			// reorders neighbours and breaks stale-vs-current ties; a dateless
 			// fact stays neutral. Applied after the >0 match check so time
