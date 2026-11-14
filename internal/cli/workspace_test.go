@@ -1476,7 +1476,7 @@ func writeWorkspaceDocIndex(t *testing.T, env EntireEnv, key string, records ...
 
 func TestWorkspaceSearchAndGetFanOutWithQualifiedIDs(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
-	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	runner := ExecRunner{}
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
 
 	_, keyA := writeLocalWorkspaceBrainRepo(t, env, `{"text":"x"}`, "a.go", "package x\n")
@@ -1721,7 +1721,7 @@ func TestWorkspaceFullRefreshGatesAndCarriesPerMemberFailures(t *testing.T) {
 // isolation, and repo-qualified get expansion (the explicit cross-repo step).
 func TestWorkspaceConversationRecallFanOut(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
-	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	runner := ExecRunner{}
 	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }})
 
@@ -1856,7 +1856,7 @@ func TestWorkspaceConversationRecallFanOut(t *testing.T) {
 // brain in the fan-out.
 func TestWorkspaceConversationSourceIsolationAndBranchPropagation(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
-	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
+	runner := ExecRunner{}
 	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
 

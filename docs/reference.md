@@ -997,6 +997,14 @@ Workspace retrieval supports the same forms:
 `entire brain workspace query <workspace> --semantic --query "retry policy"`.
 The old `search` and `vsearch` commands remain hidden compatibility aliases.
 
+Workspace retrieval runs at most two member reads at a time, bounding the
+number of simultaneously loaded corpora. Results retain manifest order,
+per-repository ranking and limits, source filters, and each member's errors.
+Custom command runners run serially unless they opt in to concurrent calls.
+Cancellation stops admission, reaches active retrieval and graph lookups, and
+joins the workers before returning the context error. Collected member results
+are emitted only after retrieval completes successfully.
+
 ### Recall prior conversations (experimental, opt-in)
 
 `--source conversation` searches captured request/response exchanges from

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"strings"
@@ -148,12 +149,19 @@ type bm25Corpus struct {
 }
 
 func newBM25Corpus(facts []factRecord) bm25Corpus {
+	return newBM25CorpusContext(context.Background(), facts)
+}
+
+func newBM25CorpusContext(ctx context.Context, facts []factRecord) bm25Corpus {
 	c := bm25Corpus{
 		docTokens: make([][]string, len(facts)),
 		df:        make(map[string]int, len(facts)*8),
 	}
 	total := 0
 	for i, f := range facts {
+		if ctx.Err() != nil {
+			return c
+		}
 		tokens := factSearchTokens(f)
 		c.docTokens[i] = tokens
 		total += len(tokens)

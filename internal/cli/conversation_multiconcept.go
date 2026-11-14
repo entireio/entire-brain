@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -76,6 +77,14 @@ type conceptRankList struct {
 // (memory_query_too_broad) beyond it; vector and hybrid modes are explicitly
 // approximate but never violate filters.
 func retrieveConversationMultiConcept(brainDir, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
+	return retrieveConversationMultiConceptContext(context.Background(), brainDir, query, limit, mode, opts)
+}
+
+func retrieveConversationMultiConceptContext(ctx context.Context, brainDir, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if err := retrieval.ValidateRetrievalLimit(limit); err != nil {
 		return nil, err
 	}
@@ -120,9 +129,12 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 			fallthrough
 		default:
 			var exhaustiveState historyExhaustiveRankState
-			list.ranked, exhaustiveState = rankFreshHistoryExhaustive(fresh, conversationKind, concept, conversationConceptScanCeiling, pred, func(longTerm historyIndex, longTermPred func(historyRecord) bool) ([]scoredHistoryRecord, historyExhaustiveRankState, bool, int) {
-				return rankHistoryViaFTSExhaustiveFiltered(brainDir, longTerm, conversationKind, concept, conversationConceptScanCeiling, longTermPred)
+			list.ranked, exhaustiveState = rankFreshHistoryExhaustiveContext(ctx, fresh, conversationKind, concept, conversationConceptScanCeiling, pred, func(longTerm historyIndex, longTermPred func(historyRecord) bool) ([]scoredHistoryRecord, historyExhaustiveRankState, bool, int) {
+				return rankHistoryViaFTSExhaustiveFilteredContext(ctx, brainDir, longTerm, conversationKind, concept, conversationConceptScanCeiling, longTermPred)
 			})
+			if err := ctx.Err(); err != nil {
+				return list, err
+			}
 			if exhaustiveState == historyExhaustiveRankCandidateOverflow {
 				return list, errConversationConceptTooBroad(concept)
 			}
@@ -136,6 +148,9 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 
 	lists := make([]conceptRankList, 0, len(concepts))
 	for _, concept := range concepts {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		list, err := rankOne(concept)
 		if err != nil {
 			return nil, err

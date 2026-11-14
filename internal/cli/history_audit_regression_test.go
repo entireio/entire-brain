@@ -112,8 +112,8 @@ func TestHistoryAuditFTSGenerationCannotMisaddressRecords(t *testing.T) {
 			old := historyIndex{Records: []historyRecord{{ID: "old", Kind: "decision", Summary: "unrelated banana"}}}
 			next := historyIndex{Records: []historyRecord{{ID: "new", Kind: "decision", Summary: "quasar"}}}
 			original := openHistoryFTSForRanking
-			openHistoryFTSForRanking = func(brainDir string, index historyIndex) (*sql.DB, error) {
-				db, err := original(brainDir, index)
+			openHistoryFTSForRanking = func(ctx context.Context, brainDir string, index historyIndex) (*sql.DB, error) {
+				db, err := original(ctx, brainDir, index)
 				if err != nil {
 					return nil, err
 				}
