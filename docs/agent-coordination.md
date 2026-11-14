@@ -9,7 +9,7 @@ retains `guide` as an alias.
 Each product's setup enables only the invoking product and preserves products
 already enabled in this repository. Running Graph and Brain setups in either
 order preserves combined activation. Identical guide text requires matching renderers in both products.
-The currently pinned Graph revision still has obsolete MCP wording; see the compatibility check below.
+The pinned Graph revision renders the same guide text as Brain, including the remember `--path` rule and the COR-2308 memories-first wording.
 Installing a plugin globally, creating Brain
 runtime setup, or building an index does not activate its agent guidance.
 Generation does not query the host inventory or invoke another plugin.
@@ -182,8 +182,10 @@ repositories; historical runtime-detection helpers are no longer used by activat
 `go test ./internal/cli -run 'AgentGuide|AgentSetup|Setup'` checks the Brain
 command integration. Go integration tests in `tools/integration` also run both
 real products in both setup orders. They check combined activation, preserved user
-text, and repeatability. CI requires the binaries. Normal and strict guide comparisons
-accept only two exact legacy MCP wording differences in the pinned Graph revision.
-Any additional difference fails. Set `BRAIN_INTEGRATION_REQUIRE_GUIDE_PARITY=1`
-to require exact equality when testing the corresponding Graph correction.
+text, and repeatability. CI requires the binaries. Normal and strict guide
+comparisons require exact equality: the pinned Graph revision carries the
+remember --path rule, no longer has the obsolete MCP sentences, and includes
+the COR-2308 memories-first wording (precedent anchors, history search as
+explicit escalation). `BRAIN_INTEGRATION_REQUIRE_GUIDE_PARITY=1` is accepted
+for compatibility with earlier checkouts and no longer changes the comparison.
 Cross-product source changes still require matching Graph updates.

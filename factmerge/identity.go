@@ -20,6 +20,10 @@ const MaxPaths = 2
 // preferences.coding.style or architecture.boundaries.rationale.
 var factPathPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z0-9_]+){2}$`)
 
+// PathRule states factPathPattern in words, for help text and errors that have
+// to tell a caller what a path may contain. Keep the two in step.
+const PathRule = "category.subcategory.type: three dot-separated segments of lowercase letters, digits and underscores (no hyphens or spaces), the first starting with a letter"
+
 // NormalizeText collapses a fact statement to a stable form for content
 // hashing: lowercased, with internal whitespace runs reduced to single spaces.
 // Two statements that differ only in casing or spacing share an id.

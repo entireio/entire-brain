@@ -114,6 +114,12 @@ All notable changes to `entire-brain` are recorded here. The format follows
   classified read-only, and a failing command is no longer stored as a
   success (#566, #567).
 
+- `remember --path` rejects a malformed path even when another path in the list
+  is valid. Previously it was dropped and the memory was stored under fewer
+  paths. The error names the rejected path and the rule: `category.subcategory.type`,
+  lowercase letters, digits and `_`, no hyphens. `remember --help` and the agent
+  guide written by `setup` now state the rule too.
+
 ## [0.5.1] - 2026-11-04
 
 ### Fixed
