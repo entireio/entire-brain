@@ -183,7 +183,7 @@ func TestRealProductsPreserveSharedAgentInstructions(t *testing.T) {
 				if !bytes.Contains(brainGuide, []byte("Graph and Brain")) || !bytes.Contains(graphGuide, []byte("Graph and Brain")) {
 					t.Fatal("a product lost combined activation")
 				}
-				if err := compareGuideText(brainGuide, graphGuide, os.Getenv("BRAIN_INTEGRATION_REQUIRE_GUIDE_PARITY") == "1"); err != nil {
+				if err := compareGuideText(brainGuide, graphGuide); err != nil {
 					t.Fatalf("%s: %v", mode, err)
 				}
 			}
@@ -200,45 +200,25 @@ func TestRealProductsPreserveSharedAgentInstructions(t *testing.T) {
 	}
 }
 
-// The pinned Graph revision (entire-graph#392's current head) already carries
-// the remember --path rule and no longer includes the obsolete MCP sentences.
-// It still predates the COR-2308 memories-first wording (precedent anchors,
-// history search as explicit escalation). Accept only those exact differences
-// until Graph carries that wording. Strict parity can be required when
-// validating a Graph revision that also has it.
-func compareGuideText(brain, graph []byte, requireParity bool) error {
+// The pinned Graph revision carries the remember --path rule, drops the
+// obsolete MCP sentences, and includes the COR-2308 memories-first wording
+// (precedent anchors, history search as explicit escalation). There is no
+// remaining compatibility allowance: normal and strict guides must be
+// byte-identical. BRAIN_INTEGRATION_REQUIRE_GUIDE_PARITY=1 is accepted for
+// compatibility with earlier checkouts and no longer changes the comparison.
+func compareGuideText(brain, graph []byte) error {
 	if bytes.Equal(brain, graph) {
 		return nil
 	}
-	if requireParity {
-		return fmt.Errorf("Brain and Graph must render identical guide text")
-	}
-	legacy := strings.NewReplacer(
-		"Memories are the default retrieval surface. The brief's precedent section lists\neach surfaced memory's source sessions (session, transcript, commit,\ncheckpoint); follow those anchors when you need the detail behind a memory.\nThe brief does not search transcript history. Search transcripts only as an\nexplicit escalation, when memories and their anchors miss:\n\n    entire brain query --source history \"<question>\" --json\n\n",
-		"",
-		"The brief's precedent section lists each surfaced memory's source sessions.\nFollow those anchors when you need the detail behind a memory; the brief does\nnot search transcript history. Search transcripts only as an explicit\nescalation when memories and their anchors miss:\n\n    entire brain query --source history \"<question>\" --json\n\n",
-		"",
-	).Replace(string(brain))
-	if string(graph) != legacy {
-		return fmt.Errorf("Brain and Graph guide text differs beyond the pinned legacy wording")
-	}
-	return nil
+	return fmt.Errorf("Brain and Graph must render identical guide text")
 }
 
 func TestGuideComparisonRejectsUnrelatedDrift(t *testing.T) {
-	precedent := "The brief's precedent section lists each surfaced memory's source sessions.\nFollow those anchors when you need the detail behind a memory; the brief does\nnot search transcript history. Search transcripts only as an explicit\nescalation when memories and their anchors miss:\n\n    entire brain query --source history \"<question>\" --json\n\n"
-	brain := []byte(precedent + "Reuse useful code locations from the brief.")
-	legacy := []byte("Reuse useful code locations from the brief.")
-	if err := compareGuideText(brain, brain, true); err != nil {
+	guide := []byte("Reuse useful code locations from the brief.")
+	if err := compareGuideText(guide, guide); err != nil {
 		t.Fatal(err)
 	}
-	if err := compareGuideText(brain, legacy, false); err != nil {
-		t.Fatal(err)
-	}
-	if err := compareGuideText(brain, legacy, true); err == nil {
-		t.Fatal("strict parity accepted the COR-2308 wording gap")
-	}
-	if err := compareGuideText(brain, append(legacy, []byte("\nSkip required queries.")...), false); err == nil {
+	if err := compareGuideText(guide, append(guide, []byte("\nSkip required queries.")...)); err == nil {
 		t.Fatal("accepted unrelated guide drift")
 	}
 }
