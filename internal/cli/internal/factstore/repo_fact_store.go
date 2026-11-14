@@ -45,6 +45,12 @@ type repoFactStore struct {
 	Records       map[string]json.RawMessage `json:"records"`
 }
 
+// repoStoreField discards a value during the top-level key check. It never
+// retains the temporary JSON bytes supplied by encoding/json.
+type repoStoreField struct{}
+
+func (*repoStoreField) UnmarshalJSON([]byte) error { return nil }
+
 // readStoreFile reads facts/store.json raw, with the shared forward-version
 // gate: a schema newer than this build fails closed.
 func readStoreFile(brainDir string) (version int, data []byte, present bool, err error) {
@@ -90,8 +96,28 @@ func decodeV3Context(ctx context.Context, data []byte) (map[string]factmerge.Rec
 	}
 
 	var s repoFactStore
-	if _, err := brainstore.DecodeStrictVersionedJSON(data, &s, repoFactsVersion, "repository memory store"); err != nil {
+	if _, err := brainstore.CheckedVersionedJSONHeader(data, repoFactsVersion, "repository memory store"); err != nil {
 		return nil, err
+	}
+	// The canonical writer has only these two top-level keys. Inspect the keys
+	// without retaining their payloads, then decode directly from existing bytes.
+	// Other spellings and errors keep the original strict decoder's behavior.
+	var keys map[string]repoStoreField
+	direct := json.Unmarshal(data, &keys) == nil
+	for key := range keys {
+		if key != "schema_version" && key != "records" {
+			direct = false
+		}
+	}
+	var decodeErr error
+	if direct {
+		decodeErr = json.Unmarshal(data, &s)
+	}
+	if !direct || decodeErr != nil {
+		s = repoFactStore{}
+		if _, err := brainstore.DecodeStrictVersionedJSON(data, &s, repoFactsVersion, "repository memory store"); err != nil {
+			return nil, err
+		}
 	}
 	if s.SchemaVersion != repoFactsVersion || s.Records == nil {
 		return nil, fmt.Errorf("invalid repository memory store header")
