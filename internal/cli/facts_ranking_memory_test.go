@@ -29,3 +29,33 @@ func TestRankFactsPreservesDistinctRecordValues(t *testing.T) {
 		t.Fatal("result record aliases the input record")
 	}
 }
+
+func TestRankFactsRecentListingDoesNotReorderInput(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name       string
+		includeAll bool
+		want       []string
+	}{
+		{"active", false, []string{"recent", "old"}},
+		{"all", true, []string{"inactive", "recent", "old"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			now := time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC)
+			facts := []factRecord{
+				{ID: "old", Status: factStatusActive, UpdatedAt: now.Add(-time.Hour)},
+				{ID: "inactive", Status: factStatusSuperseded, UpdatedAt: now.Add(time.Hour)},
+				{ID: "recent", Status: factStatusActive, UpdatedAt: now},
+			}
+			before := slices.Clone(facts)
+			got := rankFactsAt(facts, "", 10, tc.includeAll, now)
+			if !reflect.DeepEqual(factIDs(got), tc.want) {
+				t.Fatalf("recent listing: got %v, want %v", factIDs(got), tc.want)
+			}
+			if !reflect.DeepEqual(facts, before) {
+				t.Fatal("recent listing reordered or modified its input")
+			}
+		})
+	}
+}

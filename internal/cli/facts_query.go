@@ -69,7 +69,7 @@ func rankFactsAtContext(ctx context.Context, facts []factRecord, query string, l
 	if limit <= 0 {
 		limit = 10
 	}
-	candidates := make([]factRecord, 0, len(facts))
+	count := 0
 	for _, f := range facts {
 		if ctx.Err() != nil {
 			return nil
@@ -77,10 +77,29 @@ func rankFactsAtContext(ctx context.Context, facts []factRecord, query string, l
 		if !includeAll && f.Status != factStatusActive {
 			continue
 		}
-		candidates = append(candidates, f)
+		count++
+	}
+	// Scoring only reads candidates. Reuse the input when no records need
+	// filtering instead of keeping another full corpus per workspace worker.
+	candidates := facts
+	if count != len(facts) {
+		candidates = make([]factRecord, 0, count)
+		for _, f := range facts {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if f.Status == factStatusActive {
+				candidates = append(candidates, f)
+			}
+		}
 	}
 
 	if strings.TrimSpace(query) == "" {
+		// Recent-listing sorts in place, so it must own the candidate slice.
+		if count == len(facts) {
+			candidates = make([]factRecord, len(facts))
+			copy(candidates, facts)
+		}
 		sort.SliceStable(candidates, func(i, j int) bool {
 			return candidates[i].UpdatedAt.After(candidates[j].UpdatedAt)
 		})
