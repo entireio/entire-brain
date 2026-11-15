@@ -100,9 +100,8 @@ func corpusEpisodeOps(workText, repoRoot string) (tools []corpusToolOp, commands
 		if record.etf != nil && strings.EqualFold(record.etf.Agent, "codex") {
 			compactCodexResults(uses, exitByCall, failedByCall)
 		}
-		obj := record.obj // nil for a format line, which matches no case below
-		switch jsonString(obj["type"]) {
-		case "response_item":
+		// record.obj is nil for a format line, which has no "response_item".
+		if obj := record.obj; jsonString(obj["type"]) == "response_item" {
 			p := jsonMap(obj["payload"])
 			switch jsonString(p["type"]) {
 			case "function_call":
@@ -152,29 +151,6 @@ func corpusEpisodeOps(workText, repoRoot string) (tools []corpusToolOp, commands
 	return tools, commands, dedupeFileRefs(files)
 }
 
-// recordToolUses returns the tool calls an assistant transcript line makes: a
-// format line's tool_use blocks, or the tool_use and tool blocks of a native
-// Claude Code or pi assistant message. Any other line makes none. The episode
-// ops and the FileChange root (codexFileChangePaths) both read a session's
-// tool calls through it, so they agree on which blocks are edits.
-func recordToolUses(record transcriptRecord) []toolUse {
-	if record.etf != nil {
-		if !record.etfIs(transcript.TypeAssistant) {
-			return nil
-		}
-		return etfToolUses(record.etf)
-	}
-	switch recordType := jsonString(record.obj["type"]); recordType {
-	case "assistant", "message":
-		msg := jsonMap(record.obj["message"])
-		if recordType == "message" && jsonString(msg["role"]) != "assistant" {
-			return nil
-		}
-		return nativeToolUses(msg["content"])
-	}
-	return nil
-}
-
 // toolUseOps returns the tool, command, and file operations of one record's
 // tool calls. repoRoot is the session's checkout root for compact codex
 // FileChange paths, or "" when unknown.
@@ -199,7 +175,10 @@ func toolUseOps(uses []toolUse, repoRoot string, ln int) (tools []corpusToolOp, 
 			}
 		}
 		if use.name == fileChangeToolName {
-			files = append(files, fileChangeFiles(use.input, repoRoot, ln)...)
+			for _, ref := range fileChangeRefs(use.input, ln) {
+				ref.path = repoRelativePath(ref.path, repoRoot)
+				files = append(files, ref)
+			}
 		}
 	}
 	return tools, commands, files
@@ -233,7 +212,7 @@ var fileChangeNamePattern = regexp.MustCompile(`(?i)filechange`)
 // where fileChangeNamePattern finds it, and that text is all a reader may skip
 // before decoding without missing a FileChange the episode ops would read.
 func mayHoldFileChange(text string) bool {
-	return fileChangeNamePattern.MatchString(text) || strings.Contains(text, `\u`) || strings.ContainsRune(text, '\u0130')
+	return strings.Contains(text, `\u`) || strings.ContainsRune(text, '\u0130') || fileChangeNamePattern.MatchString(text)
 }
 
 // fileChangeRefs reads the file refs of a compact codex FileChange, the tool
@@ -241,8 +220,8 @@ func mayHoldFileChange(text string) bool {
 // {"changes":[{"path","kind","move_path","diff"}]}. kind is add, delete or
 // update; an update with a move_path deletes path and adds move_path. Like an
 // apply_patch, every change counts whatever its result status. Paths are
-// trimmed but otherwise as written: fileChangeFiles makes them repo-relative,
-// and codexFileChangePaths infers the session's root from these same paths.
+// trimmed but otherwise as written: toolUseOps makes them repo-relative, and
+// codexFileChangePaths infers the session's root from these same paths.
 func fileChangeRefs(input any, ln int) []corpusFileRef {
 	changes, _ := asObject(input)["changes"].([]any)
 	var out []corpusFileRef
@@ -269,23 +248,12 @@ func fileChangeRefs(input any, ln int) []corpusFileRef {
 	return out
 }
 
-// fileChangeFiles is fileChangeRefs with each path under repoRoot made
-// relative to it.
-func fileChangeFiles(input any, repoRoot string, ln int) []corpusFileRef {
-	refs := fileChangeRefs(input, ln)
-	for i := range refs {
-		refs[i].path = repoRelativePath(refs[i].path, repoRoot)
-	}
-	return refs
-}
-
-// repoRelativePath is p relative to repoRoot (a clean forward-slash path from
-// codexSessionRoot) when p is inside it, so it matches the repo-relative paths
-// apply_patch and the semantic index use. Any other path, including one with
-// a ".." segment (see cleanAbsPath), is returned trimmed but otherwise as
-// written.
+// repoRelativePath is p (a trimmed path from fileChangeRefs) relative to
+// repoRoot (a clean forward-slash path from codexSessionRoot) when p is inside
+// it, so it matches the repo-relative paths apply_patch and the semantic index
+// use. Any other path, including one with a ".." segment (see cleanAbsPath),
+// is returned as written.
 func repoRelativePath(p, repoRoot string) string {
-	p = strings.TrimSpace(p)
 	if repoRoot == "" {
 		return p
 	}
