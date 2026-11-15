@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01CdbxGrUWxRHgNK7tW1buPU",
+  "agent_id": "a800f77007c3d15a2",
+  "subagent_type": "Explore",
+  "task_description": "Reuse review of PR 622",
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 41433,
+    "cache_read_tokens": 149016,
+    "output_tokens": 1541,
+    "api_call_count": 5
+  },
+  "started_at": "2026-11-14T21:53:35.871964-08:00",
+  "completed_at": "2026-11-14T21:53:51.22628-08:00"
+}

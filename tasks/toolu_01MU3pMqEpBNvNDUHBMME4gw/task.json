@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01MU3pMqEpBNvNDUHBMME4gw",
+  "agent_id": "a0e9e9b925fb82fba",
+  "subagent_type": "Explore",
+  "task_description": "Efficiency review of PR 622",
+  "token_usage": {
+    "input_tokens": 22,
+    "cache_creation_tokens": 44516,
+    "cache_read_tokens": 467185,
+    "output_tokens": 4440,
+    "api_call_count": 11
+  },
+  "started_at": "2026-11-14T21:53:45.89699-08:00",
+  "completed_at": "2026-11-14T21:54:33.508861-08:00"
+}

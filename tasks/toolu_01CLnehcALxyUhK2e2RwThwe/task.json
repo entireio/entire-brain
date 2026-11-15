@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01CLnehcALxyUhK2e2RwThwe",
+  "agent_id": "af2c0bc8d409ee5fa",
+  "subagent_type": "Explore",
+  "task_description": "Altitude review of PR 622",
+  "token_usage": {
+    "input_tokens": 12,
+    "cache_creation_tokens": 45043,
+    "cache_read_tokens": 210935,
+    "output_tokens": 3380,
+    "api_call_count": 6
+  },
+  "started_at": "2026-11-14T21:53:52.382266-08:00",
+  "completed_at": "2026-11-14T21:54:26.677347-08:00"
+}
