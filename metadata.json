@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M7K42WQ2AVZH990E0D3FRXC5",
+  "strategy": "manual-commit",
+  "branch": "evisdren/entire-brain-issue-637-fix",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/seed.go",
+    "internal/cli/seed_update_output_regression_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 50,
+    "cache_creation_tokens": 17921,
+    "cache_read_tokens": 5435760,
+    "output_tokens": 10929,
+    "api_call_count": 25
+  },
+  "redaction": {
+    "replacements": 36,
+    "layers": {
+      "betterleaks": 9,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 16,
+      "key_context": 11,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
