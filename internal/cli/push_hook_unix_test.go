@@ -158,40 +158,44 @@ func TestInstallPushHookMovesALinkedHookIntoItsLink(t *testing.T) {
 	ours := pushHookContent("/managed/entire-brain")
 	for name, tc := range map[string]struct {
 		files         map[string]string // file name in the hooks dir -> content
-		link, to      string            // a symlink at link pointing to to
+		links         map[string]string // symlink name in the hooks dir -> its target
 		hostUninstall bool              // the host's uninstall runs after connect
 	}{
 		"host slot links to our old backup": {
 			files: map[string]string{"pre-push": testRunnableHostHook, "pre-push.pre-entire-brain": testUserHook},
-			link:  "pre-push.pre-entire", to: "pre-push.pre-entire-brain",
+			links: map[string]string{"pre-push.pre-entire": "pre-push.pre-entire-brain"},
 		},
 		"host slot links to our old backup, then the host uninstalls": {
 			files: map[string]string{"pre-push": testRunnableHostHook, "pre-push.pre-entire-brain": testUserHook},
-			link:  "pre-push.pre-entire", to: "pre-push.pre-entire-brain", hostUninstall: true,
+			links: map[string]string{"pre-push.pre-entire": "pre-push.pre-entire-brain"}, hostUninstall: true,
 		},
 		"the hook behind our slot copy links to our old backup": {
 			files: map[string]string{"pre-push.pre-entire": ours, "pre-push.pre-entire-brain": testUserHook},
-			link:  "pre-push.pre-entire.pre-entire-brain", to: "pre-push.pre-entire-brain",
+			links: map[string]string{"pre-push.pre-entire.pre-entire-brain": "pre-push.pre-entire-brain"},
 		},
 		"primary links to the fallback file": {
 			files: map[string]string{"pre-push.pre-entire.pre-entire-brain": testUserHook},
-			link:  "pre-push", to: "pre-push.pre-entire.pre-entire-brain",
+			links: map[string]string{"pre-push": "pre-push.pre-entire.pre-entire-brain"},
 		},
 		"primary with the host's hook links to our old backup": {
 			files: map[string]string{"pre-push.pre-entire-brain": testRunnableHostHook, "pre-push.pre-entire": testUserHook},
-			link:  "pre-push", to: "pre-push.pre-entire-brain",
+			links: map[string]string{"pre-push": "pre-push.pre-entire-brain"},
 		},
 		"primary with the host's hook links to our old backup, then the host uninstalls": {
 			files: map[string]string{"pre-push.pre-entire-brain": testRunnableHostHook, "pre-push.pre-entire": testUserHook},
-			link:  "pre-push", to: "pre-push.pre-entire-brain", hostUninstall: true,
+			links: map[string]string{"pre-push": "pre-push.pre-entire-brain"}, hostUninstall: true,
 		},
 		"host slot links to the name it moves to": {
 			files: map[string]string{"pre-push": testRunnableHostHook, "pre-push.pre-entire.pre-entire-brain": testUserHook},
-			link:  "pre-push.pre-entire", to: "pre-push.pre-entire.pre-entire-brain",
+			links: map[string]string{"pre-push.pre-entire": "pre-push.pre-entire.pre-entire-brain"},
 		},
 		"primary links to the name it moves to": {
 			files: map[string]string{"pre-push.pre-entire-brain": testUserHook},
-			link:  "pre-push", to: "pre-push.pre-entire-brain",
+			links: map[string]string{"pre-push": "pre-push.pre-entire-brain"},
+		},
+		"primary and the fallback file both link to the user's hook": {
+			files: map[string]string{"user-hook": testUserHook},
+			links: map[string]string{"pre-push": "user-hook", "pre-push.pre-entire.pre-entire-brain": "pre-push"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -199,16 +203,18 @@ func TestInstallPushHookMovesALinkedHookIntoItsLink(t *testing.T) {
 			for file, content := range tc.files {
 				writeHook(t, filepath.Join(hooksDir, file), content)
 			}
-			if err := os.Symlink(tc.to, filepath.Join(hooksDir, tc.link)); err != nil {
-				t.Fatal(err)
+			for link, to := range tc.links {
+				if err := os.Symlink(to, filepath.Join(hooksDir, link)); err != nil {
+					t.Fatal(err)
+				}
 			}
 			primary := filepath.Join(hooksDir, "pre-push")
 
 			if _, _, err := installPushHook(context.Background(), opts, repoDir); err != nil {
 				t.Fatal(err)
 			}
-			if rotated := rotatedCopiesOf(t, filepath.Join(hooksDir, tc.to)); len(rotated) != 0 {
-				t.Fatalf("the linked hook must not be set aside: %v", rotated)
+			if rotated := rotatedCopiesOf(t, filepath.Join(hooksDir, "pre-push")); len(rotated) != 0 {
+				t.Fatalf("a linked hook must not be set aside: %v", rotated)
 			}
 			if tc.hostUninstall {
 				// The host's uninstall removes its hook and moves its slot back.
@@ -247,7 +253,9 @@ func requireRunsTheUserHook(t *testing.T, hooksDir string) {
 			writeHook(t, sibling, pushHookContent(filepath.Join(hooksDir, "no-such-plugin")))
 		}
 	}
-	out, err := exec.Command(filepath.Join(hooksDir, "pre-push"), "origin", "url").CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, filepath.Join(hooksDir, "pre-push"), "origin", "url").CombinedOutput()
 	if err != nil || !strings.Contains(string(out), "user hook") {
 		t.Fatalf("the user's hook must run: err=%v output=%q", err, out)
 	}

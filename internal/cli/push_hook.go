@@ -131,16 +131,50 @@ func setAside(path, why string, live ...string) error {
 
 // moveIntoLink moves the file at path into hook, which resolves to it: a
 // symlink to it is replaced by the file, in one rename. A hard link already
-// holds the file, so path just goes.
+// holds the file, so path just goes. When path is itself a link to the file,
+// renaming it could leave hook linking to itself, so hook is pointed at the
+// file and path goes.
 func moveIntoLink(path, hook string) error {
 	if info, err := os.Lstat(hook); err == nil && info.Mode()&os.ModeSymlink == 0 {
 		return os.Remove(path)
 	}
-	if err := os.Rename(path, hook); err != nil {
-		return fmt.Errorf("move %s into %s: %w", filepath.Base(path), filepath.Base(hook), err)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		if err := os.Rename(path, hook); err != nil {
+			return fmt.Errorf("move %s into %s: %w", filepath.Base(path), filepath.Base(hook), err)
+		}
+	} else if err := relinkToFileOf(hook, path); err != nil {
+		return err
 	}
 	tui.Warnf(os.Stderr, "entire-brain: %s linked to %s; the hook was moved into %s", filepath.Base(hook), filepath.Base(path), filepath.Base(hook))
 	return nil
+}
+
+// relinkToFileOf points the symlink hook straight at the file the symlink
+// path resolves to, then removes path. The new link replaces hook in one
+// rename; it is relative when the file sits beside hook.
+func relinkToFileOf(hook, path string) error {
+	file, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", filepath.Base(path), err)
+	}
+	dir := filepath.Dir(hook)
+	if resolvedDir, err := filepath.EvalSymlinks(dir); err == nil && filepath.Dir(file) == resolvedDir {
+		file = filepath.Base(file)
+	}
+	tmp := filepath.Join(dir, ".entire-brain-relink-"+filepath.Base(hook))
+	_ = os.Remove(tmp)
+	if err := os.Symlink(file, tmp); err != nil {
+		return fmt.Errorf("relink %s: %w", filepath.Base(hook), err)
+	}
+	if err := os.Rename(tmp, hook); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("relink %s: %w", filepath.Base(hook), err)
+	}
+	return os.Remove(path)
 }
 
 // rotateAside renames path to path.<timestamp>, adding -<n> on a name clash,
