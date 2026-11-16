@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -739,5 +741,171 @@ func TestSetupStrictModePersistsAcrossBareReruns(t *testing.T) {
 	runSetupForTest(t, f, opts, &recordedSetup{})
 	if guide := readFileString(t, guidePath); strings.Contains(guide, `"mode":"strict"`) {
 		t.Fatalf("--normal did not reset the saved mode:\n%s", guide)
+	}
+}
+
+// windowsPreEditHookCommand is the exact windows hook line. It is spelled out
+// literally rather than rebuilt from the constants so a change to any of them
+// shows up here as a change to what readers get in .claude/settings.json.
+const windowsPreEditHookCommand = `cmd /c "set NoDefaultCurrentDirectoryInExePath=1& entire-brain hook pre-edit --claude-hook || entire brain hook pre-edit --claude-hook || exit /b 0"`
+
+// legacyWindowsPreEditHookCommand is the windows form setup wired before bare
+// names were made to resolve from PATH only. Settings files in the wild carry it.
+const legacyWindowsPreEditHookCommand = `cmd /c "entire-brain hook pre-edit --claude-hook || entire brain hook pre-edit --claude-hook || exit /b 0"`
+
+func TestPreEditHookCommandForWindowsIsExact(t *testing.T) {
+	if got := preEditHookCommandFor("windows"); got != windowsPreEditHookCommand {
+		t.Fatalf("windows hook command:\n got  %s\n want %s", got, windowsPreEditHookCommand)
+	}
+	if got := legacyPreEditHookCommandsFor("windows"); !slices.Equal(got, []string{legacyWindowsPreEditHookCommand}) {
+		t.Fatalf("legacy windows forms: %q", got)
+	}
+	for _, goos := range []string{"linux", "darwin"} {
+		if got := legacyPreEditHookCommandsFor(goos); len(got) != 0 {
+			t.Fatalf("%s: no legacy form should be rewritten, got %q", goos, got)
+		}
+	}
+}
+
+// TestEveryWiredPreEditHookFormIsRecognised: the current windows form, the
+// earlier windows form and the POSIX form must all count as "installed", or
+// setup would append a second entry beside one already there.
+func TestEveryWiredPreEditHookFormIsRecognised(t *testing.T) {
+	for name, command := range map[string]string{
+		"windows":        windowsPreEditHookCommand,
+		"legacy windows": legacyWindowsPreEditHookCommand,
+		"posix":          preEditHookCommandFor("linux"),
+	} {
+		if !commandInvokesPreEditHook(command) {
+			t.Errorf("%s form not recognised: %s", name, command)
+		}
+		entries := []any{map[string]any{"matcher": preEditHookMatcher, "hooks": []any{map[string]any{"type": "command", "command": command}}}}
+		if !preToolUseInvokesPreEdit(entries) {
+			t.Errorf("%s form not found in PreToolUse: %s", name, command)
+		}
+	}
+}
+
+// writeClaudeSettings writes body as the repository's .claude/settings.json and
+// returns its path.
+func writeClaudeSettings(t *testing.T, repo, body string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(repo, claudeSettingsDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repo, claudeSettingsDir, claudeSettingsFile)
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// preEditHookCommandsIn returns every PreToolUse hook command in the settings
+// file that invokes the pre-edit hook, in order.
+func preEditHookCommandsIn(t *testing.T, path string) []string {
+	t.Helper()
+	var settings struct {
+		Hooks struct {
+			PreToolUse []struct {
+				Matcher string `json:"matcher"`
+				Hooks   []struct {
+					Command string `json:"command"`
+				} `json:"hooks"`
+			} `json:"PreToolUse"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(readFileString(t, path)), &settings); err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, entry := range settings.Hooks.PreToolUse {
+		for _, hook := range entry.Hooks {
+			if commandInvokesPreEditHook(hook.Command) {
+				out = append(out, hook.Command)
+			}
+		}
+	}
+	return out
+}
+
+// TestInstallPreEditHookUpgradesTheLegacyWindowsForm: on windows, a settings
+// file carrying the earlier hook line gets the current one in its place -- not
+// left as is, and not a second entry beside it -- and the reader's other
+// settings and the entry's own matcher survive.
+func TestInstallPreEditHookUpgradesTheLegacyWindowsForm(t *testing.T) {
+	repo := t.TempDir()
+	settingsPath := writeClaudeSettings(t, repo, `{
+  "model": "opus",
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "rtk hook claude"}]},
+      {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": `+strconv.Quote(legacyWindowsPreEditHookCommand)+`, "timeout": 5}]}
+    ]
+  }
+}`)
+
+	if _, changed, err := installPreEditHookFor(repo, "windows"); err != nil || !changed {
+		t.Fatalf("upgrade: changed=%v err=%v", changed, err)
+	}
+	if got := preEditHookCommandsIn(t, settingsPath); !slices.Equal(got, []string{windowsPreEditHookCommand}) {
+		t.Fatalf("want exactly the current windows form, got %q", got)
+	}
+	upgraded := readFileString(t, settingsPath)
+	for _, keep := range []string{`"opus"`, "rtk hook claude", `"Edit|Write"`, `"timeout": 5`} {
+		if !strings.Contains(upgraded, keep) {
+			t.Fatalf("the upgrade lost %q:\n%s", keep, upgraded)
+		}
+	}
+
+	// Idempotent once upgraded.
+	if _, changed, err := installPreEditHookFor(repo, "windows"); err != nil || changed {
+		t.Fatalf("second run must be a no-op, got changed=%v err=%v", changed, err)
+	}
+	if again := readFileString(t, settingsPath); again != upgraded {
+		t.Fatalf("second run rewrote the file:\n%s", again)
+	}
+}
+
+// TestInstallPreEditHookWindowsFormIsIdempotent: a fresh windows install
+// writes the current form once, and re-running setup leaves it alone.
+func TestInstallPreEditHookWindowsFormIsIdempotent(t *testing.T) {
+	repo := t.TempDir()
+	path, changed, err := installPreEditHookFor(repo, "windows")
+	if err != nil || !changed {
+		t.Fatalf("fresh install: changed=%v err=%v", changed, err)
+	}
+	if got := preEditHookCommandsIn(t, path); !slices.Equal(got, []string{windowsPreEditHookCommand}) {
+		t.Fatalf("fresh install wired %q", got)
+	}
+	first := readFileString(t, path)
+	if _, changed, err := installPreEditHookFor(repo, "windows"); err != nil || changed {
+		t.Fatalf("second run must be a no-op, got changed=%v err=%v", changed, err)
+	}
+	if again := readFileString(t, path); again != first {
+		t.Fatalf("second run rewrote the file:\n%s", again)
+	}
+}
+
+// TestInstallPreEditHookLeavesInstalledFormsItDoesNotUpgrade: the POSIX form
+// on windows, either windows form on POSIX, and a hand-adapted variant of the
+// legacy line all count as installed and are left byte-for-byte alone.
+func TestInstallPreEditHookLeavesInstalledFormsItDoesNotUpgrade(t *testing.T) {
+	for _, tc := range []struct {
+		name, goos, command string
+	}{
+		{"posix form on windows", "windows", preEditHookCommandFor("linux")},
+		{"legacy windows form on linux", "linux", legacyWindowsPreEditHookCommand},
+		{"current windows form on darwin", "darwin", windowsPreEditHookCommand},
+		{"adapted legacy line on windows", "windows", strings.Replace(legacyWindowsPreEditHookCommand, "entire-brain", `C:\tools\entire-brain.exe`, 1)},
+	} {
+		repo := t.TempDir()
+		body := `{"hooks": {"PreToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": ` + strconv.Quote(tc.command) + `}]}]}}`
+		path := writeClaudeSettings(t, repo, body)
+		if _, changed, err := installPreEditHookFor(repo, tc.goos); err != nil || changed {
+			t.Fatalf("%s: changed=%v err=%v", tc.name, changed, err)
+		}
+		if got := readFileString(t, path); got != body {
+			t.Fatalf("%s: rewrote the file:\n%s", tc.name, got)
+		}
 	}
 }

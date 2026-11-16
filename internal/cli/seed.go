@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -1660,6 +1661,9 @@ func runSeedAgentPhase(ctx context.Context, repoDir, outputDir string, opts seed
 		runCtx, cancel := context.WithTimeout(ctx, timeout)
 		command := exec.CommandContext(runCtx, args[0], args[1:]...)
 		command.Dir = repoDir
+		// Inherit the parent environment; on windows, bare command names the
+		// agent runs resolve from PATH, not from the repository directory.
+		command.Env = clibase.PathOnlyExeLookupEnv(runtime.GOOS, nil)
 		command.Stdin = bytes.NewReader(input)
 		var stdout, stderr bytes.Buffer
 		command.Stdout = &stdout

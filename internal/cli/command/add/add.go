@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -184,7 +185,9 @@ func buildClonedBrain(ctx context.Context, cmd *cobra.Command, flags addFlags, r
 	}
 	c := exec.CommandContext(ctx, self, args...)
 	c.Dir = repoDir
-	c.Env = append(os.Environ(), "ENTIRE_REPO_ROOT="+repoDir)
+	// The refresh runs in the clone and starts git, the host CLI and agent CLIs
+	// there; on windows their bare names resolve from PATH, not from the clone.
+	c.Env = base.PathOnlyExeLookupEnv(runtime.GOOS, append(os.Environ(), "ENTIRE_REPO_ROOT="+repoDir))
 	c.Stdout = cmd.OutOrStdout()
 	c.Stderr = cmd.ErrOrStderr()
 	return c.Run()
