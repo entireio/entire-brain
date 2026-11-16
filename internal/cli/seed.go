@@ -1940,6 +1940,11 @@ func materializeHeadSnapshot(ctx context.Context, runner CommandRunner, repoDir 
 	return dir, commit, cleanup, nil
 }
 
+// updateGateManifestMaxBytes bounds the ownership probe's manifest read. A
+// genuine brain manifest is a few KB of counts and source records; anything
+// beyond this is not one.
+const updateGateManifestMaxBytes = 1 << 20
+
 // validateUpdateOutputDir gates an explicit --update target. Seeding takes
 // Brain's file locks inside the output, creating or truncating files under
 // <dir>/locks/ before any ownership check, so a directory Brain does not own
@@ -1956,11 +1961,12 @@ func validateUpdateOutputDir(path string) error {
 	if info, err := os.Lstat(abs); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("output directory must not be a symlink: %s", abs)
 	}
+	// SafeReadFile, not os.ReadFile: the probe reads an untrusted caller path,
+	// so it needs the gapless regular-file check (a FIFO swapped in after a
+	// path check would block forever) and the size bound.
 	manifestPath := filepath.Join(abs, bmanifest.FileName)
-	if info, err := os.Lstat(manifestPath); err == nil && info.Mode().IsRegular() {
-		if data, readErr := os.ReadFile(manifestPath); readErr == nil && validateForcedOutputManifest(data) == nil {
-			return nil
-		}
+	if data, readErr := clibase.SafeReadFile(manifestPath, updateGateManifestMaxBytes); readErr == nil && validateForcedOutputManifest(data) == nil {
+		return nil
 	}
 	if _, err := validateExportDirAvailable(abs); err != nil {
 		return fmt.Errorf("--update output must be an existing brain (with a valid %s), an empty directory, or missing: %w", bmanifest.FileName, err)

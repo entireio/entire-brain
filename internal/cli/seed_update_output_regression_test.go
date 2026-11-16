@@ -68,6 +68,23 @@ func TestSeedUpdateExplicitOutputRefusesForeignManifestJSON(t *testing.T) {
 	}
 }
 
+func TestSeedUpdateExplicitOutputRefusesOversizedManifest(t *testing.T) {
+	// The ownership probe reads an untrusted caller path; it must be bounded,
+	// so a huge file that otherwise parses as a brain manifest is not loaded.
+	repoDir := seedFixtureRepo(t)
+	opts := seedUpdateTestOptions(t, repoDir)
+	output := t.TempDir()
+	pad := strings.Repeat("x", updateGateManifestMaxBytes+1)
+	huge := `{"schema_version":1,"sources":{"seed":{}},"pad":"` + pad + `"}`
+	if err := os.WriteFile(filepath.Join(output, "manifest.json"), []byte(huge), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := executeSplit(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--update", "--output", output, repoDir)
+	if err == nil || !strings.Contains(err.Error(), "must be an existing brain") {
+		t.Fatalf("expected refusal of oversized manifest, got err=%v", err)
+	}
+}
+
 func TestRefreshSeedPhaseBaselineAllowedWithoutManifest(t *testing.T) {
 	// A failed export leaves sessions/ without manifest.json; refresh then runs
 	// seed as the baseline (refresh.go needSeed on exportErr). The --update
