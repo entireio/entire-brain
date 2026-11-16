@@ -76,8 +76,11 @@ All notable changes to `entire-brain` are recorded here. The format follows
   that line instead of failing the transcript; every later line keeps its
   number, the rest of the session is indexed, the build warns which transcript
   lost how many lines, and an exchange that spans a skipped line is marked
-  truncated. The short-term delta no longer lists such a session in
-  `failed_files` on every tick. The history extraction revision moves to 14 so
+  truncated. A skipped line that is a user turn (a pasted screenshot) ends the
+  exchange before it, so its answer is not attributed to the earlier request.
+  The short-term delta no longer lists such a session in `failed_files` on
+  every tick; it records the skipped lines, and doctor reports the overlay as
+  partial until consolidation. The history extraction revision moves to 14 so
   a refresh rebuilds an index that left these sessions out. The watcher no
   longer promises that consolidation will repair a transcript that failed to
   scan, and the compact-transcript fallback warning counts exported sessions

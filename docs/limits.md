@@ -29,6 +29,7 @@ behavior is described below.
 | Brain-inspect history line | 4 MiB | `brainInspectHistoryMaxLine` | — |
 | Facts NDJSON line | 64 KiB | `factsMaxLineBytes` | — |
 | History record line | 1 MiB; a longer line is skipped and counted, not fatal to the transcript | `historyMaxLineBytes`, `historyLineScanner` | — |
+| Skipped line head | 64 KiB, read only to tell a user turn (an exchange boundary) from tool output | `historyOversizedLineHeadBytes`, `unreadLineIsUserTurn` | — |
 | Ollama distill response | 256 KiB | `distillMaxOutputBytes` | — |
 | Ollama embed response | 8 MiB | `maxOllamaEmbedResponseBytes` | — |
 | Hook stdin | 1 MiB | `hook_cmd.go` | — |

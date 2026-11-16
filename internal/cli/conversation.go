@@ -119,7 +119,8 @@ type conversationExchange struct {
 type conversationScanResult struct {
 	Exchanges []conversationExchange
 	// Incomplete counts exchanges opened by a substantive request that produced
-	// no visible assistant narrative; they are skipped, not indexed.
+	// no visible assistant narrative, or by a user turn too long to read;
+	// they are skipped, not indexed.
 	Incomplete int
 	// SourceDigest is "sha256:<hex>" over the transcript bytes at scan time.
 	SourceDigest string
@@ -213,6 +214,10 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 
 	var result conversationScanResult
 	var open *conversationExchange
+	// unreadTurn is set from a user turn too long to read until something
+	// answers it or a readable request follows, so the duplicate shapes of
+	// one turn (codex response_item + event_msg) count once.
+	unreadTurn := false
 	lineNumber := 0
 	closeOpen := func(endLine int) {
 		if open == nil {
@@ -233,6 +238,18 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 		}
 		lineNumber++
 		if scanner.Oversized() {
+			if unreadLineIsUserTurn(scanner.Head()) {
+				// A user turn nobody can read (a pasted screenshot, say)
+				// ends the open exchange: the answer after it belongs to a
+				// request without text, not to the one before it. It counts
+				// as an incomplete exchange, so turn ordinals stay aligned.
+				closeOpen(lineNumber - 1)
+				if !unreadTurn {
+					result.Incomplete++
+					unreadTurn = true
+				}
+				continue
+			}
 			// The open exchange spans a line nobody read. It is usually a
 			// screenshot or a command's output, but it could be narrative, so
 			// the projection must not claim to be whole.
@@ -258,16 +275,21 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 				continue
 			}
 			closeOpen(lineNumber - 1)
+			unreadTurn = false
 			open = &conversationExchange{TurnOrdinal: len(result.Exchanges) + result.Incomplete + 1, Request: request, Line: lineNumber}
 			continue
 		}
+		narrative, tools := conversationAssistantNarrative(record), conversationToolNames(record)
 		if open == nil {
+			if len(narrative) > 0 || len(tools) > 0 {
+				unreadTurn = false
+			}
 			continue
 		}
-		for _, chunk := range conversationAssistantNarrative(record) {
+		for _, chunk := range narrative {
 			appendConversationNarrative(open, chunk, conversationScanResponseMaxBytes)
 		}
-		open.ToolNames = appendConversationToolNames(open.ToolNames, conversationToolNames(record))
+		open.ToolNames = appendConversationToolNames(open.ToolNames, tools)
 	}
 	if err := scanner.Err(); err != nil {
 		return conversationScanResult{}, err

@@ -3,6 +3,7 @@ package cli
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -136,6 +137,115 @@ func TestShortTermDeltaKeepsSessionWithOversizedLine(t *testing.T) {
 	}
 	if _, ok := findHistoryRecord(entry.Records, conversationKind, "screenshot session"); !ok {
 		t.Fatalf("overlay records lost the exchange: %+v", entry.Records)
+	}
+
+	// The session is indexed without one line, so the overlay must not claim
+	// to represent it fully, on this delta or on the next one that reuses the
+	// entry unchanged.
+	for pass := 1; pass <= 2; pass++ {
+		if pass == 2 {
+			if stats := buildShortTerm(t, brainDir); stats.Reused == 0 || stats.Failed != 0 {
+				t.Fatalf("second delta stats = %+v, want the entry reused", stats)
+			}
+			overlay, _ = loadHistoryShortTermState(brainDir, manifest.Sources.History)
+		}
+		if got := overlay.Files[rel].SkippedLines; got != 1 {
+			t.Fatalf("pass %d: overlay entry skipped_lines = %d, want 1", pass, got)
+		}
+		if overlay.complete() {
+			t.Fatalf("pass %d: the overlay claimed complete coverage of a transcript it indexed without a line", pass)
+		}
+		if why := shortTermIncompleteness(overlay); !strings.Contains(why, "1 transcripts indexed without lines") {
+			t.Fatalf("pass %d: incompleteness = %q, want the skipped line named", pass, why)
+		}
+	}
+}
+
+// pastedScreenshotTranscript is a Claude Code session in which the user's
+// second turn (line 3) pastes a screenshot too large to read. The answer on
+// line 4 belongs to that turn.
+func pastedScreenshotTranscript() string {
+	image := strings.Repeat("A", historyMaxLineBytes+1024)
+	return `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Why does the export drop the screenshot session?"}]}}` + "\n" +
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Decision: skip the oversized line and keep the screenshot session."}]}}` + "\n" +
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Here is what the export shows now."},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"` + image + `"}}]}}` + "\n" +
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Answer to the unread turn: that screenshot shows a finished export."}]}}` + "\n" +
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Does the second exchange survive too?"}]}}` + "\n" +
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Decision: lines after the skipped one keep their numbers."}]}}` + "\n"
+}
+
+// A user turn too long to read is still a turn: the answer after it must not
+// be attributed to the request before it.
+func TestConversationScanEndsExchangeAtUnreadUserTurn(t *testing.T) {
+	t.Parallel()
+	brainDir := t.TempDir()
+	rel := "sessions/main/20261112T090000Z_pasted.jsonl"
+	content := pastedScreenshotTranscript()
+	writeBundleTestFile(t, filepath.Join(brainDir, filepath.FromSlash(rel)), content)
+
+	scan, err := scanLineConversation(strings.NewReader(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scan.Exchanges) != 2 || scan.Incomplete != 1 {
+		t.Fatalf("exchanges = %+v incomplete = %d, want 2 exchanges and the unread turn counted incomplete", scan.Exchanges, scan.Incomplete)
+	}
+	first, second := scan.Exchanges[0], scan.Exchanges[1]
+	if first.Line != 1 || first.EndLine != 2 || first.ResponseOverflow || strings.Contains(first.Response, "unread turn") {
+		t.Fatalf("first exchange = %+v, want lines 1-2 without the answer to the unread turn", first)
+	}
+	if second.Line != 5 || second.EndLine != 6 || second.TurnOrdinal != 3 {
+		t.Fatalf("second exchange = %+v, want lines 5-6 as turn 3", second)
+	}
+
+	records := conversationExchangeRecords(rel, scan)
+	expansion, err := expandConversationExchange(brainDir, records[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expansion.Truncated || strings.Contains(expansion.Response, "unread turn") {
+		t.Fatalf("expansion = %+v, want the first exchange whole, without the unread turn's answer", expansion)
+	}
+}
+
+// Codex records each user turn twice (response_item and event_msg). When both
+// are too long to read they are still one turn.
+func TestConversationScanCountsDuplicateUnreadTurnOnce(t *testing.T) {
+	t.Parallel()
+	image := `"data:image/png;base64,` + strings.Repeat("A", historyMaxLineBytes+1024) + `"`
+	user := func(text, image string) string {
+		item := `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"` + text + `"}`
+		event := `{"type":"event_msg","payload":{"type":"user_message","message":"` + text + `"`
+		if image != "" {
+			item += `,{"type":"input_image","image_url":` + image + `}`
+			event += `,"images":[` + image + `]`
+		}
+		return item + "]}}\n" + event + "}}\n"
+	}
+	assistant := func(text string) string {
+		return `{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"` + text + `"}]}}` + "\n"
+	}
+	content := user("First question about the export?", "") + assistant("First answer.") +
+		user("Here is the screenshot.", image) + assistant("Answer to the unread turn.") +
+		user("Second question about the export?", "") + assistant("Second answer.")
+	for i, line := range strings.Split(strings.TrimSuffix(content, "\n"), "\n") {
+		if !json.Valid([]byte(line)) {
+			t.Fatalf("fixture line %d is not JSON", i+1)
+		}
+	}
+
+	scan, err := scanLineConversation(strings.NewReader(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scan.Exchanges) != 2 || scan.Incomplete != 1 {
+		t.Fatalf("exchanges = %+v incomplete = %d, want 2 exchanges and one incomplete turn", scan.Exchanges, scan.Incomplete)
+	}
+	if first := scan.Exchanges[0]; first.EndLine != 3 || strings.Contains(first.Response, "unread turn") {
+		t.Fatalf("first exchange = %+v, want it to end before the unread turn", first)
+	}
+	if second := scan.Exchanges[1]; second.Line != 7 || second.TurnOrdinal != 3 || second.Response != "Second answer." {
+		t.Fatalf("second exchange = %+v, want line 7, turn 3", second)
 	}
 }
 

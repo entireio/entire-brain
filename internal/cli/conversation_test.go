@@ -950,13 +950,15 @@ func TestConversationExpansionDistinguishesFailureStates(t *testing.T) {
 	targetRecord := write("sessions/main/20260808T000000Z_target.jsonl", linkBody)
 	linkRecord := targetRecord
 	linkRecord.Path = "sessions/main/20260808T000000Z_link.jsonl"
-	if err := os.Symlink(filepath.Join(brainDir, filepath.FromSlash(targetRecord.Path)), filepath.Join(brainDir, filepath.FromSlash(linkRecord.Path))); err != nil {
-		t.Fatal(err)
-	}
-	result = conversationGetResult(brainDir, linkRecord)
-	if !hasCaveatKind(result, retrieval.CaveatConversationSourceUnreadable) || hasCaveatKind(result, retrieval.CaveatConversationSourceStale) {
-		t.Fatalf("expected unreadable caveat: %+v", result.Caveats)
-	}
+	t.Run("symlinked leaf is unreadable", func(t *testing.T) {
+		if err := os.Symlink(filepath.Join(brainDir, filepath.FromSlash(targetRecord.Path)), filepath.Join(brainDir, filepath.FromSlash(linkRecord.Path))); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		result := conversationGetResult(brainDir, linkRecord)
+		if !hasCaveatKind(result, retrieval.CaveatConversationSourceUnreadable) || hasCaveatKind(result, retrieval.CaveatConversationSourceStale) {
+			t.Fatalf("expected unreadable caveat: %+v", result.Caveats)
+		}
+	})
 }
 
 func hasCaveatKind(result unifiedResult, kind string) bool {

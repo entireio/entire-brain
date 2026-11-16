@@ -35,7 +35,15 @@ type historyLineScanner struct {
 	skipToken bool
 	oversized bool
 	skipped   int
+	// head holds the first bytes of the line being skipped, copied when the
+	// split function starts discarding it.
+	head []byte
 }
+
+// historyOversizedLineHeadBytes is how much of a skipped line Head keeps:
+// enough for the record's type, role and first content block in every
+// transcript dialect, which all come before the bulk of the line.
+const historyOversizedLineHeadBytes = 64 * 1024
 
 // historyOversizedLineToken stands in for a skipped line. It is empty and
 // non-nil, so a caller that forgets to check Oversized sees an empty line,
@@ -72,9 +80,10 @@ func (s *historyLineScanner) split(data []byte, atEOF bool) (int, []byte, error)
 	advance, token, err := bufio.ScanLines(data, atEOF)
 	if advance == 0 && token == nil && err == nil && len(data) >= s.maxLine {
 		// A full buffer with no line end: this is the line a plain scanner
-		// rejects with bufio.ErrTooLong. Drop what is buffered and the rest of
-		// the line as it arrives.
+		// rejects with bufio.ErrTooLong. Keep its head, then drop what is
+		// buffered and the rest of the line as it arrives.
 		s.discarding = true
+		s.head = append(s.head[:0], data[:min(len(data), historyOversizedLineHeadBytes)]...)
 		return len(data), nil, nil
 	}
 	return advance, token, err
@@ -102,6 +111,15 @@ func (s *historyLineScanner) Text() string { return s.scanner.Text() }
 // Oversized reports that the current line was too long to read and was
 // skipped.
 func (s *historyLineScanner) Oversized() bool { return s.oversized }
+
+// Head returns the first bytes of the current line when it was skipped, nil
+// otherwise. It is valid until the next call to Scan.
+func (s *historyLineScanner) Head() []byte {
+	if !s.oversized {
+		return nil
+	}
+	return s.head
+}
 
 // Skipped is the number of lines skipped so far.
 func (s *historyLineScanner) Skipped() int { return s.skipped }
