@@ -231,7 +231,10 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			return err
 		}
 	}
-	if outputExplicit && seedOpts.update {
+	// Only the CLI's own --output is gated: refresh calls runSeed with a
+	// programmatic explicit output it has already validated or populated, and
+	// must keep seeding a baseline when a failed export left no manifest.
+	if seedOpts.update && cmd.Flags().Changed("output") {
 		if err := validateUpdateOutputDir(outputDir); err != nil {
 			return err
 		}
@@ -1940,8 +1943,11 @@ func materializeHeadSnapshot(ctx context.Context, runner CommandRunner, repoDir 
 // validateUpdateOutputDir gates an explicit --update target. Seeding takes
 // Brain's file locks inside the output, creating or truncating files under
 // <dir>/locks/ before any ownership check, so a directory Brain does not own
-// must be refused up front (issue #637). The manifest is the ownership marker;
-// a missing or empty directory is a first seed and passes.
+// must be refused up front (issue #637). Ownership is proved the same way the
+// --force removal path proves it: a regular, parseable manifest with a
+// supported schema floor and recognized sources — a file merely named
+// manifest.json (a web app, a browser extension) does not pass. A missing or
+// empty directory is a first seed and passes.
 func validateUpdateOutputDir(path string) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -1950,11 +1956,14 @@ func validateUpdateOutputDir(path string) error {
 	if info, err := os.Lstat(abs); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("output directory must not be a symlink: %s", abs)
 	}
-	if bmanifest.Exists(abs) {
-		return nil
+	manifestPath := filepath.Join(abs, bmanifest.FileName)
+	if info, err := os.Lstat(manifestPath); err == nil && info.Mode().IsRegular() {
+		if data, readErr := os.ReadFile(manifestPath); readErr == nil && validateForcedOutputManifest(data) == nil {
+			return nil
+		}
 	}
 	if _, err := validateExportDirAvailable(abs); err != nil {
-		return fmt.Errorf("--update output must be an existing brain (with %s), an empty directory, or missing: %w", bmanifest.FileName, err)
+		return fmt.Errorf("--update output must be an existing brain (with a valid %s), an empty directory, or missing: %w", bmanifest.FileName, err)
 	}
 	return nil
 }
