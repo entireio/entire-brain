@@ -70,6 +70,19 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- One transcript line over 1 MiB (a screenshot Read, a large command output)
+  no longer drops its whole session from history and conversation memory
+  (#641). The history scan, the conversation scan and exchange expansion skip
+  that line instead of failing the transcript; every later line keeps its
+  number, the rest of the session is indexed, the build warns which transcript
+  lost how many lines, and an exchange that spans a skipped line is marked
+  truncated. The short-term delta no longer lists such a session in
+  `failed_files` on every tick. The history extraction revision moves to 14 so
+  a refresh rebuilds an index that left these sessions out. The watcher no
+  longer promises that consolidation will repair a transcript that failed to
+  scan, and the compact-transcript fallback warning counts exported sessions
+  once (it could report "97 of 94").
+
 - A commit in another session no longer fails a history rebuild, such as the one
   in `refresh` or the background history lane, with `memory_source_stale`.
   Finalizing a checkpoint rewrites its transcript on the checkpoint ref, and a

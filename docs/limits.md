@@ -16,7 +16,7 @@ behavior is described below.
 | Limit | Default | Where | Override |
 |---|---|---|---|
 | Document transcript (full read) | 256 MiB | `maxDocumentTranscriptBytes` (`safe_read.go`) | — |
-| Conversation expansion (line transcript) | streamed; per-line 1 MiB, output 32 KiB | `expandConversationExchange` (`conversation.go`) | — |
+| Conversation expansion (line transcript) | streamed; per-line 1 MiB (a longer line is skipped and the expansion is marked truncated), output 32 KiB | `expandConversationExchange` (`conversation.go`) | — |
 | Short-term overlay (`history/short-term.json`) | 64 MiB | `defaultMaxReadBytes` via `loadHistoryShortTermState` | — |
 | Filtered conversation candidate scan | 10,000 rows, then a structured degraded error | `historyFTSFilteredScanCeiling` (`history_fts.go`) | — |
 | get / multi-get ids per request | 50 | `maxGetBatchIDs` (`retrieve.go`) | — |
@@ -28,7 +28,7 @@ behavior is described below.
 | Per NDJSON record (entire-graph) | 16 MiB | `semanticMaxRecordBytes` | `ENTIRE_BRAIN_MAX_RECORD_BYTES` |
 | Brain-inspect history line | 4 MiB | `brainInspectHistoryMaxLine` | — |
 | Facts NDJSON line | 64 KiB | `factsMaxLineBytes` | — |
-| History record line | 1 MiB | `historyMaxLineBytes` | — |
+| History record line | 1 MiB; a longer line is skipped and counted, not fatal to the transcript | `historyMaxLineBytes`, `historyLineScanner` | — |
 | Ollama distill response | 256 KiB | `distillMaxOutputBytes` | — |
 | Ollama embed response | 8 MiB | `maxOllamaEmbedResponseBytes` | — |
 | Hook stdin | 1 MiB | `hook_cmd.go` | — |

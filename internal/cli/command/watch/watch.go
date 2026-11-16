@@ -301,7 +301,10 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 			needsReconcile = stats.Files > 0 || stats.Failed > 0 || stats.Truncated
 			fmt.Fprintf(out, "[watch] short-term memory updated (%d records from %d changed transcripts)\n", stats.Records, stats.Files)
 			if stats.Failed > 0 {
-				fmt.Fprintf(out, "[watch] short-term memory incomplete: %d transcripts failed to scan; consolidation will repair\n", stats.Failed)
+				// No promise of repair: the failure can be deterministic (a
+				// transcript over the per-file read cap fails every scan,
+				// consolidation included), so only say what happens next.
+				fmt.Fprintf(out, "[watch] short-term memory incomplete: %d transcripts failed to scan; retrying on the next tick\n", stats.Failed)
 			}
 		}
 	}

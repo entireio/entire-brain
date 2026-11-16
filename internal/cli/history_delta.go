@@ -407,7 +407,7 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 			stats.Reused++
 			continue
 		}
-		records, incomplete, _, ok := scanSessionFileReaderRecords(ctx, bytes.NewReader(content), file.Path, file.Rel)
+		records, incomplete, _, _, ok := scanSessionFileReaderRecords(ctx, bytes.NewReader(content), file.Path, file.Rel)
 		if !ok {
 			// Unscannable now: record the identity durably so no surface can
 			// claim complete coverage; the next delta or full build

@@ -258,7 +258,12 @@ func historyMutationRaceFixture(t *testing.T) (string, string, os.FileInfo, time
 	return brainDir, targetPath, info, now
 }
 
-func TestHistoryCacheEmptyFingerprintsButDoesNotCacheParseLimitFailure(t *testing.T) {
+// A line over historyMaxLineBytes used to fail the whole transcript ("bufio.
+// Scanner: token too long"), so it was never cached and was rescanned, and
+// dropped, on every build. It is now skipped: the transcript scans, is cached
+// with the skip count, and every build, the reusing one included, still names
+// it in the warnings.
+func TestHistoryCacheKeepsSkippedOversizedLineCountAcrossReuse(t *testing.T) {
 	brainDir := t.TempDir()
 	path := filepath.Join(brainDir, brainstore.SessionsDirName, "main", "20260717T010000Z-oversized.txt")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -269,31 +274,32 @@ func TestHistoryCacheEmptyFingerprintsButDoesNotCacheParseLimitFailure(t *testin
 		t.Fatal(err)
 	}
 
-	var progress [][2]int
-	index, source, err := buildBrainHistoryIndex(brainDir, time.Date(2026, 7, 18, 13, 0, 0, 0, time.UTC), func(done, total int) {
-		progress = append(progress, [2]int{done, total})
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := [][2]int{{0, 1}, {1, 1}}; !reflect.DeepEqual(progress, want) {
-		t.Fatalf("progress = %v, want %v", progress, want)
-	}
-	// The warning names the transcript. A whole session drops out of the
-	// projection here, and an unattributed scanner error left no way to tell
-	// which one had gone missing.
-	if want := []string{"history records skipped for sessions/main/20260717T010000Z-oversized.txt: bufio.Scanner: token too long"}; !reflect.DeepEqual(source.Warnings, want) {
-		t.Fatalf("warnings = %v, want %v", source.Warnings, want)
-	}
-	const wantFingerprint = "sha256:999bbc4efb10f491343b79dee94e03b966545c254838a9f00d681e3f3bc04aea"
-	if source.TranscriptsFingerprint != wantFingerprint {
-		t.Fatalf("fingerprint = %q, want %q", source.TranscriptsFingerprint, wantFingerprint)
-	}
-	if len(index.Records) != 0 || source.Records != 0 {
-		t.Fatalf("parse-failed records entered index: %+v source=%+v", index.Records, source)
-	}
-	if cache := loadHistoryScanCache(brainDir); len(cache.Files) != 0 {
-		t.Fatalf("parse-failed transcript entered cache: %+v", cache.Files)
+	const rel = "sessions/main/20260717T010000Z-oversized.txt"
+	for build := 1; build <= 2; build++ {
+		var progress [][2]int
+		index, source, err := buildBrainHistoryIndex(brainDir, time.Date(2026, 7, 18, 13, 0, 0, 0, time.UTC), func(done, total int) {
+			progress = append(progress, [2]int{done, total})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := [][2]int{{0, 1}, {1, 1}}; !reflect.DeepEqual(progress, want) {
+			t.Fatalf("build %d: progress = %v, want %v", build, progress, want)
+		}
+		if want := []string{historySkippedLinesWarning(rel, 1)}; !reflect.DeepEqual(source.Warnings, want) {
+			t.Fatalf("build %d: warnings = %v, want %v", build, source.Warnings, want)
+		}
+		const wantFingerprint = "sha256:999bbc4efb10f491343b79dee94e03b966545c254838a9f00d681e3f3bc04aea"
+		if source.TranscriptsFingerprint != wantFingerprint {
+			t.Fatalf("build %d: fingerprint = %q, want %q", build, source.TranscriptsFingerprint, wantFingerprint)
+		}
+		if len(index.Records) != 0 || source.Records != 0 {
+			t.Fatalf("build %d: the skipped line's content entered the index: %+v source=%+v", build, index.Records, source)
+		}
+		cache := loadHistoryScanCache(brainDir)
+		if entry, ok := cache.Files[rel]; !ok || entry.SkippedLines != 1 || len(entry.Records) != 0 {
+			t.Fatalf("build %d: cache = %+v, want the transcript cached with skipped_lines 1", build, cache.Files)
+		}
 	}
 }
 

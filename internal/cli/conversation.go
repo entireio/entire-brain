@@ -207,8 +207,9 @@ func scanLineConversation(r io.Reader) (conversationScanResult, error) {
 
 func scanLineConversationContext(ctx context.Context, r io.Reader) (conversationScanResult, error) {
 	hasher := sha256.New()
-	scanner := bufio.NewScanner(io.TeeReader(contextCheckingReader{ctx: ctx, r: r}, hasher))
-	scanner.Buffer(make([]byte, 0, 64*1024), historyMaxLineBytes)
+	// A line too long to read is skipped, not fatal (see historyLineScanner).
+	// Its bytes still pass through the hasher, so the digest covers the file.
+	scanner := newHistoryLineScanner(io.TeeReader(contextCheckingReader{ctx: ctx, r: r}, hasher))
 
 	var result conversationScanResult
 	var open *conversationExchange
@@ -231,6 +232,15 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 			return conversationScanResult{}, err
 		}
 		lineNumber++
+		if scanner.Oversized() {
+			// The open exchange spans a line nobody read. It is usually a
+			// screenshot or a command's output, but it could be narrative, so
+			// the projection must not claim to be whole.
+			if open != nil {
+				open.ResponseOverflow = true
+			}
+			continue
+		}
 		text := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(text, "{") {
 			continue
@@ -757,8 +767,9 @@ func expandConversationExchangeContext(ctx context.Context, brainDir string, rec
 // expandLineConversationRange streams only the indexed line range, rebuilding
 // the request and visible assistant narrative under the expansion caps.
 func expandLineConversationRange(r io.Reader, record historyRecord) (conversationExpansion, error) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), historyMaxLineBytes)
+	// The same skipping scanner as index time, so every line keeps the number
+	// the stored range was built from.
+	scanner := newHistoryLineScanner(r)
 	var out conversationExpansion
 	var response strings.Builder
 	lineNumber := 0
@@ -774,6 +785,12 @@ func expandLineConversationRange(r io.Reader, record historyRecord) (conversatio
 		}
 		if lineNumber > endLine {
 			break
+		}
+		if scanner.Oversized() {
+			// Part of the range could not be read, so the expansion is not the
+			// faithful full content of the exchange.
+			out.Truncated = true
+			continue
 		}
 		text := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(text, "{") {
