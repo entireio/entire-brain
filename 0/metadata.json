@@ -1,0 +1,78 @@
+{
+  "cli_version": "0.12.2",
+  "checkpoint_id": "01M7K2QPR9KV5NBSGNK9GZ5VJY",
+  "session_id": "c7f04b83-57c6-44dd-99b1-dbfa9d076698",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-16T21:03:17.118216Z",
+  "branch": "evisdren/entire-brain-issue-637-fix",
+  "checkpoints_count": 5,
+  "save_step_count": 1,
+  "files_touched": [
+    "internal/cli/seed.go",
+    "internal/cli/seed_update_output_regression_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "e8116a878494",
+  "checkpoint_transcript_start": 747,
+  "transcript_lines_at_start": 747,
+  "compact_transcript_start": 88,
+  "token_usage": {
+    "input_tokens": 84,
+    "cache_creation_tokens": 198311,
+    "cache_read_tokens": 7764237,
+    "output_tokens": 21932,
+    "api_call_count": 42
+  },
+  "redaction": {
+    "replacements": 33,
+    "layers": {
+      "betterleaks": 9,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 14,
+      "key_context": 10,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01Q8wyQswihrEcQYroCCYJFm",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:test-driven-development"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "8bd947c0f2fa",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 166,
+        "end": 167,
+        "entry_ids": [
+          "c4aa19c8-0031-4ea3-819b-9e2204b3c2e1"
+        ],
+        "tool_use_id": "toolu_01Q8wyQswihrEcQYroCCYJFm"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Q8wyQswihrEcQYroCCYJFm"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:test-driven-development",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 13
+  }
+}
