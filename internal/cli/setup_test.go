@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/connect"
 	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
@@ -159,6 +160,15 @@ type recordedSetup struct {
 	// real plan is unsupported by design and used to turn all of them into
 	// "installs = 0" failures.
 	targetOS string
+	// establishResult/establishErr script the hosted-choice step's connect
+	// outcome; establishCalls counts attempts.
+	establishCalls  int
+	establishResult connect.EstablishResult
+	establishErr    error
+	// hostedSyncOutcome/hostedSyncErr script the already-bound sync path.
+	hostedSyncCalls   int
+	hostedSyncOutcome hostedSyncOutcome
+	hostedSyncErr     error
 }
 
 func (r *recordedSetup) plannedOS() string {
@@ -188,6 +198,19 @@ func (r *recordedSetup) steps(f *setupTestFixture) setupSteps {
 			r.spawnCalls++
 			r.spawned = plan
 			return 4242, nil
+		},
+		establishHosted: func(_ context.Context, _ Options, _ io.Writer, onConnected func()) (connect.EstablishResult, hostedSyncOutcome, error) {
+			r.establishCalls++
+			// Mirrors the real step: the sync (and so the connected moment)
+			// happens only once the binding landed and egress is allowed.
+			if r.establishResult.Bound && !r.establishResult.NoEgress && onConnected != nil {
+				onConnected()
+			}
+			return r.establishResult, r.hostedSyncOutcome, r.establishErr
+		},
+		hostedSync: func(context.Context, io.Writer, Options, string, repoStorage) (hostedSyncOutcome, error) {
+			r.hostedSyncCalls++
+			return r.hostedSyncOutcome, r.hostedSyncErr
 		},
 		stopBackfill: func(pid int) error {
 			r.stopCalls++

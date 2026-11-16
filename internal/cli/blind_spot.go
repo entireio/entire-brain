@@ -57,6 +57,16 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	if err != nil || manifest == nil || manifest.Sources == nil {
 		return noBrainBlindSpot(err)
 	}
+	return emptyResultBlindSpotWithIntegrity(brainDir, branch, manifest, factstore.Inspect(brainDir, manifest.Sources.Facts))
+}
+
+// emptyResultBlindSpotWithIntegrity is emptyResultBlindSpotOnBranch for a
+// caller that already loaded the manifest and inspected the store this
+// invocation: it re-reads neither, trusting the verdict it was handed.
+func emptyResultBlindSpotWithIntegrity(brainDir, branch string, manifest *exportManifest, integrity factstore.Integrity) string {
+	if manifest == nil || manifest.Sources == nil {
+		return noBrainBlindSpot(nil)
+	}
 	// Every branch below EXPLAINS an absence, and each explanation is false
 	// when the facts were stored and the store lost them. The last one —
 	// "the answer may genuinely not be in the brain" — is the most damaging
@@ -66,7 +76,7 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	//
 	// This single choke point is why recall, search, query and retrieve all
 	// inherit the correction without each having to remember to ask.
-	if integrity := factstore.Inspect(brainDir, manifest.Sources.Facts); !integrity.OK() {
+	if !integrity.OK() {
 		return "note: this empty result is NOT evidence of absence — " + integrity.Warning()
 	}
 	// A connected repo whose branch never synced may be missing the whole

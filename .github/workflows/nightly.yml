@@ -88,10 +88,12 @@ jobs:
           # denied" after every test passed. The per-PR Windows harness runs the
           # compiled binary directly for the same reason. The runner is
           # ephemeral, so nobody needs to delete our copy.
+          # brain_harness keeps the eval/bench developer-harness tests in the
+          # nightly suite (COR-2322); the shipped binary below stays untagged.
           $pkgs = (go list ./...) | Where-Object { $_ -notmatch '/internal/cli$' }
-          go test -timeout 20m $pkgs
+          go test -tags brain_harness -timeout 20m $pkgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go test -c -o "$env:RUNNER_TEMP/cli.test.exe" ./internal/cli
+          go test -tags brain_harness -c -o "$env:RUNNER_TEMP/cli.test.exe" ./internal/cli
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Push-Location internal/cli
           # Quoted and =-joined: pwsh splits a bare -test.timeout=25m at the dot,

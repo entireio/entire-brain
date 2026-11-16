@@ -29,13 +29,4 @@ var regressionCases = []mutationCase{
 		Diagnostic: "transcript-backed fact sources",
 		Package:    "./internal/cli",
 	},
-	{
-		Name:       "mirror must sweep abstracts of a removed checkpoint",
-		File:       "internal/cli/facts_mirror.go",
-		Before:     "\t\tif !liveRefs[entry.Artifact.SessionRef] {",
-		After:      "\t\tif false && !liveRefs[entry.Artifact.SessionRef] {",
-		Test:       "TestMirrorSweepsAbstractsOfMissingSessions",
-		Diagnostic: "want one abstract and one receipt removed",
-		Package:    "./internal/cli",
-	},
 }

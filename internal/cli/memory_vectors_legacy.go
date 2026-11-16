@@ -22,8 +22,7 @@ const (
 	memoryVectorProgressRel = memoryWorkDirRel + "/vector-progress.json"
 	memoryVectorSchema      = 2
 
-	embedStoreFileName = "vectors.bin"
-	embedStoreDirName  = "embeddings"
+	embedStoreDirName = "embeddings"
 )
 
 type memoryVectorProgress struct {
@@ -119,21 +118,4 @@ func decodeMemoryVectorProgress(data []byte) (memoryVectorProgress, error) {
 		return memoryVectorProgress{}, newMemoryVectorProgressLoadError(fmt.Errorf("vector progress has invalid identity or bounds"), header.SchemaVersion)
 	}
 	return progress, nil
-}
-
-// saveMemoryVectorProgress exists for tests and migration tooling that
-// fabricate or repair a legacy progress leaf; no production path writes one
-// anymore.
-func saveMemoryVectorProgress(brainDir string, progress memoryVectorProgress) error {
-	return brainstore.WithBrainWriteLock(brainDir, func() error {
-		if _, _, err := loadMemoryVectorProgress(brainDir); err != nil {
-			return err
-		}
-		progress.SchemaVersion = memoryVectorSchema
-		data, err := json.Marshal(progress)
-		if err != nil {
-			return err
-		}
-		return brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryVectorProgressRel, data, 0o600)
-	})
 }

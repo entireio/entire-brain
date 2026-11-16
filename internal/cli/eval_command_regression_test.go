@@ -1,8 +1,9 @@
+//go:build brain_harness
+
 package cli
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -13,10 +14,6 @@ import (
 	"testing"
 	"time"
 )
-
-type evalCommandFailWriter struct{}
-
-func (evalCommandFailWriter) Write([]byte) (int, error) { return 0, fmt.Errorf("eval output failure") }
 
 func evalCommandFixture(t *testing.T) (Options, string) {
 	t.Helper()

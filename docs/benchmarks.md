@@ -18,6 +18,15 @@ entire brain bench scale        # index size and query latency vs codebase size
 entire brain bench index        # indexing throughput and memory
 ```
 
+Released binaries do not carry the measurement commands on this page (they are
+~4k lines of developer tooling). Build them in with the `brain_harness` tag
+from a checkout of this repository — one command, no install:
+
+```sh
+go run -tags brain_harness ./cmd/entire-brain bench scale
+go run -tags brain_harness ./cmd/entire-brain memories eval --tasks tasks.json
+```
+
 Both require a clean worktree — the indexer refuses uncommitted content — and
 `--json` emits the full record.
 

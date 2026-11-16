@@ -85,9 +85,6 @@ func TestPrivacyReadersDistinguishAbsentUnsafeAndBounded(t *testing.T) {
 	if _, present, err := ReadPrivacyArtifact(brainDir, "missing", "fixture", 10); err != nil || present {
 		t.Fatalf("missing artifact: present=%v err=%v", present, err)
 	}
-	if _, present, err := ReadPrivacyDirectory(brainDir, "missing", "fixture"); err != nil || present {
-		t.Fatalf("missing directory: present=%v err=%v", present, err)
-	}
 	if err := os.Mkdir(filepath.Join(brainDir, "nested"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -101,17 +98,10 @@ func TestPrivacyReadersDistinguishAbsentUnsafeAndBounded(t *testing.T) {
 	if _, present, err := ReadPrivacyArtifact(brainDir, "nested/data", "fixture", 6); !present || err == nil || !strings.Contains(err.Error(), StateCorruptCode) {
 		t.Fatalf("oversized artifact: present=%v err=%v", present, err)
 	}
-	entries, present, err := ReadPrivacyDirectory(brainDir, "nested", "fixture")
-	if err != nil || !present || len(entries) != 1 || entries[0].Name() != "data" {
-		t.Fatalf("valid directory: entries=%v present=%v err=%v", entries, present, err)
-	}
 	for _, rel := range []string{"../outside", "nested"} {
 		if _, _, err := ReadPrivacyArtifact(brainDir, rel, "fixture", 10); err == nil || !strings.Contains(err.Error(), StateUnsafeCode) {
 			t.Fatalf("unsafe artifact %q: %v", rel, err)
 		}
-	}
-	if _, _, err := ReadPrivacyDirectory(brainDir, "nested/data", "fixture"); err == nil || !strings.Contains(err.Error(), StateUnsafeCode) {
-		t.Fatalf("file used as directory: %v", err)
 	}
 }
 

@@ -7,6 +7,44 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Changed
 
+- Dead-code sweep (COR-2317). Removed: the retired semantic-relevance
+  calibration, the experimental compact brief serializers (no CLI flag ever
+  selected them; the brief renders text and JSON), the `--confidence` distill
+  flag (production reconcile never applied confidence; the old default stays
+  frozen inside existing cache keys), the proposal-framework counters
+  (always-zero `proposals`/`branches` in status, the brief and the detailed
+  status JSON), always-"removed" conversation vector-state render lines, and
+  four uncalled factgitmeta methods. The legacy store cleanup now also sweeps
+  known orphan files of removed subsystems (old `proposals.ndjson`,
+  per-branch `vitality.*` copies, `embeddings/`) so emptied branch
+  directories actually disappear instead of logging "retained" forever.
+
+- `ENTIRE_BRAIN_MEMORIES_BACKEND` is the canonical spelling of the memories
+  sync backend variable; `ENTIRE_BRAIN_FACTS_BACKEND` keeps working as a
+  fallback, like the `--facts-backend` flag alias. `docs/reference.md` now
+  teaches the `memories` command group with a note that the `facts` spellings
+  remain aliases (COR-2193).
+
+- The seed freshness axis is drift-aware. One brain is shared by every
+  worktree of a repo, so `seed commit != HEAD` was the permanent state of all
+  but one worktree and the stale warning was permanent noise. A seed within 50
+  commits of HEAD on one line of history now reads ok with a "built from
+  <sha>, N commits behind/ahead" detail; real distance, divergence, or an
+  unreadable comparison still warns (COR-2315). Near drift does not skip the
+  other seed gates: a dirty tree keeps its dirty-unindexed cause line, and a
+  `--worktree` overlay built on another commit reads stale.
+
+- A dirty worktree no longer blocks the background refresh: the repository
+  context (seed) is built from a materialized committed-HEAD snapshot, so
+  permanently-dirty worktrees still get periodic full refreshes of
+  committed-state indexes. Uncommitted content stays excluded, `--worktree`
+  still opts into indexing it, and the old refusal remains only as the
+  fallback when the snapshot cannot be built (COR-2316). The snapshot is a
+  scratch-index `git checkout-index`, and its file list comes from
+  `git ls-tree`, so `export-ignore`/`export-subst` attributes and
+  denied-directory enumeration cannot make it differ from a clean worktree at
+  the same commit.
+
 - Facts ranking (recall, brief, the facts arms) changed in three ways
   (COR-2311). The flat closed-negative score bonus is gone: it boosted ~17% of
   the corpus on any match and let topically-similar closed-negatives displace
@@ -25,9 +63,27 @@ All notable changes to `entire-brain` are recorded here. The format follows
   compact transcripts with the CLI's own `transcript` package
   (`github.com/entireio/cli` v0.13.1), whose module requires it. The source
   installer's Go check compares the patch version too (#607).
+- Say that global memories stay on the machine that recorded them.
+  `memories sync` reports how many it did not upload (`global_not_synced` in
+  JSON), and `memories global` and `remember --global` name the limit. Global
+  memories are still not synced across machines (#570).
 
 ### Fixed
 
+- A commit in another session no longer fails a history rebuild, such as the one
+  in `refresh` or the background history lane, with `memory_source_stale`.
+  Finalizing a checkpoint rewrites its transcript on the checkpoint ref, and a
+  rebuild read that transcript several times through the moving ref. A rebuild
+  now reads one fixed set of blobs, so a finalize that lands mid-rebuild belongs
+  to the next one (#580).
+- A background memory worker no longer fails `refresh history` (or any other
+  history rebuild) with `memory_source_stale`. The short-term overlay left the
+  projection identity: the rebuild derives from canonical sessions only, and
+  an overlay written mid-rebuild is voided by its base-generation pin exactly
+  like one written just after publish, so only real session changes abort a
+  rebuild now. `setup --no-daemon` also stops launching the detached
+  `memory worker --once` that used to outlive setup; the durable queue keeps
+  the work for the next notify or watch tick (#582).
 - The pattern corpus now reads current Codex sessions (the cli's item path,
   in cli 0.13.1 and later). A command that failed is stored as failed, with no
   exit code since the session records none, and counts in `exit_fails`. A file
@@ -35,6 +91,9 @@ All notable changes to `entire-brain` are recorded here. The format follows
   files the session's checkpoint touched) so it links to the file's symbols.
   The indexer version moves, so the next refresh re-indexes existing
   sessions (#600).
+- The pattern corpus works out a Codex session's repository root from the
+  same edit records it stores file refs from, so the two can no longer
+  disagree about which records are edits.
 - `recall --evidence` no longer returns harness-injected `<system-reminder>`
   text as `role: "user"` evidence. User-role strings and text blocks now go
   through the same wrapper filter as the conversation reader, so reminders,
@@ -61,6 +120,12 @@ All notable changes to `entire-brain` are recorded here. The format follows
   codes the same way native codex records do. A patch-only turn is no longer
   classified read-only, and a failing command is no longer stored as a
   success (#566, #567).
+
+- `remember --path` rejects a malformed path even when another path in the list
+  is valid. Previously it was dropped and the memory was stored under fewer
+  paths. The error names the rejected path and the rule: `category.subcategory.type`,
+  lowercase letters, digits and `_`, no hyphens. `remember --help` and the agent
+  guide written by `setup` now state the rule too.
 
 ## [0.5.1] - 2026-11-04
 

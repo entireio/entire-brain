@@ -215,7 +215,7 @@ func TestRunDistillForBrainKeepsBothOnConfidentMerge(t *testing.T) {
 		}
 		return "project.tooling.stack\tThe stack is Go.\n", nil
 	}
-	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, confidenceThreshold: defaultFactConfidenceThreshold}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
 
 	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
 	if err != nil {
@@ -249,7 +249,7 @@ func TestRunDistillForBrainKeepsBothOnConfidentMerge(t *testing.T) {
 	if crossLinked != 2 {
 		t.Fatalf("merged pair must be cross-linked: %+v", facts)
 	}
-	if source.Facts != 2 || source.PendingReconcile != 0 || source.Proposals != 0 {
+	if source.Facts != 2 || source.PendingReconcile != 0 {
 		t.Fatalf("manifest must count both published facts and nothing pending: %+v", source)
 	}
 }
@@ -270,7 +270,7 @@ func TestRunDistillForBrainReconcileKeepsBothOnSupersede(t *testing.T) {
 		}
 		return "workflow.testing.rules\tRun the full suite before merging.\n", nil
 	}
-	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, confidenceThreshold: defaultFactConfidenceThreshold}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
 
 	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
 	if err != nil {
@@ -295,7 +295,7 @@ func TestRunDistillForBrainReconcileKeepsBothOnSupersede(t *testing.T) {
 	if crossLinked != 2 {
 		t.Fatalf("conflicting pair must be cross-linked: %+v", facts)
 	}
-	if source.Facts != 2 || source.PendingReconcile != 0 || source.Proposals != 0 {
+	if source.Facts != 2 || source.PendingReconcile != 0 {
 		t.Fatalf("manifest must count both published facts and nothing pending: %+v", source)
 	}
 }

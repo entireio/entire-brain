@@ -53,20 +53,9 @@ type brainBriefProfileSemantic struct {
 }
 
 type brainBriefProfileFacts struct {
-	Load            brainBriefProfileStage     `json:"load"`
-	VectorCacheLoad brainBriefProfileStage     `json:"vector_cache_load"`
-	Embed           brainBriefProfileEmbedding `json:"embed"`
-	Rank            brainBriefProfileStage     `json:"rank"`
-	CacheFlush      brainBriefProfileStage     `json:"cache_flush"`
-}
-
-type brainBriefProfileEmbedding struct {
-	Invoked          bool  `json:"invoked"`
-	DurationNS       int64 `json:"duration_ns"`
-	QueryCallCount   int   `json:"query_call_count"`
-	FactCallCount    int   `json:"fact_call_count"`
-	ValidVectorCount int   `json:"valid_vector_count"`
-	InvalidCount     int   `json:"invalid_vector_count"`
+	Load       brainBriefProfileStage `json:"load"`
+	Rank       brainBriefProfileStage `json:"rank"`
+	CacheFlush brainBriefProfileStage `json:"cache_flush"`
 }
 
 type brainBriefProfileSynthesis struct {

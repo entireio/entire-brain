@@ -389,7 +389,6 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	histByID := map[string]historyRecord{}
 	convByID := map[string]historyRecord{}
 	var sessionViews map[string]conversationSessionView
-	var abstractResolver *sessionAbstractResolver
 	// convScopes maps a conversation id to its session scopes (ref -> newest
 	// record in that scope), so a legacy id colliding across scopes is a
 	// structured ambiguity, never a silent last-write-wins pick.
@@ -437,9 +436,6 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			}
 		}
 	}
-	if wantSession {
-		abstractResolver = newSessionAbstractResolver(brainDir)
-	}
 	docByID := map[string]docRecord{}
 	if wantDoc {
 		// A never-built doc index is not an error (doc:* ids just report "not
@@ -481,17 +477,6 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		case strings.HasPrefix(id, brainstore.ConversationSessionIDPrefix):
 			if view, ok := sessionViews[id]; ok {
 				outline := conversationSessionOutline(view, gopts.AfterTurn, gopts.OutlineLimit)
-				outline.AbstractStatus, outline.Abstract = abstractResolver.status(view)
-				outline = boundSessionAbstractEnvelope(outline)
-				if outline.AbstractStatus == abstractStatusStale || outline.AbstractStatus == abstractStatusMissing {
-					if err := enqueueAutomaticAbstractReconciliationHook(brainDir, "session_get", time.Now().UTC()); err != nil {
-						// Automatic generation is an optional acceleration. Exact
-						// session recall remains valid even when its durable work
-						// enqueue is temporarily unavailable; expose the issue instead
-						// of converting a successful get into a failure.
-						outline.AbstractIssue = memoryOperationalError(err)
-					}
-				}
 				found = append(found, outline)
 				continue
 			}

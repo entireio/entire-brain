@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -74,13 +75,21 @@ func renderBrainBriefSemanticFreshnessPacket(t *testing.T, fixture brainBriefSem
 	cmd := &cobra.Command{}
 	cmd.SetOut(&out)
 	err := runBrainBrief(context.Background(), cmd, fixture.opts, brainBriefOptions{
-		limit:        limit,
-		packetFormat: brainBriefPacketCompactV3,
+		limit: limit,
+		json:  true,
 	}, "normalize query limit")
 	if err != nil {
 		t.Fatalf("brief: %v\n%s", err, out.String())
 	}
-	return out.String()
+	// The compact_v3 serializer left the shipped binary (COR-2317); these
+	// tests keep asserting through it as a deterministic projection, so the
+	// JSON packet is decoded back into the report and re-rendered with the
+	// test-only serializer.
+	var report brainBriefReport
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatalf("decode brief JSON packet: %v\n%s", err, out.String())
+	}
+	return renderBrainBriefCompactV3ForTest(t, report)
 }
 
 func TestBrainBriefSemanticFreshnessOmitsDepartedRecordsFromActualPacket(t *testing.T) {

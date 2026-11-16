@@ -13,8 +13,11 @@ import (
 // Extraction durably stages candidates; this pass batches related candidates
 // across sessions and applies results in deterministic order. Only explicit new
 // decisions and candidates outside the lexical prefilter publish automatically.
-// Every non-identical merge/supersede needs human review, regardless of model
-// confidence. Failed decisions remain staged for a later retry.
+// Every non-identical merge/supersede publishes both facts cross-linked,
+// regardless of model confidence — the review queue that used to adjudicate
+// them was removed with the per-branch stores; the nightly compaction loop
+// settles coexisting conflicts (COR-2273). Failed decisions remain staged for
+// a later retry.
 //
 // The lexical prefilter is a cost heuristic, not an equivalence or contradiction
 // test. It may miss paraphrases; its shortcut preserves text instead of deleting

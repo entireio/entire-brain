@@ -255,11 +255,10 @@ func ValidateScopeFlag(scope string) error {
 // recorded under sources.facts in the brain manifest. Branches is left empty:
 // memories are repo-wide, and the field survives only so older manifests
 // still parse.
-func SummarizeSource(now time.Time, records []factmerge.Record, chunksScanned, chunksDistilled, proposals int, warnings []string) *bmanifest.FactSource {
+func SummarizeSource(now time.Time, records []factmerge.Record, chunksScanned, chunksDistilled int, warnings []string) *bmanifest.FactSource {
 	source := &bmanifest.FactSource{
 		GeneratedAt:     now,
 		TaxonomyPath:    TaxonomyPath,
-		Proposals:       proposals,
 		ChunksScanned:   chunksScanned,
 		ChunksDistilled: chunksDistilled,
 		Warnings:        append([]string(nil), warnings...),

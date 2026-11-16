@@ -1,3 +1,5 @@
+//go:build brain_harness
+
 package cli
 
 import (
@@ -231,22 +233,6 @@ func evalEndToEndLatencyMS(r evalTaskResult) int64 {
 		return r.EndToEndLatencyMS
 	}
 	return r.LatencyMS + r.ExpansionLatencyMS
-}
-
-func fileSHA256Hex(path string) string {
-	if strings.TrimSpace(path) == "" {
-		return ""
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-func evalBrainManifestSHA256(brainDir string) string {
-	return fileSHA256Hex(filepath.Join(brainDir, bmanifest.FileName))
 }
 
 // --- agent judge ----------------------------------------------------------

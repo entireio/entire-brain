@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
-	"github.com/entireio/cli/transcript"
 )
 
 // Episode tool/command extraction (Pattern Consolidation, Phase 2).
@@ -69,16 +67,10 @@ func episodeToolAndCommandSequences(workText string) (tools []string, commands [
 }
 
 func toolCallsFromRecord(record transcriptRecord) []episodeToolCall {
-	if record.etf != nil {
-		if !record.etfIs(transcript.TypeAssistant) {
-			return nil
-		}
-		return episodeToolCalls(etfToolUses(record.etf))
-	}
-	obj := record.obj
-	switch jsonString(obj["type"]) {
-	case "response_item":
-		p := jsonMap(obj["payload"])
+	// A codex response_item names its tool in the payload, not in a tool_use
+	// block; every other line's tool calls come from the shared walker.
+	if jsonString(record.obj["type"]) == "response_item" {
+		p := jsonMap(record.obj["payload"])
 		switch jsonString(p["type"]) {
 		case "function_call":
 			name := normalizeToolName(jsonString(p["name"]))
@@ -86,15 +78,9 @@ func toolCallsFromRecord(record transcriptRecord) []episodeToolCall {
 		case "custom_tool_call":
 			return []episodeToolCall{{name: normalizeToolName(jsonString(p["name"]))}}
 		}
-	case "assistant":
-		return episodeToolCalls(nativeToolUses(jsonMap(obj["message"])["content"]))
-	case "message": // pi wraps every turn as {"type":"message","message":{role,content}}
-		m := jsonMap(obj["message"])
-		if jsonString(m["role"]) == "assistant" {
-			return episodeToolCalls(nativeToolUses(m["content"]))
-		}
+		return nil
 	}
-	return nil
+	return episodeToolCalls(recordToolUses(record))
 }
 
 func episodeToolCalls(uses []toolUse) []episodeToolCall {
