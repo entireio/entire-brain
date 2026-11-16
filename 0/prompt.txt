@@ -1,0 +1,18 @@
+wait we already ahve this one? 
+https://github.com/entireio/entire-brain/issues/637
+
+push the changes to this PR and then close down the trail you just created
+
+---
+
+fix the cursor bugbot issues: https://github.com/entireio/entire-brain/pull/649
+
+---
+
+<task-notification>
+<task-id>bspe9maeq</task-id>
+<tool-use-id>toolu_014ogvskbqWXs65S8fJ5bxpa</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-cape-town/c7f04b83-57c6-44dd-99b1-dbfa9d076698/tasks/bspe9maeq.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full test suite" completed (exit code 0)</summary>
+</task-notification>
