@@ -288,12 +288,13 @@ func repoRelativePath(p, repoRoot string) string {
 // is a touched file under it, and the highest score wins. Every candidate is
 // scored, so a checkout named like one of its own directories (/work/repo with
 // repo/main.go) still gets its full score, and repeated edits of one file
-// count once. From a cwd, the candidates are compared in pairs by the same
-// matches, those both can see first (see cwdRoot). Either way an unsettled
-// contest is ambiguous, whatever else the tied roots hold, so it gives "" and
-// the paths are stored as written rather than linked to the wrong files. So
-// does a session with any ".." path (see codexFileChangePaths), and one with
-// no FileChange or no path that is a touched file under a candidate.
+// count once. From a cwd, a candidate wins only when its matches include
+// every other candidate's and add to them (see cwdRoot). Either way an
+// unsettled contest is ambiguous, whatever else the competing roots hold, so
+// it gives "" and the paths are stored as written rather than linked to the
+// wrong files. So does a session with any ".." path (see
+// codexFileChangePaths), and one with no FileChange or no path that is a
+// touched file under a candidate.
 //
 // The live checkout the corpus is built from is not used: worktrees of a repo
 // share one corpus, and an unchanged session is not re-indexed, so the paths
@@ -335,70 +336,68 @@ func splitRootScores(paths []string, touched map[string]bool) map[string]int {
 	return score
 }
 
-// cwdRoot is the one of roots (the session's cwds and their parents) that
-// beats every other with a touched file under it (see rootBeats), or "" when
-// none does. An edit under it that is not a touched file (an ignored or
-// reverted file) costs a root nothing.
+// cwdRoot is the one of roots (the session's cwds and their parents) whose
+// matches, the session paths that are a touched file under it, include every
+// other root's matches and add at least one, or "" when no root's do.
+//
+// Counting matches cannot settle a contest where each root explains a path
+// the other does not, because either side can be a coincidence of names: an
+// edit outside the checkout matching under a parent (/tmp/a.go read as
+// tmp/a.go under "/"), or an ignored or reverted edit in the checkout matching
+// under a subdirectory cwd (sub/a.go read as a.go). Enough coincidences
+// outvote any number of real matches, so such a session is ambiguous. Where
+// one root explains everything the other does, the other's matches are no
+// evidence against it: a parent of a subdirectory cwd that reads the cwd's
+// edits as touched files, and edits beside the cwd too, is the checkout. An
+// edit that is not a touched file under any root costs nothing.
 func cwdRoot(paths, roots []string, touched map[string]bool) string {
-	matches := map[string][]string{}
+	matches := map[string]map[string]bool{}
 	var live []string
 	for _, root := range roots {
+		m := map[string]bool{}
 		for _, p := range paths {
 			if rel, ok := pathUnderRoot(p, root); ok && touched[rel] {
-				matches[root] = append(matches[root], p)
+				m[p] = true
 			}
 		}
-		if len(matches[root]) > 0 {
+		if len(m) > 0 {
+			matches[root] = m
 			live = append(live, root)
 		}
 	}
 	for _, root := range live {
-		if beatsAll(root, live, matches) {
+		if coversAll(root, live, matches) {
 			return root
 		}
 	}
 	return ""
 }
 
-func beatsAll(root string, roots []string, matches map[string][]string) bool {
+// coversAll reports whether root's matches strictly include those of every
+// other root in roots.
+func coversAll(root string, roots []string, matches map[string]map[string]bool) bool {
 	for _, other := range roots {
-		if other != root && !rootBeats(root, other, matches[root], matches[other]) {
+		if other == root {
+			continue
+		}
+		adds := countMissing(matches[root], matches[other]) > 0
+		misses := countMissing(matches[other], matches[root]) > 0
+		if !adds || misses {
 			return false
 		}
 	}
 	return true
 }
 
-// rootBeats reports whether root x, whose matches (paths that are a touched
-// file under it) are mx, is better supported than root y, with my. The paths
-// under both decide first: x wins with more matches among them. Wherever the
-// checkout is, such a path is inside it when it is under the deeper of the
-// two, so only the right root reads it as the file it is; the other matches
-// it only by a coincidence of names. A path under only one of them may be an
-// edit outside the checkout, such as /tmp/a.go read as tmp/a.go under "/",
-// so those matches only break a tie, and the root with more of them wins: a
-// parent of the checkout whose edits under a subdirectory cwd match as well
-// as the subdirectory's do, and that also explains edits beside it, wins. A
-// tie on both is no win for either.
-func rootBeats(x, y string, mx, my []string) bool {
-	sharedX, outX := splitByRoot(mx, y)
-	sharedY, outY := splitByRoot(my, x)
-	if sharedX != sharedY {
-		return sharedX > sharedY
-	}
-	return outX > outY
-}
-
-// splitByRoot counts the paths that are under root and those that are not.
-func splitByRoot(paths []string, root string) (under, outside int) {
-	for _, p := range paths {
-		if _, ok := pathUnderRoot(p, root); ok {
-			under++
-		} else {
-			outside++
+// countMissing counts the paths in a that are not in b.
+func countMissing(a, b map[string]bool) int {
+	n := 0
+	for p := range a {
+		if !b[p] {
+			n++
 		}
 	}
-	return under, outside
+	return n
 }
 
 // bestCodexRoot is the root with the highest score, or "" when there is none
