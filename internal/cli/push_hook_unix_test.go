@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -121,4 +122,29 @@ func TestUninstallPushHookTreatsADanglingSlotAsAbsent(t *testing.T) {
 		t.Fatalf("the hook the chain line ran must be back in the primary: %q", got)
 	}
 	requireNoFile(t, stranded)
+}
+
+// A name the filesystem refuses must fail the rotation, not loop over the
+// numbered alternatives, which it refuses the same way. A 240-byte file name
+// puts every rotated name over the 255-byte limit.
+func TestRotateAsideFailsOnARefusedName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), strings.Repeat("h", 240))
+	writeHook(t, path, testLeftBehindHook)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := rotateAside(path)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("rotating to a name over the length limit must fail")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("rotateAside kept trying names the filesystem refuses")
+	}
+	if got := readHook(t, path); got != testLeftBehindHook {
+		t.Fatalf("the file must stay where it was: %q", got)
+	}
 }

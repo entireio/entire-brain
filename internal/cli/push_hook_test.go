@@ -617,53 +617,75 @@ func TestUninstallPushHookRestoresTheHookTheHostUninstallLeftBehind(t *testing.T
 // by something other than the host's uninstall, and our new hook must not
 // start running it. A copy of ours in the host's slot keeps it as its backup.
 func TestInstallPushHookSetsAsideAFileTheFallbackWouldRun(t *testing.T) {
-	userHook := "#!/bin/sh\necho user hook\n"
-	leftover := "#!/bin/sh\necho left behind\n"
 	for name, tc := range map[string]struct {
 		primary, slot string // "" for no file
 		keep          bool
 	}{
 		"empty primary":             {},
-		"another hook in primary":   {primary: userHook},
+		"another hook in primary":   {primary: "#!/bin/sh\necho user hook\n"},
 		"our copy in the host slot": {slot: pushHookContent("/managed/entire-brain"), keep: true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			opts, repoDir, hooksDir := pushHookHarness(t)
-			primary := filepath.Join(hooksDir, "pre-push")
-			stranded := primary + ".pre-entire" + pushHookBackupSuffix
-			if tc.primary != "" {
-				writeHook(t, primary, tc.primary)
-			}
-			if tc.slot != "" {
-				writeHook(t, primary+".pre-entire", tc.slot)
-			}
-			writeHook(t, stranded, leftover)
-
-			if _, _, err := installPushHook(context.Background(), opts, repoDir); err != nil {
-				t.Fatal(err)
-			}
-			if got := readHook(t, primary); !strings.Contains(got, pushHookMarker) {
-				t.Fatalf("our hook must be in the primary: %q", got)
-			}
-			if tc.primary != "" {
-				if got := readHook(t, primary+pushHookBackupSuffix); got != tc.primary {
-					t.Fatalf("the primary's hook must be our backup: %q", got)
-				}
-			}
-			rotated, err := filepath.Glob(stranded + ".*")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if tc.keep {
-				if got := readHook(t, stranded); got != leftover || len(rotated) != 0 {
-					t.Fatalf("our slot copy's backup must stay: %q, rotated %v", got, rotated)
-				}
-				return
-			}
-			requireNoFile(t, stranded)
-			if len(rotated) != 1 || !isRotatedHookCopy(rotated[0]) || readHook(t, rotated[0]) != leftover {
-				t.Fatalf("the left-behind file must be kept under a rotated name: %v", rotated)
-			}
+			requireSetsAsideTheFallbackFile(t, tc.primary, tc.slot, tc.keep)
 		})
 	}
+}
+
+const testLeftBehindHook = "#!/bin/sh\necho left behind\n"
+
+// requireSetsAsideTheFallbackFile installs over primaryHook and slotHook
+// ("" for none) with a file at the fallback's name, and checks that the file
+// is rotated aside, or kept in place when keep is set.
+func requireSetsAsideTheFallbackFile(t *testing.T, primaryHook, slotHook string, keep bool) {
+	t.Helper()
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	primary := filepath.Join(hooksDir, "pre-push")
+	stranded := primary + ".pre-entire" + pushHookBackupSuffix
+	writeHookIfSet(t, primary, primaryHook)
+	writeHookIfSet(t, primary+".pre-entire", slotHook)
+	writeHook(t, stranded, testLeftBehindHook)
+
+	if _, _, err := installPushHook(context.Background(), opts, repoDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := readHook(t, primary); !strings.Contains(got, pushHookMarker) {
+		t.Fatalf("our hook must be in the primary: %q", got)
+	}
+	if primaryHook != "" && readHook(t, primary+pushHookBackupSuffix) != primaryHook {
+		t.Fatal("the primary's hook must be our backup")
+	}
+	rotated := rotatedCopiesOf(t, stranded)
+	if keep {
+		if got := readHook(t, stranded); got != testLeftBehindHook || len(rotated) != 0 {
+			t.Fatalf("our slot copy's backup must stay: %q, rotated %v", got, rotated)
+		}
+		return
+	}
+	requireNoFile(t, stranded)
+	if len(rotated) != 1 || readHook(t, rotated[0]) != testLeftBehindHook {
+		t.Fatalf("the left-behind file must be kept under a rotated name: %v", rotated)
+	}
+}
+
+func writeHookIfSet(t *testing.T, path, content string) {
+	t.Helper()
+	if content != "" {
+		writeHook(t, path, content)
+	}
+}
+
+// rotatedCopiesOf lists the rotated copies of path.
+func rotatedCopiesOf(t *testing.T, path string) []string {
+	t.Helper()
+	matches, err := filepath.Glob(path + ".*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rotated []string
+	for _, m := range matches {
+		if isRotatedHookCopy(m) {
+			rotated = append(rotated, m)
+		}
+	}
+	return rotated
 }

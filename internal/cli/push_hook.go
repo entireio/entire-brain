@@ -125,8 +125,14 @@ func rotateAside(path string) (string, error) {
 	base := path + "." + time.Now().UTC().Format(rotatedCopyStampLayout)
 	rotated := base
 	for n := 1; ; n++ {
-		if _, err := os.Lstat(rotated); os.IsNotExist(err) {
+		_, err := os.Lstat(rotated)
+		if os.IsNotExist(err) {
 			break
+		}
+		if err != nil {
+			// A name the filesystem refuses (too long, say) is refused with
+			// every -<n> too; only an existing file is a clash.
+			return "", fmt.Errorf("rotate %s: %w", filepath.Base(path), err)
 		}
 		rotated = fmt.Sprintf("%s-%d", base, n)
 	}
