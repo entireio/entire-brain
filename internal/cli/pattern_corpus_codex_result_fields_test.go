@@ -122,8 +122,10 @@ func TestCorpusEpisodeOpsNonCodexResultFieldsLeftAlone(t *testing.T) {
 // With the turn's cwd on a FileChange result, the root is that directory or
 // one of its parents, so paths outside them can't give it: a tie the paths
 // alone leave ambiguous is settled, and a checkout at the filesystem root is
-// found. A cwd that is relative or has a ".." segment says nothing, and the
-// paths alone decide, as for a session written before cli 0.13.3.
+// found. A parent above the checkout can't win on edits outside it either,
+// since every edit in the checkout misses under that parent. A cwd that is
+// relative or has a ".." segment says nothing, and the paths alone decide, as
+// for a session written before cli 0.13.3.
 func TestCodexSessionRootFromCWD(t *testing.T) {
 	lines := func(records ...string) string { return strings.Join(records, "\n") + "\n" }
 	cases := []struct {
@@ -153,6 +155,21 @@ func TestCodexSessionRootFromCWD(t *testing.T) {
 			codexFileChangeIn(t, "/w/r/a", codexChange{Path: "/w/r/a/x.go", Kind: "update"}),
 			codexFileChangeIn(t, "/w/r/b", codexChange{Path: "/w/r/b/y.go", Kind: "update"}),
 		), []string{"a/x.go", "b/y.go"}, "/w/r"},
+		{"edits outside the checkout don't outvote it from the filesystem root", lines(codexFileChangeIn(t, "/work/repo",
+			codexChange{Path: "/work/repo/src/c.go", Kind: "update"}, codexChange{Path: "/work/repo/src/d.go", Kind: "update"},
+			codexChange{Path: "/tmp/a.go", Kind: "update"}, codexChange{Path: "/tmp/b.go", Kind: "update"},
+		)), []string{"src/c.go", "src/d.go", "tmp/a.go", "tmp/b.go"}, "/work/repo"},
+		{"edits outside the checkout don't outvote it from a parent", lines(codexFileChangeIn(t, "/work/repo",
+			codexChange{Path: "/work/repo/src/c.go", Kind: "update"}, codexChange{Path: "/work/repo/src/d.go", Kind: "update"},
+			codexChange{Path: "/work/other/a.go", Kind: "update"}, codexChange{Path: "/work/other/b.go", Kind: "update"},
+		)), []string{"src/c.go", "src/d.go", "other/a.go", "other/b.go"}, "/work/repo"},
+		{"more outside edits than checkout edits is ambiguous", lines(codexFileChangeIn(t, "/work/repo",
+			codexChange{Path: "/work/repo/src/c.go", Kind: "update"},
+			codexChange{Path: "/tmp/a.go", Kind: "update"}, codexChange{Path: "/tmp/b.go", Kind: "update"},
+		)), []string{"src/c.go", "tmp/a.go", "tmp/b.go"}, ""},
+		{"untouched edits in the checkout don't cost it the root", lines(codexFileChangeIn(t, "/w/r",
+			codexChange{Path: "/w/r/main.go", Kind: "update"}, codexChange{Path: "/w/r/.env", Kind: "add"}, codexChange{Path: "/w/r/build/out.bin", Kind: "add"},
+		)), []string{"main.go"}, "/w/r"},
 		{"a .. path still gives no root", lines(codexFileChangeIn(t, "/w/r", codexChange{Path: "/w/r/x/../main.go", Kind: "update"})), []string{"main.go"}, ""},
 		{"a relative cwd says nothing", lines(
 			codexFileChangeIn(t, "repo", codexChange{Path: "/work/repo/main.go", Kind: "update"}),

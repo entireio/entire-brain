@@ -285,7 +285,8 @@ func repoRelativePath(p, repoRoot string) string {
 // except the filesystem root.
 //
 // A candidate scores one for each distinct session path that is a touched
-// file under it, and the highest score wins. Every candidate is scored, so a
+// file under it (from a cwd, less one for each path under it that is not; see
+// cwdRootScores), and the highest score wins. Every candidate is scored, so a
 // checkout named like one of its own directories (/work/repo with
 // repo/main.go) still gets its full score, and repeated edits of one file
 // count once. A tie is ambiguous, whatever else the tied roots hold, so it
@@ -313,30 +314,64 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 	if !resolved {
 		return ""
 	}
-	cwdRoots := dirsFrom(cwds)
+	if len(cwds) > 0 {
+		return bestCodexRoot(cwdRootScores(paths, dirsFrom(cwds), touched))
+	}
+	return bestCodexRoot(splitRootScores(paths, touched))
+}
+
+// splitRootScores scores every split of every path at a "/" (the filesystem
+// root aside) as a candidate root: one for each path that is a touched file
+// under it.
+func splitRootScores(paths []string, touched map[string]bool) map[string]int {
 	score := map[string]int{}
-	vote := func(root, p string) {
-		if rel, ok := pathUnderRoot(p, root); ok && touched[rel] {
-			score[root]++
-		}
-	}
 	for _, p := range paths {
-		if len(cwdRoots) > 0 {
-			for _, root := range cwdRoots {
-				vote(root, p)
-			}
-			continue
-		}
 		for i := 1; i < len(p)-1; i++ {
-			if p[i] == '/' {
-				vote(p[:i], p)
+			if p[i] == '/' && touched[p[i+1:]] {
+				score[p[:i]]++
 			}
 		}
 	}
+	return score
+}
+
+// cwdRootScores scores each of roots (the session's cwds and their parents)
+// by the paths under it: one for each that is a touched file under it, less
+// one for each that is not, since the checkout predicts that every edit under
+// it is a file it touched. Without the penalty, a parent above the checkout
+// (up to "/") could outvote it with edits outside it, such as /tmp/a.go read
+// as tmp/a.go, while every edit in the checkout misses under that parent. A
+// root no path is a touched file under is left out, so a checkout whose
+// untouched edits (ignored or reverted files) outnumber its touched ones still
+// wins when nothing else matches.
+func cwdRootScores(paths, roots []string, touched map[string]bool) map[string]int {
+	score := map[string]int{}
+	for _, root := range roots {
+		matched, missed := 0, 0
+		for _, p := range paths {
+			rel, ok := pathUnderRoot(p, root)
+			switch {
+			case !ok:
+			case touched[rel]:
+				matched++
+			default:
+				missed++
+			}
+		}
+		if matched > 0 {
+			score[root] = matched - missed
+		}
+	}
+	return score
+}
+
+// bestCodexRoot is the root with the highest score, or "" when there is none
+// or the highest is tied.
+func bestCodexRoot(score map[string]int) string {
 	best, bestScore, tied := "", 0, false
 	for root, n := range score {
 		switch {
-		case n > bestScore:
+		case best == "" || n > bestScore:
 			best, bestScore, tied = root, n, false
 		case n == bestScore:
 			tied = true
