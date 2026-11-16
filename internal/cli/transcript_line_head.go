@@ -17,15 +17,20 @@ type transcriptLineHead struct {
 	payloadType string // codex "payload.type"
 	role        string // claude and pi "message.role", codex "payload.role"
 	// text is the start of the content's text, as far as the head carries it,
-	// read the way transcriptContentText reads content: a string, or the
-	// "text" or "input_text" of each block of a list, joined with spaces.
-	// Empty when the head ends, or the content does, before any text.
+	// read the way transcriptContentText reads content: a string, or the text
+	// of each block of a list (its "text", or its "input_text" when the text
+	// is blank), joined with spaces. Empty when the head ends, or the content
+	// does, before any text.
 	text string
 }
 
-// transcriptLineHeadTextBytes is how much text a head reads before it stops:
-// the wrapper and injected-request checks only look at how the text starts.
-const transcriptLineHeadTextBytes = 256
+// add joins one text to the head's text the way transcriptContentText joins
+// blocks; blank text adds nothing.
+func (h *transcriptLineHead) add(text string) {
+	if strings.TrimSpace(text) != "" {
+		h.text += text + " "
+	}
+}
 
 // unreadLineIsUserTurn reports whether a line too long to read is a real user
 // turn, judged from its head the way conversationSubstantiveRequest judges a
@@ -69,7 +74,7 @@ func (h transcriptLineHead) requestStart() string {
 }
 
 // readTranscriptLineHead reads the record's type, role and text from a line's
-// head, stopping once the text is long enough to judge or where the head ends.
+// head, as far as the head carries them.
 func readTranscriptLineHead(head []byte) transcriptLineHead {
 	r := transcriptHeadReader{head: head, dec: json.NewDecoder(bytes.NewReader(head))}
 	var h transcriptLineHead
@@ -102,8 +107,7 @@ func readTranscriptLineHead(head []byte) transcriptLineHead {
 
 // transcriptHeadReader walks the JSON of a line's head. Every method returns
 // false when the head ends, or stops being the JSON it claims, before the
-// value does, or when the walk has found the text it looks for; the walk then
-// stops with what it has read so far.
+// value does; the walk then stops with what it has read so far.
 type transcriptHeadReader struct {
 	head []byte
 	dec  *json.Decoder
@@ -164,7 +168,10 @@ func (r *transcriptHeadReader) str(out *string) bool {
 func (r *transcriptHeadReader) content(h *transcriptLineHead) bool {
 	switch r.next() {
 	case '"':
-		return r.textInto(h)
+		var text string
+		whole := r.text(&text)
+		h.add(text)
+		return whole
 	case '[':
 		return r.blocks(h)
 	}
@@ -185,52 +192,50 @@ func (r *transcriptHeadReader) blocks(h *transcriptLineHead) bool {
 	return err == nil
 }
 
-// block reads one content block's text: its first non-empty "text" or
-// "input_text". A block that is not an object is skipped.
+// block reads one content block's text: its "text", or its "input_text" when
+// the text is blank, whatever order they come in. A block that is not an
+// object is skipped.
 func (r *transcriptHeadReader) block(h *transcriptLineHead) bool {
 	if r.next() != '{' {
 		return r.skip()
 	}
-	taken := false
-	return r.object(func(key string) bool {
-		if taken || (key != "text" && key != "input_text") {
-			return r.skip()
+	var text, inputText string
+	whole := r.object(func(key string) bool {
+		switch key {
+		case "text":
+			return r.text(&text)
+		case "input_text":
+			return r.text(&inputText)
 		}
-		before := len(h.text)
-		more := r.textInto(h)
-		taken = len(h.text) > before
-		return more
+		return r.skip()
 	})
+	if strings.TrimSpace(text) == "" {
+		text = inputText
+	}
+	h.add(text)
+	return whole
 }
 
-// textInto adds a text value to h.text, joined the way transcriptContentText
-// joins blocks, whole or as far as the head shows it. The walk ends where the
-// head cuts the value off or once the text reaches transcriptLineHeadTextBytes;
-// an empty or non-string value adds nothing.
-func (r *transcriptHeadReader) textInto(h *transcriptLineHead) bool {
+// text reads a string value into out, whole or, when the head ends inside it,
+// as far as the head carries it; the walk then ends. A value of another type
+// is skipped and leaves out empty.
+func (r *transcriptHeadReader) text(out *string) bool {
 	if r.next() != '"' {
 		return r.skip()
 	}
 	start := int(r.dec.InputOffset())
 	start += bytes.IndexByte(r.head[start:], '"') + 1
-	var s string
-	if err := r.dec.Decode(&s); err != nil {
-		h.text += decodeJSONStringStart(r.head[start:])
+	if err := r.dec.Decode(out); err != nil {
+		*out = decodeJSONStringStart(r.head[start:])
 		return false
 	}
-	if s != "" {
-		h.text += s + " "
-	}
-	return len(h.text) < transcriptLineHeadTextBytes
+	return true
 }
 
 // decodeJSONStringStart decodes the start of a JSON string body that the head
-// cuts off, up to transcriptLineHeadTextBytes, ending before an escape or a
-// UTF-8 sequence the cut would split. "" when the bytes are not a string body.
+// cuts off, ending before an escape or a UTF-8 sequence the cut would split.
+// "" when the bytes are not a string body.
 func decodeJSONStringStart(raw []byte) string {
-	if len(raw) > transcriptLineHeadTextBytes {
-		raw = raw[:transcriptLineHeadTextBytes]
-	}
 	for i := 0; i < len(raw); i++ {
 		if raw[i] != '\\' {
 			continue

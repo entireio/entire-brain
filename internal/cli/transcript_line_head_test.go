@@ -23,6 +23,9 @@ func TestUnreadLineIsUserTurn(t *testing.T) {
 		{"claude blank text, then text", `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"  "},{"type":"text","text":"What does this show? ` + bulk + `"}]}}`, true},
 		{"claude request split across text blocks", `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Please review"},{"type":"text","text":"this log: ` + bulk + `"}]}}`, true},
 		{"claude wrapper split across text blocks", `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Stop hook"},{"type":"text","text":"feedback: ` + bulk + `"}]}}`, false},
+		{"claude long blank text, then text", `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + strings.Repeat(" ", 300) + `"},{"type":"text","text":"What does this show? ` + bulk + `"}]}}`, true},
+		{"block with blank text and an input_text", `{"type":"user","message":{"role":"user","content":[{"type":"text","text":" ","input_text":"What does this show? ` + bulk + `"}]}}`, true},
+		{"block whose text is a reminder after its input_text", `{"type":"user","message":{"role":"user","content":[{"input_text":"What does this show?","text":"<system-reminder>x"},{"type":"image","source":{"data":"` + bulk + `"}}]}}`, false},
 		{"claude small tool result, then user text", `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":"ok"},{"type":"text","text":"Now look at this: ` + bulk + `"}]}}`, true},
 		{"claude tool result, content before type", `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","content":[{"type":"image","source":{"data":"` + bulk + `"}}],"type":"tool_result"}]}}`, false},
 		{"claude pasted text", `{"type":"user","message":{"role":"user","content":"Please review this log: ` + bulk + `"}}`, true},
@@ -33,6 +36,7 @@ func TestUnreadLineIsUserTurn(t *testing.T) {
 		{"claude assistant write", `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Write","input":{"content":"` + bulk + `"}}]}}`, false},
 		{"transcript format user", `{"v":1,"type":"user","content":[{"text":"What does this show?"},{"type":"image","data":"` + bulk + `"}]}`, true},
 		{"pi user", `{"type":"message","id":"m1","message":{"role":"user","content":[{"type":"text","text":"What does this show? ` + bulk + `"}]}}`, true},
+		{"pi role after its content", `{"type":"message","message":{"content":[{"type":"text","text":"What does this show?"}],"role":"user","details":"` + bulk + `"}}`, true},
 		{"pi tool result", `{"type":"message","id":"m1","message":{"role":"toolResult","content":[{"type":"text","text":"` + bulk + `"}]}}`, false},
 		{"codex user message", `{"timestamp":"t","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"What does this show?"},{"type":"input_image","image_url":"data:` + bulk + `"}]}}`, true},
 		{"codex environment context", `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>` + bulk + `"}]}}`, false},
@@ -73,7 +77,7 @@ func TestUnreadLineIsUserTurn(t *testing.T) {
 func TestUnreadLineHeadEndingInsideAnEscape(t *testing.T) {
 	t.Parallel()
 	head := `{"type":"user","message":{"role":"user","content":"Stop hook feedback: \u00`
-	if got := readTranscriptLineHead([]byte(head)).text; got != "Stop hook feedback: " {
+	if got := readTranscriptLineHead([]byte(head)).requestStart(); got != "Stop hook feedback:" {
 		t.Fatalf("text = %q, want the readable start", got)
 	}
 	if unreadLineIsUserTurn([]byte(head)) {
