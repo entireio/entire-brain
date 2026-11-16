@@ -357,3 +357,232 @@ func TestInstallPushHookAllowsWorktreeLocalHooksPath(t *testing.T) {
 		t.Fatalf("hook must land in the worktree-local hooks dir, got %q", path)
 	}
 }
+
+// testHostChainHook is the shape of the host CLI's pre-push after it backed up
+// a hook it found: its marker, its own line, then the chain call that runs
+// pre-push.pre-entire by that literal name.
+const testHostChainHook = "#!/bin/sh\n# Entire CLI hooks\nentire hooks git pre-push \"$1\"\n" +
+	"# Chain: run pre-existing hook\n_entire_hook_dir=\"$(dirname \"$0\")\"\n" +
+	"if [ -x \"$_entire_hook_dir/pre-push.pre-entire\" ]; then\n" +
+	"    \"$_entire_hook_dir/pre-push.pre-entire\" \"$@\"\nfi\n"
+
+// testHuskyStub is what husky 9 writes to .husky/_/<hook> on every install.
+const testHuskyStub = "#!/usr/bin/env sh\n. \"${0%/*}/h\""
+
+func writeHook(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func requireNoFile(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("%s must not exist, lstat err=%v", path, err)
+	}
+}
+
+// rotatedHookLayout is the hooks dir after a husky reinstall in a repo the
+// host CLI and Brain both hook (#645): husky rewrote the primary with its
+// stub, and the host's reconcile backed the stub up to pre-push.pre-entire,
+// rotating our hook, which had been there, to a timestamped copy that
+// nothing runs.
+func rotatedHookLayout(t *testing.T, hooksDir string) (primary, slot, rotated string) {
+	t.Helper()
+	primary = filepath.Join(hooksDir, "pre-push")
+	slot = primary + ".pre-entire"
+	rotated = slot + ".20261115T101500Z"
+	writeHook(t, primary, testHostChainHook)
+	writeHook(t, slot, testHuskyStub)
+	writeHook(t, rotated, pushHookContent("/managed/entire-brain"))
+	return primary, slot, rotated
+}
+
+// A rotated copy is not chained: connect must put our hook back where the
+// host's chain runs it (#645), behind the host's hook rather than in front of
+// it, so the host's next reconcile has nothing to re-wrap.
+func TestInstallPushHookRepairsCopyTheHostRotated(t *testing.T) {
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	primary, slot, rotated := rotatedHookLayout(t, hooksDir)
+	// An earlier repair left the previous stub behind our chain; husky's
+	// stubs are identical, so it is replaced rather than rotated.
+	writeHook(t, slot+pushHookBackupSuffix, testHuskyStub)
+
+	state, path, err := installPushHook(context.Background(), opts, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state != pushHookInstalled || path != slot {
+		t.Fatalf("a rotated copy must not read as chained: state=%v path=%v", state, path)
+	}
+	if got := readHook(t, slot); !strings.Contains(got, pushHookMarker) {
+		t.Fatalf("our hook must be back in the host's chain slot: %q", got)
+	}
+	if got := readHook(t, slot+pushHookBackupSuffix); got != testHuskyStub {
+		t.Fatalf("our chain must run the husky stub: %q", got)
+	}
+	if got := readHook(t, primary); got != testHostChainHook {
+		t.Fatalf("primary must stay the host's: %q", got)
+	}
+	requireNoFile(t, primary+pushHookBackupSuffix)
+	requireNoFile(t, slot+pushHookBackupSuffix+".20261115T101500Z")
+	if got := readHook(t, rotated); !strings.Contains(got, pushHookMarker) {
+		t.Fatalf("install leaves the rotated copy for uninstall: %q", got)
+	}
+
+	// The repaired layout reads as chained from then on.
+	state, path, err = installPushHook(context.Background(), opts, repoDir)
+	if err != nil || state != pushHookChainedIn || path != slot {
+		t.Fatalf("rerun state=%v path=%v err=%v", state, path, err)
+	}
+}
+
+// Setup refreshes and never installs, so a rotated copy is reported as not
+// running, with the path, instead of as chained.
+func TestRefreshPushHookReportsCopyTheHostRotated(t *testing.T) {
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	_, slot, rotated := rotatedHookLayout(t, hooksDir)
+
+	state, path, err := refreshPushHook(context.Background(), opts, repoDir)
+	if err != nil || state != pushHookDormant || path != rotated {
+		t.Fatalf("state=%v path=%v err=%v", state, path, err)
+	}
+	if got := readHook(t, slot); got != testHuskyStub {
+		t.Fatalf("refresh must not install: %q", got)
+	}
+}
+
+// With the host's hook in the primary and a hook in the slot its chain runs,
+// we join that chain instead of moving the host's hook behind ours. Moving it
+// made the host's next reconcile back ours up into the slot, which rotated
+// the hook there to a copy nothing runs.
+func TestInstallPushHookJoinsTheHostChain(t *testing.T) {
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	primary := filepath.Join(hooksDir, "pre-push")
+	slot := primary + ".pre-entire"
+	userHook := "#!/bin/sh\necho user hook\n"
+	writeHook(t, primary, testHostChainHook)
+	writeHook(t, slot, userHook)
+
+	state, path, err := installPushHook(context.Background(), opts, repoDir)
+	if err != nil || state != pushHookInstalled || path != slot {
+		t.Fatalf("state=%v path=%v err=%v", state, path, err)
+	}
+	if got := readHook(t, primary); got != testHostChainHook {
+		t.Fatalf("primary must stay the host's: %q", got)
+	}
+	if got := readHook(t, slot); !strings.Contains(got, pushHookMarker) {
+		t.Fatalf("slot must hold our hook: %q", got)
+	}
+	if got := readHook(t, slot+pushHookBackupSuffix); got != userHook {
+		t.Fatalf("our chain must run the user's hook: %q", got)
+	}
+	requireNoFile(t, primary+pushHookBackupSuffix)
+}
+
+// The host's chain is joined only where it runs: a host hook that chains to
+// nothing, an empty slot, and pre-commit's wrapper in the slot all keep the
+// old install, in front of the primary.
+func TestInstallPushHookWrapsThePrimaryOutsideTheHostChain(t *testing.T) {
+	const hostNoChain = "#!/bin/sh\n# Entire CLI hooks\nentire hooks git pre-push \"$1\"\n"
+	const preCommit = "#!/usr/bin/env bash\n# File generated by pre-commit: https://pre-commit.com\nexec pre-commit hook-impl --hook-type=pre-push\n"
+	for name, tc := range map[string]struct{ primary, slot string }{
+		"host hook without a chain": {primary: hostNoChain, slot: "#!/bin/sh\nexit 0\n"},
+		"no slot":                   {primary: testHostChainHook},
+		"pre-commit wrapper":        {primary: testHostChainHook, slot: preCommit},
+	} {
+		t.Run(name, func(t *testing.T) {
+			opts, repoDir, hooksDir := pushHookHarness(t)
+			primary := filepath.Join(hooksDir, "pre-push")
+			slot := primary + ".pre-entire"
+			writeHook(t, primary, tc.primary)
+			if tc.slot != "" {
+				writeHook(t, slot, tc.slot)
+			}
+
+			state, path, err := installPushHook(context.Background(), opts, repoDir)
+			if err != nil || state != pushHookInstalled || path != primary {
+				t.Fatalf("state=%v path=%v err=%v", state, path, err)
+			}
+			if got := readHook(t, primary+pushHookBackupSuffix); got != tc.primary {
+				t.Fatalf("host hook must move behind ours: %q", got)
+			}
+			if tc.slot != "" {
+				if got := readHook(t, slot); got != tc.slot {
+					t.Fatalf("slot must stay as it was: %q", got)
+				}
+			}
+			requireNoFile(t, slot+pushHookBackupSuffix)
+		})
+	}
+}
+
+// Uninstall puts back the hook our copy in the host's chain was running, so
+// the host's chain keeps running it. Deleting our copy alone stranded it
+// where nothing runs it.
+func TestUninstallPushHookRestoresTheHookBehindUsInTheHostChain(t *testing.T) {
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	primary := filepath.Join(hooksDir, "pre-push")
+	slot := primary + ".pre-entire"
+	writeHook(t, primary, testHostChainHook)
+	writeHook(t, slot, pushHookContent("/managed/entire-brain"))
+	writeHook(t, slot+pushHookBackupSuffix, testHuskyStub)
+
+	if err := uninstallPushHook(context.Background(), opts, repoDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := readHook(t, slot); got != testHuskyStub {
+		t.Fatalf("the hook we chained to must be back in the host's chain: %q", got)
+	}
+	requireNoFile(t, slot+pushHookBackupSuffix)
+	if got := readHook(t, primary); got != testHostChainHook {
+		t.Fatalf("primary must stay the host's: %q", got)
+	}
+}
+
+// Disconnect removes every copy of our hook, including ones an installer
+// rotated aside; they no longer run, and nothing else would remove them.
+func TestUninstallPushHookRemovesRotatedCopies(t *testing.T) {
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	primary, slot, rotated := rotatedHookLayout(t, hooksDir)
+	ownRotated := primary + pushHookBackupSuffix + ".20261114T090000Z"
+	writeHook(t, ownRotated, pushHookContent("/old/entire-brain"))
+	userRotated := slot + ".20261113T080000Z"
+	writeHook(t, userRotated, testHuskyStub)
+
+	if err := uninstallPushHook(context.Background(), opts, repoDir); err != nil {
+		t.Fatal(err)
+	}
+	requireNoFile(t, rotated)
+	requireNoFile(t, ownRotated)
+	if got := readHook(t, userRotated); got != testHuskyStub {
+		t.Fatalf("a rotated copy of someone else's hook stays: %q", got)
+	}
+	if got := readHook(t, slot); got != testHuskyStub {
+		t.Fatalf("the live chain stays as it was: %q", got)
+	}
+	if got := readHook(t, primary); got != testHostChainHook {
+		t.Fatalf("primary must stay the host's: %q", got)
+	}
+}
+
+func TestIsRotatedHookCopy(t *testing.T) {
+	for name, want := range map[string]bool{
+		"pre-push.pre-entire.20261115T101500Z":                  true,
+		"pre-push.pre-entire.20261115T101500Z-2":                true,
+		"pre-push.pre-entire-brain.20261115T101500Z":            true,
+		"pre-push.pre-entire.pre-entire-brain.20261115T101500Z": true,
+		"pre-push.pre-entire":                                   false,
+		"pre-push.pre-entire.pre-entire-brain":                  false,
+		"pre-push.legacy":                                       false,
+		"pre-push.old":                                          false,
+		"pre-push.pre-entire.20261315T101500Z":                  false,
+		"pre-push.pre-entire.20261115T101500Z-":                 false,
+		"pre-push.pre-entire.20261115T101500Z-x":                false,
+	} {
+		if got := isRotatedHookCopy(filepath.Join("/hooks", name)); got != want {
+			t.Errorf("isRotatedHookCopy(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
