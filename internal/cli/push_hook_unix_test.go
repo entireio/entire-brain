@@ -197,6 +197,10 @@ func TestInstallPushHookMovesALinkedHookIntoItsLink(t *testing.T) {
 			files: map[string]string{"user-hook": testUserHook},
 			links: map[string]string{"pre-push": "user-hook", "pre-push.pre-entire.pre-entire-brain": "pre-push"},
 		},
+		"primary links to the user's hook and our backup name links back to it": {
+			files: map[string]string{"user-hook": testUserHook},
+			links: map[string]string{"pre-push": "user-hook", "pre-push.pre-entire-brain": "pre-push"},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			opts, repoDir, hooksDir := pushHookHarness(t)
