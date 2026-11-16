@@ -165,9 +165,8 @@ func relinkToFileOf(hook, path string) error {
 	if resolvedDir, err := filepath.EvalSymlinks(dir); err == nil && filepath.Dir(file) == resolvedDir {
 		file = filepath.Base(file)
 	}
-	tmp := filepath.Join(dir, ".entire-brain-relink-"+filepath.Base(hook))
-	_ = os.Remove(tmp)
-	if err := os.Symlink(file, tmp); err != nil {
+	tmp, err := newSymlink(file, filepath.Join(dir, ".entire-brain-relink-"+filepath.Base(hook)))
+	if err != nil {
 		return fmt.Errorf("relink %s: %w", filepath.Base(hook), err)
 	}
 	if err := os.Rename(tmp, hook); err != nil {
@@ -175,6 +174,25 @@ func relinkToFileOf(hook, path string) error {
 		return fmt.Errorf("relink %s: %w", filepath.Base(hook), err)
 	}
 	return os.Remove(path)
+}
+
+// newSymlink creates a symlink to target at base, or at base-<n> when a
+// name is taken, and returns its path. It never replaces an existing file.
+func newSymlink(target, base string) (string, error) {
+	for n := 0; n < 100; n++ {
+		name := base
+		if n > 0 {
+			name = fmt.Sprintf("%s-%d", base, n)
+		}
+		err := os.Symlink(target, name)
+		if err == nil {
+			return name, nil
+		}
+		if !os.IsExist(err) {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("no free name for %s", filepath.Base(base))
 }
 
 // rotateAside renames path to path.<timestamp>, adding -<n> on a name clash,

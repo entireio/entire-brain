@@ -278,3 +278,32 @@ func requireNoHookOfOurs(t *testing.T, hooksDir string) {
 		}
 	}
 }
+
+// Relinking a hook goes through a temporary symlink beside it. A file that
+// already has that name stays as it was, and the next free name is used.
+func TestRelinkKeepsAFileAtItsTemporaryName(t *testing.T) {
+	dir := t.TempDir()
+	hook := filepath.Join(dir, "pre-push")
+	path := filepath.Join(dir, "pre-push"+pushHookBackupSuffix)
+	taken := filepath.Join(dir, ".entire-brain-relink-pre-push")
+	writeHook(t, filepath.Join(dir, "user-hook"), testUserHook)
+	writeHook(t, taken, testLeftBehindHook)
+	if err := os.Symlink("user-hook", hook); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("pre-push", path); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := relinkToFileOf(hook, path); err != nil {
+		t.Fatal(err)
+	}
+	if got := readHook(t, taken); got != testLeftBehindHook {
+		t.Fatalf("the file at the temporary name must stay: %q", got)
+	}
+	if got := readHook(t, hook); got != testUserHook {
+		t.Fatalf("the hook must resolve to the user's hook: %q", got)
+	}
+	requireNoFile(t, path)
+	requireNoFile(t, taken+"-1")
+}
