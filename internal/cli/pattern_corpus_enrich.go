@@ -135,16 +135,19 @@ func corpusEpisodeOps(workText, repoRoot string) (tools []corpusToolOp, commands
 		commands = append(commands, c...)
 		files = append(files, f...)
 	}
-	// Correlate exit codes, and failures that carry none, to their commands.
+	// Correlate exit codes, and failures an exit code does not show, to
+	// their commands.
 	for i := range commands {
-		if commands[i].callID == "" {
+		id := commands[i].callID
+		if id == "" {
 			continue
 		}
-		if code, ok := exitByCall[commands[i].callID]; ok {
+		if code, ok := exitByCall[id]; ok {
 			c := code
 			commands[i].exitCode = &c
 			commands[i].failed = code != 0
-		} else if failedByCall[commands[i].callID] {
+		}
+		if failedByCall[id] {
 			commands[i].failed = true
 		}
 	}
@@ -268,18 +271,28 @@ func repoRelativePath(p, repoRoot string) string {
 // codexSessionRoot is the checkout a compact codex session's FileChange paths
 // are under, worked out from the session itself: a FileChange path is
 // absolute, and the session's checkpoint records the repo-relative files it
-// touched (files_touched), so a path that ends in one of them, split at a
-// "/", gives a candidate root.
+// touched (files_touched), so a candidate root that a path is a touched file
+// under is a match.
+//
+// The candidates start from the session's working directory. From cli 0.13.3
+// a FileChange's result carries its turn's cwd, and the checkout is that
+// directory or one of its parents: Entire's Codex hooks live in the
+// checkout's .codex directory, a project config layer Codex loads only when it
+// runs inside the checkout, so a session Entire recorded ran there. A path
+// outside them, such as a scratch copy under /tmp, cannot give the root, and a
+// checkout at the filesystem root can. A session written before cli 0.13.3
+// carries no cwd, so every split of every path at a "/" is a candidate,
+// except the filesystem root.
 //
 // A candidate scores one for each distinct session path that is a touched
-// file under it, and the highest score wins. Every split of every path counts,
-// so a checkout named like one of its own directories (/work/repo with
+// file under it, and the highest score wins. Every candidate is scored, so a
+// checkout named like one of its own directories (/work/repo with
 // repo/main.go) still gets its full score, and repeated edits of one file
 // count once. A tie is ambiguous, whatever else the tied roots hold, so it
 // gives "" and the paths are stored as written rather than linked to the
 // wrong files. So does a session with any ".." path (see
-// codexFileChangePaths), and one with no FileChange or no path that ends in
-// a touched file.
+// codexFileChangePaths), and one with no FileChange or no path that is a
+// touched file under a candidate.
 //
 // The live checkout the corpus is built from is not used: worktrees of a repo
 // share one corpus, and an unchanged session is not re-indexed, so the paths
@@ -296,15 +309,27 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 			touched[f] = true
 		}
 	}
-	paths, resolved := codexFileChangePaths(transcript)
+	paths, cwds, resolved := codexFileChangePaths(transcript)
 	if !resolved {
 		return ""
 	}
+	cwdRoots := dirsFrom(cwds)
 	score := map[string]int{}
+	vote := func(root, p string) {
+		if rel, ok := pathUnderRoot(p, root); ok && touched[rel] {
+			score[root]++
+		}
+	}
 	for _, p := range paths {
+		if len(cwdRoots) > 0 {
+			for _, root := range cwdRoots {
+				vote(root, p)
+			}
+			continue
+		}
 		for i := 1; i < len(p)-1; i++ {
-			if p[i] == '/' && touched[p[i+1:]] {
-				score[p[:i]]++
+			if p[i] == '/' {
+				vote(p[:i], p)
 			}
 		}
 	}
@@ -326,12 +351,14 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 // codexFileChangePaths is every distinct absolute path of the file refs a
 // compact codex transcript's FileChange calls give (fileChangeRefs, read
 // through recordToolUses as the episode ops read them), cleaned by
-// cleanAbsPath. resolved is false when any of them has a ".." segment: where
-// that path really is cannot be known here, and leaving it out could hand the
-// root to whichever paths are left.
-func codexFileChangePaths(transcript string) (paths []string, resolved bool) {
+// cleanAbsPath, and every distinct working directory their results carry,
+// cleaned the same way. A cwd that is not absolute or has a ".." segment is
+// left out. resolved is false when any path has a ".." segment: where that
+// path really is cannot be known here, and leaving it out could hand the root
+// to whichever paths are left.
+func codexFileChangePaths(transcript string) (paths, cwds []string, resolved bool) {
 	seen := map[string]bool{}
-	var out []string
+	seenCWD := map[string]bool{}
 	resolved = true
 	for _, line := range strings.Split(transcript, "\n") {
 		if !mayHoldFileChange(line) {
@@ -351,12 +378,39 @@ func codexFileChangePaths(transcript string) (paths []string, resolved bool) {
 				}
 				if s, ok := cleanAbsPath(ref.path); ok && !seen[s] {
 					seen[s] = true
-					out = append(out, s)
+					paths = append(paths, s)
 				}
+			}
+			if s, ok := cleanAbsPath(use.cwd); ok && !seenCWD[s] {
+				seenCWD[s] = true
+				cwds = append(cwds, s)
 			}
 		}
 	}
-	return out, resolved
+	return paths, cwds, resolved
+}
+
+// dirsFrom is every distinct directory in dirs (clean absolute slash paths
+// from cleanAbsPath) and each of their parents, up to and including the
+// filesystem root: "/" for a rooted path, the drive ("C:") for a drive path.
+func dirsFrom(dirs []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, d := range dirs {
+		for {
+			if seen[d] {
+				break
+			}
+			seen[d] = true
+			out = append(out, d)
+			parent := path.Dir(d)
+			if parent == d || parent == "." {
+				break
+			}
+			d = parent
+		}
+	}
+	return out
 }
 
 // cleanAbsPath is p as a slashPath with "." segments and doubled slashes
@@ -378,10 +432,15 @@ func hasDotDotSegment(p string) bool {
 
 // pathUnderRoot is p relative to root when p is strictly inside it. Both are
 // clean slash paths, so a root that is only a string prefix (/work/repo2 for
-// /work/repo) is not a parent.
+// /work/repo) is not a parent. The filesystem root "/" is the parent of every
+// other rooted path.
 func pathUnderRoot(p, root string) (string, bool) {
-	if strings.HasPrefix(p, root+"/") && len(p) > len(root)+1 {
-		return p[len(root)+1:], true
+	prefix := root + "/"
+	if root == "/" {
+		prefix = root
+	}
+	if strings.HasPrefix(p, prefix) && len(p) > len(prefix) {
+		return p[len(prefix):], true
 	}
 	return "", false
 }
@@ -461,19 +520,30 @@ func codexWrapperHeader(text string) string {
 // about how their commands ended, keyed by call id for the same correlation
 // the native function_call_output case feeds.
 //
-// For a rollout of an older Codex (the cli's response_item path) every result
-// is status "success" and the exit code is only in the wrapper text Codex puts
-// around the command's output, which goes into exitByCall. A current Codex
-// rollout (the cli's item path) carries the command's own output with no
-// wrapper and marks a failure only as status "error"; the exit code is not
-// carried over. Such a call's output is not read for exit text (a test that
-// logs "exited with code 1" is not the command's exit code), and its status
-// "error" goes into failedByCall: the command failed, with no exit code to
-// store. The cli also writes "error" for a command the user declined.
+// A current Codex rollout (the cli's item path) writes, from cli 0.13.3, a
+// command's exit code on its result ("exitCode"), which goes into exitByCall,
+// and "declined" on a call the user declined. A declined call never ran, so it
+// records nothing: it is not a failure and has no exit code. Any other status
+// "error" on a command goes into failedByCall, as Codex's own verdict: it also
+// marks a command failed that ended with no exit code (one that could not
+// start, or was cut off). The item path's output is the command's own, with no
+// wrapper, so it is never read for exit text (a test that logs "exited with
+// code 1" is not the command's exit code).
+//
+// Older transcripts keep their fallbacks. The item path before cli 0.13.3
+// writes no exit code and no declined flag, so status "error" is its only
+// failure signal, and a declined command still counts as failed: its line
+// cannot tell the two apart. A rollout of an older Codex (the cli's
+// response_item path) marks every result status "success" and has its exit
+// code only in the wrapper text Codex puts around the command's output, which
+// is parsed when the result carries no exit code of its own.
 func compactCodexResults(uses []toolUse, exitByCall map[string]int, failedByCall map[string]bool) {
 	for _, use := range uses {
-		if use.id == "" {
+		if use.id == "" || use.declined {
 			continue
+		}
+		if use.exitCode != nil {
+			exitByCall[use.id] = *use.exitCode
 		}
 		if use.name == codexItemCommandTool {
 			if use.status == transcript.ToolStatusError {
@@ -481,8 +551,10 @@ func compactCodexResults(uses []toolUse, exitByCall map[string]int, failedByCall
 			}
 			continue
 		}
-		if code, ok := parseExitCode(use.output); ok {
-			exitByCall[use.id] = code
+		if use.exitCode == nil {
+			if code, ok := parseExitCode(use.output); ok {
+				exitByCall[use.id] = code
+			}
 		}
 	}
 }

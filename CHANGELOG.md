@@ -24,6 +24,14 @@ All notable changes to `entire-brain` are recorded here. The format follows
 - The pattern corpus works out a Codex session's repository root from the
   same edit records it stores file refs from, so the two can no longer
   disagree about which records are edits.
+- The pattern corpus reads the result fields cli 0.13.3 writes for a current
+  Codex session. A command's exit code is stored instead of left empty, a
+  command the user declined no longer counts as failed or in `exit_fails`,
+  and a session's repository root is looked for only in the turn's working
+  directory and its parents, which settles ties the edit paths alone left
+  unresolved and finds a checkout at the filesystem root. Sessions written by
+  an older cli keep the previous behavior. The indexer version moves, so the
+  next refresh re-indexes existing sessions.
 - `recall --evidence` no longer returns harness-injected `<system-reminder>`
   text as `role: "user"` evidence. User-role strings and text blocks now go
   through the same wrapper filter as the conversation reader, so reminders,

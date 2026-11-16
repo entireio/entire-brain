@@ -13,10 +13,12 @@ import (
 
 // A current Codex rollout reaches the brain through the cli's item path
 // (entireio/cli#2897): a command is a tool_use named "Bash" that carries the
-// command's own output and marks a failure only as status "error", and an edit
-// is a tool_use named "FileChange" with absolute paths. These are the lines
-// the cli's converter writes for a failing go test and an edit of main.go in
-// the checkout at root.
+// command's own output, and an edit is a tool_use named "FileChange" with
+// absolute paths. Before cli 0.13.3 a command marks a failure only as status
+// "error", with no exit code, and a FileChange carries no cwd. These are the
+// lines cli 0.13.1 writes for a failing go test and an edit of main.go in the
+// checkout at root; pattern_corpus_codex_result_fields_test.go covers the
+// fields cli 0.13.3 adds.
 func codexItemPathTranscript(t *testing.T, root string) string {
 	t.Helper()
 	path, err := json.Marshal(root + "/main.go")
@@ -55,9 +57,10 @@ func describeFileRefs(files []corpusFileRef) string {
 	return string(b)
 }
 
-// A Bash block's status "error" is the item path's only failure signal: the
-// command is stored as failed with no exit code. Its output is the command's
-// own, so exit text in it is not read, and status "success" is not a failure.
+// Before cli 0.13.3 a Bash block's status "error" is the item path's only
+// failure signal: the command is stored as failed with no exit code. Its
+// output is the command's own, so exit text in it is not read, and status
+// "success" is not a failure.
 func TestCorpusEpisodeOpsCodexItemPathCommands(t *testing.T) {
 	bash := func(output, status string) string {
 		out, err := json.Marshal(output)
