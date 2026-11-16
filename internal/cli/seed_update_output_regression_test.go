@@ -6,6 +6,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,20 +69,34 @@ func TestSeedUpdateExplicitOutputRefusesForeignManifestJSON(t *testing.T) {
 	}
 }
 
-func TestSeedUpdateExplicitOutputRefusesOversizedManifest(t *testing.T) {
-	// The ownership probe reads an untrusted caller path; it must be bounded,
-	// so a huge file that otherwise parses as a brain manifest is not loaded.
+func TestSeedUpdateExplicitOutputAcceptsLargeBrainManifest(t *testing.T) {
+	// Real manifests grow with the session catalog — a long-lived repo's is
+	// over 1 MiB on disk — so the ownership probe must not cap the read at a
+	// size a genuine brain exceeds.
 	repoDir := seedFixtureRepo(t)
-	opts := seedUpdateTestOptions(t, repoDir)
-	output := t.TempDir()
-	pad := strings.Repeat("x", updateGateManifestMaxBytes+1)
-	huge := `{"schema_version":1,"sources":{"seed":{}},"pad":"` + pad + `"}`
-	if err := os.WriteFile(filepath.Join(output, "manifest.json"), []byte(huge), 0o600); err != nil {
+	output := filepath.Join(t.TempDir(), "out")
+	if _, _, err := executeSplit(t, NewRootCommand(seedUpdateTestOptions(t, repoDir)), "refresh", "seed", "--agent", "none", "--update", "--output", output, repoDir); err != nil {
+		t.Fatalf("first seed: %v", err)
+	}
+	manifestPath := filepath.Join(output, "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := executeSplit(t, NewRootCommand(opts), "refresh", "seed", "--agent", "none", "--update", "--output", output, repoDir)
-	if err == nil || !strings.Contains(err.Error(), "must be an existing brain") {
-		t.Fatalf("expected refusal of oversized manifest, got err=%v", err)
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	m["warnings"] = []string{strings.Repeat("x", 2<<20)}
+	bloated, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, bloated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := executeSplit(t, NewRootCommand(seedUpdateTestOptions(t, repoDir)), "refresh", "seed", "--agent", "none", "--update", "--output", output, repoDir); err != nil {
+		t.Fatalf("update refused a brain with a large manifest: %v", err)
 	}
 }
 

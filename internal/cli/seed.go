@@ -1940,11 +1940,6 @@ func materializeHeadSnapshot(ctx context.Context, runner CommandRunner, repoDir 
 	return dir, commit, cleanup, nil
 }
 
-// updateGateManifestMaxBytes bounds the ownership probe's manifest read. A
-// genuine brain manifest is a few KB of counts and source records; anything
-// beyond this is not one.
-const updateGateManifestMaxBytes = 1 << 20
-
 // validateUpdateOutputDir gates an explicit --update target. Seeding takes
 // Brain's file locks inside the output, creating or truncating files under
 // <dir>/locks/ before any ownership check, so a directory Brain does not own
@@ -1963,9 +1958,11 @@ func validateUpdateOutputDir(path string) error {
 	}
 	// SafeReadFile, not os.ReadFile: the probe reads an untrusted caller path,
 	// so it needs the gapless regular-file check (a FIFO swapped in after a
-	// path check would block forever) and the size bound.
+	// path check would block forever) and a read bound. The bound is the
+	// repo-wide default ceiling, not a tight cap: manifests carry the session
+	// catalog and routinely exceed 1 MiB on long-lived repositories.
 	manifestPath := filepath.Join(abs, bmanifest.FileName)
-	if data, readErr := clibase.SafeReadFile(manifestPath, updateGateManifestMaxBytes); readErr == nil && validateForcedOutputManifest(data) == nil {
+	if data, readErr := clibase.SafeReadFile(manifestPath, 0); readErr == nil && validateForcedOutputManifest(data) == nil {
 		return nil
 	}
 	if _, err := validateExportDirAvailable(abs); err != nil {
