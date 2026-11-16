@@ -147,6 +147,8 @@ func TestCodexSessionRootFromCWD(t *testing.T) {
 		{"a checkout at the filesystem root, cwd below it", lines(codexFileChangeIn(t, "/src", codexChange{Path: "/src/main.go", Kind: "update"})), []string{"src/main.go"}, "/"},
 		{"windows cwd", lines(codexFileChangeIn(t, `C:\src\repo`, codexChange{Path: `C:\src\repo\pkg\a.go`, Kind: "update"})), []string{"pkg/a.go"}, "C:/src/repo"},
 		{"windows drive root", lines(codexFileChangeIn(t, `C:\`, codexChange{Path: `C:\main.go`, Kind: "update"})), []string{"main.go"}, "C:"},
+		{"a lowercase drive cwd matches uppercase drive paths", lines(codexFileChangeIn(t, `c:\src\repo`, codexChange{Path: `C:\src\repo\main.go`, Kind: "update"})), []string{"main.go"}, "C:/src/repo"},
+		{"an uppercase drive cwd matches lowercase drive paths", lines(codexFileChangeIn(t, `C:\src\repo`, codexChange{Path: "c:/src/repo/main.go", Kind: "update"})), []string{"main.go"}, "C:/src/repo"},
 		{"a FileChange with no result follows the session's cwd", lines(
 			codexFileChangeIn(t, "/work/repo", codexChange{Path: "/work/repo/main.go", Kind: "update"}),
 			`{"v":1,"agent":"codex","type":"assistant","ts":"t","id":"f2","content":[{"id":"f2","input":{"changes":[{"path":"/tmp/job/main.go","kind":"update"}]},"name":"FileChange","type":"tool_use"}]}`,

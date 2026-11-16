@@ -101,8 +101,10 @@ All notable changes to `entire-brain` are recorded here. The format follows
   directory and its parents, which settles ties the edit paths alone left
   unresolved and finds a checkout at the filesystem root. When the candidate
   roots disagree, the paths are stored as written rather than linked to the
-  wrong files. Sessions written by an older cli keep the previous behavior. The indexer version moves, so the
-  next refresh re-indexes existing sessions.
+  wrong files. A Windows drive letter matches in either case, so a cwd of
+  `c:\src\repo` finds `C:\src\repo\main.go`. Sessions written by an older
+  cli keep the previous behavior. The indexer version moves, so the next
+  refresh re-indexes existing sessions.
 - `recall --evidence` no longer returns harness-injected `<system-reminder>`
   text as `role: "user"` evidence. User-role strings and text blocks now go
   through the same wrapper filter as the conversation reader, so reminders,

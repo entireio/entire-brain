@@ -510,13 +510,19 @@ func dirsFrom(dirs []string) []string {
 // cleanAbsPath is p as a slashPath with "." segments and doubled slashes
 // removed, when it is absolute. A path with a ".." segment is refused: the OS
 // resolves ".." after symlinks, so root/link/../x.go need not be root/x.go,
-// and the checkout it was written in may not be here to look at.
+// and the checkout it was written in may not be here to look at. A drive
+// letter is made upper case: Windows ignores its case, and one session can
+// spell it both ways (a cwd of c:/src/repo, a path of C:/src/repo/main.go).
 func cleanAbsPath(p string) (string, bool) {
 	s := slashPath(p)
 	if !isAbsSlashPath(s) || hasDotDotSegment(s) {
 		return "", false
 	}
-	return path.Clean(s), true
+	s = path.Clean(s)
+	if s[0] >= 'a' && s[0] <= 'z' && len(s) >= 2 && s[1] == ':' {
+		s = string(s[0]-'a'+'A') + s[1:]
+	}
+	return s, true
 }
 
 // hasDotDotSegment reports whether a slashPath has a ".." segment.
