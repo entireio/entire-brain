@@ -231,6 +231,11 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			return err
 		}
 	}
+	if outputExplicit && seedOpts.update {
+		if err := validateUpdateOutputDir(outputDir); err != nil {
+			return err
+		}
+	}
 	outputDir, err = prepareExportDir(outputDir, true)
 	if err != nil {
 		return err
@@ -1930,4 +1935,26 @@ func materializeHeadSnapshot(ctx context.Context, runner CommandRunner, repoDir 
 		return "", "", nil, fmt.Errorf("extract committed tree %s: %w", commit, runErr)
 	}
 	return dir, commit, cleanup, nil
+}
+
+// validateUpdateOutputDir gates an explicit --update target. Seeding takes
+// Brain's file locks inside the output, creating or truncating files under
+// <dir>/locks/ before any ownership check, so a directory Brain does not own
+// must be refused up front (issue #637). The manifest is the ownership marker;
+// a missing or empty directory is a first seed and passes.
+func validateUpdateOutputDir(path string) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve output directory: %w", err)
+	}
+	if info, err := os.Lstat(abs); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("output directory must not be a symlink: %s", abs)
+	}
+	if bmanifest.Exists(abs) {
+		return nil
+	}
+	if _, err := validateExportDirAvailable(abs); err != nil {
+		return fmt.Errorf("--update output must be an existing brain (with %s), an empty directory, or missing: %w", bmanifest.FileName, err)
+	}
+	return nil
 }
