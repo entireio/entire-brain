@@ -284,16 +284,16 @@ func repoRelativePath(p, repoRoot string) string {
 // carries no cwd, so every split of every path at a "/" is a candidate,
 // except the filesystem root.
 //
-// A candidate scores one for each distinct session path that is a touched
-// file under it (from a cwd, less one for each path under it that is not; see
-// cwdRootScores), and the highest score wins. Every candidate is scored, so a
-// checkout named like one of its own directories (/work/repo with
+// Without a cwd, a candidate scores one for each distinct session path that
+// is a touched file under it, and the highest score wins. Every candidate is
+// scored, so a checkout named like one of its own directories (/work/repo with
 // repo/main.go) still gets its full score, and repeated edits of one file
-// count once. A tie is ambiguous, whatever else the tied roots hold, so it
-// gives "" and the paths are stored as written rather than linked to the
-// wrong files. So does a session with any ".." path (see
-// codexFileChangePaths), and one with no FileChange or no path that is a
-// touched file under a candidate.
+// count once. From a cwd, the candidates are compared in pairs by the same
+// matches, those both can see first (see cwdRoot). Either way an unsettled
+// contest is ambiguous, whatever else the tied roots hold, so it gives "" and
+// the paths are stored as written rather than linked to the wrong files. So
+// does a session with any ".." path (see codexFileChangePaths), and one with
+// no FileChange or no path that is a touched file under a candidate.
 //
 // The live checkout the corpus is built from is not used: worktrees of a repo
 // share one corpus, and an unchanged session is not re-indexed, so the paths
@@ -315,7 +315,7 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 		return ""
 	}
 	if len(cwds) > 0 {
-		return bestCodexRoot(cwdRootScores(paths, dirsFrom(cwds), touched))
+		return cwdRoot(paths, dirsFrom(cwds), touched)
 	}
 	return bestCodexRoot(splitRootScores(paths, touched))
 }
@@ -335,34 +335,70 @@ func splitRootScores(paths []string, touched map[string]bool) map[string]int {
 	return score
 }
 
-// cwdRootScores scores each of roots (the session's cwds and their parents)
-// by the paths under it: one for each that is a touched file under it, less
-// one for each that is not, since the checkout predicts that every edit under
-// it is a file it touched. Without the penalty, a parent above the checkout
-// (up to "/") could outvote it with edits outside it, such as /tmp/a.go read
-// as tmp/a.go, while every edit in the checkout misses under that parent. A
-// root no path is a touched file under is left out, so a checkout whose
-// untouched edits (ignored or reverted files) outnumber its touched ones still
-// wins when nothing else matches.
-func cwdRootScores(paths, roots []string, touched map[string]bool) map[string]int {
-	score := map[string]int{}
+// cwdRoot is the one of roots (the session's cwds and their parents) that
+// beats every other with a touched file under it (see rootBeats), or "" when
+// none does. An edit under it that is not a touched file (an ignored or
+// reverted file) costs a root nothing.
+func cwdRoot(paths, roots []string, touched map[string]bool) string {
+	matches := map[string][]string{}
+	var live []string
 	for _, root := range roots {
-		matched, missed := 0, 0
 		for _, p := range paths {
-			rel, ok := pathUnderRoot(p, root)
-			switch {
-			case !ok:
-			case touched[rel]:
-				matched++
-			default:
-				missed++
+			if rel, ok := pathUnderRoot(p, root); ok && touched[rel] {
+				matches[root] = append(matches[root], p)
 			}
 		}
-		if matched > 0 {
-			score[root] = matched - missed
+		if len(matches[root]) > 0 {
+			live = append(live, root)
 		}
 	}
-	return score
+	for _, root := range live {
+		if beatsAll(root, live, matches) {
+			return root
+		}
+	}
+	return ""
+}
+
+func beatsAll(root string, roots []string, matches map[string][]string) bool {
+	for _, other := range roots {
+		if other != root && !rootBeats(root, other, matches[root], matches[other]) {
+			return false
+		}
+	}
+	return true
+}
+
+// rootBeats reports whether root x, whose matches (paths that are a touched
+// file under it) are mx, is better supported than root y, with my. The paths
+// under both decide first: x wins with more matches among them. Wherever the
+// checkout is, such a path is inside it when it is under the deeper of the
+// two, so only the right root reads it as the file it is; the other matches
+// it only by a coincidence of names. A path under only one of them may be an
+// edit outside the checkout, such as /tmp/a.go read as tmp/a.go under "/",
+// so those matches only break a tie, and the root with more of them wins: a
+// parent of the checkout whose edits under a subdirectory cwd match as well
+// as the subdirectory's do, and that also explains edits beside it, wins. A
+// tie on both is no win for either.
+func rootBeats(x, y string, mx, my []string) bool {
+	sharedX, outX := splitByRoot(mx, y)
+	sharedY, outY := splitByRoot(my, x)
+	if sharedX != sharedY {
+		return sharedX > sharedY
+	}
+	return outX > outY
+}
+
+// splitByRoot counts the paths that are under root and those that are not.
+func splitByRoot(paths []string, root string) (under, outside int) {
+	for _, p := range paths {
+		if _, ok := pathUnderRoot(p, root); ok {
+			under++
+		} else {
+			outside++
+		}
+	}
+	return under, outside
 }
 
 // bestCodexRoot is the root with the highest score, or "" when there is none
@@ -394,7 +430,7 @@ func bestCodexRoot(score map[string]int) string {
 func codexFileChangePaths(transcript string) (paths, cwds []string, resolved bool) {
 	var ps, cs distinctStrings
 	resolved = true
-	for _, use := range codexFileChangeUses(transcript) {
+	eachCodexFileChange(transcript, func(use toolUse) {
 		for _, ref := range fileChangeRefs(use.input, 0) {
 			if hasDotDotSegment(slashPath(ref.path)) {
 				resolved = false
@@ -406,15 +442,16 @@ func codexFileChangePaths(transcript string) (paths, cwds []string, resolved boo
 		if s, ok := cleanAbsPath(use.cwd); ok {
 			cs.add(s)
 		}
-	}
+	})
 	return ps.list, cs.list, resolved
 }
 
-// codexFileChangeUses is every FileChange tool call in a transcript, read
-// through recordToolUses as the episode ops read them. A line that cannot hold
-// one (mayHoldFileChange) is skipped without decoding it.
-func codexFileChangeUses(transcript string) []toolUse {
-	var out []toolUse
+// eachCodexFileChange calls fn with each FileChange tool call in a
+// transcript, in order, read through recordToolUses as the episode ops read
+// them. A line that cannot hold one (mayHoldFileChange) is skipped without
+// decoding it. Each call is handed over as its line is read, so a call's
+// input, diffs included, is not kept past it.
+func eachCodexFileChange(transcript string, fn func(toolUse)) {
 	for _, line := range strings.Split(transcript, "\n") {
 		if !mayHoldFileChange(line) {
 			continue
@@ -425,11 +462,10 @@ func codexFileChangeUses(transcript string) []toolUse {
 		}
 		for _, use := range recordToolUses(record) {
 			if use.name == fileChangeToolName {
-				out = append(out, use)
+				fn(use)
 			}
 		}
 	}
-	return out
 }
 
 // distinctStrings collects strings in first-seen order, each once.
