@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01PduxftykwZVmHrvgRkXUXm",
+  "agent_id": "a5bd45345bb3d3a6a",
+  "subagent_type": "general-purpose",
+  "task_description": "Librarian: search/graph/brain history",
+  "token_usage": {
+    "input_tokens": 60,
+    "cache_creation_tokens": 282591,
+    "cache_read_tokens": 4508127,
+    "output_tokens": 20658,
+    "api_call_count": 30
+  },
+  "started_at": "2026-11-16T20:55:56.750931+07:00",
+  "completed_at": "2026-11-16T22:11:32.058511+07:00"
+}

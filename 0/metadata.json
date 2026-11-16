@@ -1,0 +1,110 @@
+{
+  "cli_version": "0.13.2-nightly.202611070613.17108c455.0.20261109091047-87b53c9bdd6a",
+  "checkpoint_id": "01M7JEKNJDSZ2BB7666X74NGWY",
+  "session_id": "d93a0699-2cb2-4509-87b3-5334b60e7b79",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-16T15:11:47.767021Z",
+  "branch": "main",
+  "checkpoints_count": 10,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-fable-5-2",
+  "turn_id": "5b25872d3220",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 56,
+    "cache_creation_tokens": 249693,
+    "cache_read_tokens": 4908695,
+    "output_tokens": 16399,
+    "api_call_count": 23,
+    "subagent_tokens": {
+      "input_tokens": 100,
+      "cache_creation_tokens": 516206,
+      "cache_read_tokens": 7393600,
+      "output_tokens": 42236,
+      "api_call_count": 50
+    }
+  },
+  "redaction": {
+    "replacements": 30,
+    "layers": {
+      "betterleaks": 0,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 30,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01BvhEtXj18FKsdJVsd8Ni5E",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "anthropic-skills:google-workspace"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "5b25872d3220",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 40,
+        "end": 41,
+        "entry_ids": [
+          "0ec12cef-3b72-4c46-add7-0092b3a42f83"
+        ],
+        "tool_use_id": "toolu_01BvhEtXj18FKsdJVsd8Ni5E"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01BvhEtXj18FKsdJVsd8Ni5E"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: anthropic-skills:google-workspace",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_016TrTBPemVm3spuD5k9WQVV",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "entire-internal:librarian"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "5b25872d3220",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 41,
+        "end": 42,
+        "entry_ids": [
+          "8eb96f23-98de-4672-a8e6-91ddae4bd9be"
+        ],
+        "tool_use_id": "toolu_016TrTBPemVm3spuD5k9WQVV"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_016TrTBPemVm3spuD5k9WQVV"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: entire-internal:librarian",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 10
+  }
+}

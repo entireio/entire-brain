@@ -1,0 +1,15 @@
+{
+  "tool_use_id": "toolu_01XKyBRx53xeVANGcp9BRxtf",
+  "agent_id": "a88ce21870d356f75",
+  "subagent_type": "general-purpose",
+  "task_description": "Librarian: peregrine, agent-analytics, team",
+  "token_usage": {
+    "input_tokens": 40,
+    "cache_creation_tokens": 233615,
+    "cache_read_tokens": 2885473,
+    "output_tokens": 21578,
+    "api_call_count": 20
+  },
+  "started_at": "2026-11-16T20:55:56.854133+07:00",
+  "completed_at": "2026-11-16T22:11:32.428466+07:00"
+}
