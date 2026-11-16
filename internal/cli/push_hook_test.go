@@ -730,8 +730,19 @@ func TestInstallPushHookSetsAsideItsOldBackupWhenItJoinsTheHostChain(t *testing.
 // With the host's hook gone from the primary, connect moves our copy out of
 // the host's slot into the primary instead of writing a second copy beside
 // it. The chain line then still reaches the hook behind it, and disconnect
-// restores that hook.
+// restores that hook. An older backup of the primary would run first, so it
+// is set aside.
 func TestInstallPushHookMovesItsSlotCopyBackWhenThePrimaryIsGone(t *testing.T) {
+	for name, oldBackup := range map[string]string{
+		"no other backup":             "",
+		"older backup of the primary": testHostChainHook,
+	} {
+		t.Run(name, func(t *testing.T) { requireMovesSlotCopyBack(t, oldBackup) })
+	}
+}
+
+func requireMovesSlotCopyBack(t *testing.T, oldBackup string) {
+	t.Helper()
 	opts, repoDir, hooksDir := pushHookHarness(t)
 	primary := filepath.Join(hooksDir, "pre-push")
 	slot := primary + ".pre-entire"
@@ -739,6 +750,7 @@ func TestInstallPushHookMovesItsSlotCopyBackWhenThePrimaryIsGone(t *testing.T) {
 	userHook := "#!/bin/sh\necho user hook\n"
 	writeHook(t, slot, pushHookContent("/old/entire-brain"))
 	writeHook(t, behind, userHook)
+	writeHookIfSet(t, primary+pushHookBackupSuffix, oldBackup)
 
 	state, path, err := installPushHook(context.Background(), opts, repoDir)
 	if err != nil {
@@ -751,6 +763,7 @@ func TestInstallPushHookMovesItsSlotCopyBackWhenThePrimaryIsGone(t *testing.T) {
 		t.Fatalf("our current hook must be in the primary: %q", got)
 	}
 	requireNoFile(t, slot)
+	requireNoFile(t, primary+pushHookBackupSuffix)
 	if got := strandedChainTarget(primary); got != behind {
 		t.Fatalf("the chain line must reach the hook behind our old copy, got %q", got)
 	}

@@ -148,3 +148,27 @@ func TestRotateAsideFailsOnARefusedName(t *testing.T) {
 		t.Fatalf("the file must stay where it was: %q", got)
 	}
 }
+
+// A host slot that is a symlink to our backup of the primary is the hook
+// being joined: the backup stays, and the hook behind ours still resolves.
+func TestInstallPushHookKeepsTheBackupAHostSlotLinksTo(t *testing.T) {
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	primary := filepath.Join(hooksDir, "pre-push")
+	slot := primary + ".pre-entire"
+	userHook := "#!/bin/sh\necho user hook\n"
+	writeHook(t, primary, testHostChainHook)
+	writeHook(t, primary+pushHookBackupSuffix, userHook)
+	if err := os.Symlink("pre-push"+pushHookBackupSuffix, slot); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := installPushHook(context.Background(), opts, repoDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := readHook(t, slot); !strings.Contains(got, pushHookMarker) {
+		t.Fatalf("our hook must join the host's slot: %q", got)
+	}
+	if got := readHook(t, slot+pushHookBackupSuffix); got != userHook {
+		t.Fatalf("the hook behind ours must still resolve: %q", got)
+	}
+}

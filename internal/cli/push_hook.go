@@ -263,12 +263,34 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 // first sets aside the file that would get in the chain line's way there.
 func wrapTarget(primary, primaryContent string) (string, string, error) {
 	if slot, slotContent, ok := hostChainSlot(primary, primaryContent); ok {
-		// Our backup of the primary, from when our hook was in it. Once the
-		// host's uninstall moves us back into the primary, the chain line
-		// would run it instead of falling back to the hook behind us.
-		return slot, slotContent, setAside(primary+pushHookBackupSuffix, "is an older backup that nothing runs")
+		return slot, slotContent, setAsideOldPrimaryBackup(primary)
 	}
 	return primary, primaryContent, setAsideStrandedChainTarget(primary)
+}
+
+// setAsideOldPrimaryBackup sets aside our backup of the primary, from an
+// earlier wrap, when our copy in the host's slot has a hook of its own behind
+// it: ours is about to join the host's chain there, or to move out of it into
+// the primary. With our hook in the primary, the chain line would run that
+// old backup instead of falling back to the hook behind the slot. A slot that
+// resolves to the backup itself (a symlink to it) is the hook being joined,
+// so the backup stays.
+func setAsideOldPrimaryBackup(primary string) error {
+	backup := primary + pushHookBackupSuffix
+	if sameFile(primary+hostBackupSuffix, backup) {
+		return nil
+	}
+	return setAside(backup, "is an older backup that nothing runs")
+}
+
+// sameFile reports whether a and b both exist and resolve to one file.
+func sameFile(a, b string) bool {
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	return err == nil && os.SameFile(ai, bi)
 }
 
 // installIntoEmptyPrimary writes our hook into a missing primary. A copy of
@@ -276,14 +298,20 @@ func wrapTarget(primary, primaryContent string) (string, string, error) {
 // copy moves back into the primary. With no slot beside it, its chain line
 // falls back to the hook behind it, as after the host's uninstall. A second
 // copy in the primary would chain to nothing, and nothing would run the copy
-// in the slot.
+// in the slot. The move is one rename, so a failure changes nothing; the
+// content refresh after it only updates a hook that already runs.
 func installIntoEmptyPrimary(primary, selfPath string) error {
 	slot := primary + hostBackupSuffix
 	if data, err := readHookFile(slot); err == nil && strings.Contains(string(data), pushHookMarker) {
-		if err := writePushHookFile(primary, pushHookContent(selfPath)); err != nil {
-			return err
+		if pathExists(slot + pushHookBackupSuffix) {
+			if err := setAsideOldPrimaryBackup(primary); err != nil {
+				return err
+			}
 		}
-		return os.Remove(slot)
+		if err := os.Rename(slot, primary); err != nil {
+			return fmt.Errorf("move %s hook back into %s: %w", filepath.Base(slot), filepath.Base(primary), err)
+		}
+		return writePushHookFile(primary, pushHookContent(selfPath))
 	}
 	if err := setAsideStrandedChainTarget(primary); err != nil {
 		return err
