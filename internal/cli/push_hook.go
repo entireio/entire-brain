@@ -321,7 +321,7 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 		if err != nil {
 			return "", "", err
 		}
-		if err := chainBehind(target, targetContent, selfPath); err != nil {
+		if err := chainBehind(primary, target, targetContent, selfPath); err != nil {
 			return "", "", err
 		}
 		return pushHookInstalled, target, nil
@@ -419,15 +419,20 @@ func hostChainSlot(primary, primaryContent string) (string, string, bool) {
 
 // chainBehind moves the hook at target (whose content is targetContent) to
 // target+pushHookBackupSuffix, the name our chain line runs from there, and
-// writes ours at target. A target that links to that name is the file there:
-// it moves into the link first, so the rename moves the file, not a link to
-// itself.
-func chainBehind(target, targetContent, selfPath string) error {
+// writes ours at target. target is the primary, or the host's slot when we
+// join its chain. A target that links to that name is the file there: it
+// moves into the link first, so the rename moves the file, not a link to
+// itself. A primary that links to it, when target is the slot, runs that
+// file: it moves into the primary, so the rename can't replace the hook the
+// primary runs.
+func chainBehind(primary, target, targetContent, selfPath string) error {
 	backup := target + pushHookBackupSuffix
 	name := filepath.Base(target)
-	if sameFile(target, backup) {
-		if err := moveIntoLink(backup, target); err != nil {
-			return err
+	for _, hook := range []string{target, primary} {
+		if sameFile(hook, backup) {
+			if err := moveIntoLink(backup, hook); err != nil {
+				return err
+			}
 		}
 	}
 	if existing, err := readHookFile(backup); err == nil {

@@ -201,6 +201,14 @@ func TestInstallPushHookMovesALinkedHookIntoItsLink(t *testing.T) {
 			files: map[string]string{"user-hook": testUserHook},
 			links: map[string]string{"pre-push": "user-hook", "pre-push.pre-entire-brain": "pre-push"},
 		},
+		"primary with the host's hook links to the name the slot hook moves to": {
+			files: map[string]string{"pre-push.pre-entire.pre-entire-brain": testRunnableHostHook, "pre-push.pre-entire": testUserHook},
+			links: map[string]string{"pre-push": "pre-push.pre-entire.pre-entire-brain"},
+		},
+		"primary with the host's hook links to the name the slot hook moves to, then the host uninstalls": {
+			files: map[string]string{"pre-push.pre-entire.pre-entire-brain": testRunnableHostHook, "pre-push.pre-entire": testUserHook},
+			links: map[string]string{"pre-push": "pre-push.pre-entire.pre-entire-brain"}, hostUninstall: true,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			opts, repoDir, hooksDir := pushHookHarness(t)
@@ -220,6 +228,7 @@ func TestInstallPushHookMovesALinkedHookIntoItsLink(t *testing.T) {
 			if rotated := rotatedCopiesOf(t, filepath.Join(hooksDir, "pre-push")); len(rotated) != 0 {
 				t.Fatalf("a linked hook must not be set aside: %v", rotated)
 			}
+			requireOursInTheChain(t, hooksDir)
 			if tc.hostUninstall {
 				// The host's uninstall removes its hook and moves its slot back.
 				if err := os.Remove(primary); err != nil {
@@ -262,6 +271,24 @@ func requireRunsTheUserHook(t *testing.T, hooksDir string) {
 	out, err := exec.CommandContext(ctx, filepath.Join(hooksDir, "pre-push"), "origin", "url").CombinedOutput()
 	if err != nil || !strings.Contains(string(out), "user hook") {
 		t.Fatalf("the user's hook must run: err=%v output=%q", err, out)
+	}
+}
+
+// requireOursInTheChain fails unless pre-push runs our hook: it is ours, or
+// the host's hook that chains to ours in its slot.
+func requireOursInTheChain(t *testing.T, hooksDir string) {
+	t.Helper()
+	primary := filepath.Join(hooksDir, "pre-push")
+	head, err := readHookFile(primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(head), pushHookMarker) {
+		return
+	}
+	slot, err := readHookFile(primary + hostBackupSuffix)
+	if !strings.Contains(string(head), hostHookMarker) || err != nil || !strings.Contains(string(slot), pushHookMarker) {
+		t.Fatalf("pre-push must run our hook:\n%s", head)
 	}
 }
 
