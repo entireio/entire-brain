@@ -89,10 +89,51 @@ func strandedChainTarget(path string) string {
 	return stranded
 }
 
-// pathExists is Lstat-based: a symlink at a hook path counts as present.
+// pathExists follows symlinks, like the hook's [ -e ]: a dangling symlink
+// counts as absent, so disconnect restores exactly the hook that runs.
 func pathExists(path string) bool {
-	_, err := os.Lstat(path)
+	_, err := os.Stat(path)
 	return err == nil
+}
+
+// setAsideStrandedChainTarget runs before our hook goes into a primary that
+// was not ours. A file at the fallback's name there was left by an earlier
+// join that something other than the host's uninstall undid, and the
+// fallback must not start running it. Like a changed backup, it is kept
+// under a timestamped name. A copy of ours in the host's slot keeps it: that
+// file is the copy's own backup.
+func setAsideStrandedChainTarget(primary string) error {
+	slot := primary + hostBackupSuffix
+	stranded := slot + pushHookBackupSuffix
+	if _, err := os.Lstat(stranded); err != nil {
+		return nil
+	}
+	if data, err := readHookFile(slot); err == nil && strings.Contains(string(data), pushHookMarker) {
+		return nil
+	}
+	rotated, err := rotateAside(stranded)
+	if err != nil {
+		return err
+	}
+	tui.Warnf(os.Stderr, "entire-brain: %s was left behind by an earlier install and nothing runs it; it was kept as %s", filepath.Base(stranded), rotated)
+	return nil
+}
+
+// rotateAside renames path to path.<timestamp>, adding -<n> on a name clash,
+// the names isRotatedHookCopy recognizes and nothing runs.
+func rotateAside(path string) (string, error) {
+	base := path + "." + time.Now().UTC().Format(rotatedCopyStampLayout)
+	rotated := base
+	for n := 1; ; n++ {
+		if _, err := os.Lstat(rotated); os.IsNotExist(err) {
+			break
+		}
+		rotated = fmt.Sprintf("%s-%d", base, n)
+	}
+	if err := os.Rename(path, rotated); err != nil {
+		return "", fmt.Errorf("rotate %s: %w", filepath.Base(path), err)
+	}
+	return rotated, nil
 }
 
 // shellSingleQuote wraps s in single quotes, escaping embedded single quotes,
@@ -132,7 +173,9 @@ const (
 //
 // The backup is moved, not copied, so there is exactly one runnable copy of
 // the previous hook. A pre-existing DIFFERENT backup rotates to a timestamped
-// name that no longer runs, and the install reports it.
+// name that no longer runs, and the install reports it. So does a file left at
+// the name the chain line falls back to, when ours goes into a primary that
+// was not ours (see setAsideStrandedChainTarget).
 func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHookState, string, error) {
 	hooksDir, inRepo, err := gitHooksDir(ctx, opts, repoDir)
 	if err != nil {
@@ -191,6 +234,8 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 		target, targetContent := primary, primaryContent
 		if slot, slotContent, ok := hostChainSlot(primary, primaryContent); ok {
 			target, targetContent = slot, slotContent
+		} else if err := setAsideStrandedChainTarget(primary); err != nil {
+			return "", "", err
 		}
 		if err := chainBehind(target, targetContent, selfPath); err != nil {
 			return "", "", err
@@ -198,6 +243,9 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 		return pushHookInstalled, target, nil
 
 	default:
+		if err := setAsideStrandedChainTarget(primary); err != nil {
+			return "", "", err
+		}
 		if err := writePushHookFile(primary, pushHookContent(selfPath)); err != nil {
 			return "", "", err
 		}
@@ -238,9 +286,9 @@ func chainBehind(target, targetContent, selfPath string) error {
 	name := filepath.Base(target)
 	if existing, err := readHookFile(backup); err == nil {
 		if string(existing) != targetContent {
-			rotated := backup + "." + time.Now().UTC().Format(rotatedCopyStampLayout)
-			if err := os.Rename(backup, rotated); err != nil {
-				return fmt.Errorf("rotate stale backup: %w", err)
+			rotated, err := rotateAside(backup)
+			if err != nil {
+				return err
 			}
 			tui.Warnf(os.Stderr, "entire-brain: %s changed since it was backed up; the older copy was kept as %s and no longer runs", name, rotated)
 		} else if err := os.Remove(backup); err != nil {
