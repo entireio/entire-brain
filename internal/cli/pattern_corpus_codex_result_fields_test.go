@@ -201,41 +201,15 @@ func codexResultFieldsTranscript(t *testing.T, root string) string {
 // with no exit code; the failing one keeps its exit code 1; exit_fails counts
 // only it; and main.go is stored relative to the checkout found from the
 // turn's cwd, so it links to its 2 symbols. The paths alone would tie that
-// checkout with /tmp/job, which the cwd rules out. A corpus indexed by IndexerVersion
-// 13 counted the declined command as failed and stored no exit code, and the
-// transcript bytes do not change on upgrade, so only a version bump makes the
-// next build re-index it instead of skipping it as unchanged.
+// checkout with /tmp/job, which the cwd rules out. A corpus indexed by
+// IndexerVersion 13 counted the declined command as failed and stored no exit
+// code, and the transcript bytes do not change on upgrade, so only a version
+// bump makes the next build re-index it instead of skipping it as unchanged.
 func TestPatternCorpusIndexesCodexResultFields(t *testing.T) {
 	c := newCodexItemPathCorpus(t, sessionFixture{id: "s1", agent: "codex", branch: "main", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", transcript: codexResultFieldsTranscript(t, "/home/teammate/src/repo"), filesTouched: []string{"main.go", "cmd/main.go"}})
-	state := func() string {
-		t.Helper()
-		db := openCorpusReadSnapshot(t, c.brain)
-		rows, err := db.Query(`SELECT c.exit_code, c.failed FROM episode_commands c ORDER BY c.ord`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer rows.Close()
-		var cmds []string
-		for rows.Next() {
-			var exit, failed any
-			if err := rows.Scan(&exit, &failed); err != nil {
-				t.Fatal(err)
-			}
-			cmds = append(cmds, fmt.Sprintf("exit_code=%v failed=%v", exit, failed))
-		}
-		if err := rows.Err(); err != nil {
-			t.Fatal(err)
-		}
-		var exitFails, nCmds any
-		var files string
-		if err := db.QueryRow(`SELECT exit_fails, n_cmds, COALESCE(files,'') FROM episodes`).Scan(&exitFails, &nCmds, &files); err != nil {
-			t.Fatal(err)
-		}
-		return fmt.Sprintf("commands=[%s] n_cmds=%v exit_fails=%v files=%s symbols=%d", strings.Join(cmds, "; "), nCmds, exitFails, files, patterntest.CorpusCount(t, db, "episode_symbols"))
-	}
 	const want = `commands=[exit_code=<nil> failed=0; exit_code=1 failed=1] n_cmds=2 exit_fails=1 files=["/tmp/job/main.go","main.go"] symbols=2`
 	c.build(t)
-	if got := state(); got != want {
+	if got := codexResultFieldsCorpusState(t, c.brain); got != want {
 		t.Fatalf("corpus = %q, want %q", got, want)
 	}
 
@@ -253,7 +227,36 @@ func TestPatternCorpusIndexesCodexResultFields(t *testing.T) {
 	}
 	db.Close()
 	c.build(t)
-	if got := state(); got != want {
+	if got := codexResultFieldsCorpusState(t, c.brain); got != want {
 		t.Fatalf("version 13 corpus kept its declined failure after rebuild: corpus = %q, want %q", got, want)
 	}
+}
+
+// codexResultFieldsCorpusState describes the corpus's commands, in order, and
+// its one episode's command count, exit_fails, files and symbol links.
+func codexResultFieldsCorpusState(t *testing.T, brain string) string {
+	t.Helper()
+	db := openCorpusReadSnapshot(t, brain)
+	rows, err := db.Query(`SELECT exit_code, failed FROM episode_commands ORDER BY ord`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var cmds []string
+	for rows.Next() {
+		var exit, failed any
+		if err := rows.Scan(&exit, &failed); err != nil {
+			t.Fatal(err)
+		}
+		cmds = append(cmds, fmt.Sprintf("exit_code=%v failed=%v", exit, failed))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	var exitFails, nCmds any
+	var files string
+	if err := db.QueryRow(`SELECT exit_fails, n_cmds, COALESCE(files,'') FROM episodes`).Scan(&exitFails, &nCmds, &files); err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("commands=[%s] n_cmds=%v exit_fails=%v files=%s symbols=%d", strings.Join(cmds, "; "), nCmds, exitFails, files, patterntest.CorpusCount(t, db, "episode_symbols"))
 }

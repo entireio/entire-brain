@@ -357,9 +357,29 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 // path really is cannot be known here, and leaving it out could hand the root
 // to whichever paths are left.
 func codexFileChangePaths(transcript string) (paths, cwds []string, resolved bool) {
-	seen := map[string]bool{}
-	seenCWD := map[string]bool{}
+	var ps, cs distinctStrings
 	resolved = true
+	for _, use := range codexFileChangeUses(transcript) {
+		for _, ref := range fileChangeRefs(use.input, 0) {
+			if hasDotDotSegment(slashPath(ref.path)) {
+				resolved = false
+			}
+			if s, ok := cleanAbsPath(ref.path); ok {
+				ps.add(s)
+			}
+		}
+		if s, ok := cleanAbsPath(use.cwd); ok {
+			cs.add(s)
+		}
+	}
+	return ps.list, cs.list, resolved
+}
+
+// codexFileChangeUses is every FileChange tool call in a transcript, read
+// through recordToolUses as the episode ops read them. A line that cannot hold
+// one (mayHoldFileChange) is skipped without decoding it.
+func codexFileChangeUses(transcript string) []toolUse {
+	var out []toolUse
 	for _, line := range strings.Split(transcript, "\n") {
 		if !mayHoldFileChange(line) {
 			continue
@@ -369,25 +389,29 @@ func codexFileChangePaths(transcript string) (paths, cwds []string, resolved boo
 			continue
 		}
 		for _, use := range recordToolUses(record) {
-			if use.name != fileChangeToolName {
-				continue
-			}
-			for _, ref := range fileChangeRefs(use.input, 0) {
-				if hasDotDotSegment(slashPath(ref.path)) {
-					resolved = false
-				}
-				if s, ok := cleanAbsPath(ref.path); ok && !seen[s] {
-					seen[s] = true
-					paths = append(paths, s)
-				}
-			}
-			if s, ok := cleanAbsPath(use.cwd); ok && !seenCWD[s] {
-				seenCWD[s] = true
-				cwds = append(cwds, s)
+			if use.name == fileChangeToolName {
+				out = append(out, use)
 			}
 		}
 	}
-	return paths, cwds, resolved
+	return out
+}
+
+// distinctStrings collects strings in first-seen order, each once.
+type distinctStrings struct {
+	seen map[string]bool
+	list []string
+}
+
+func (d *distinctStrings) add(s string) {
+	if d.seen[s] {
+		return
+	}
+	if d.seen == nil {
+		d.seen = map[string]bool{}
+	}
+	d.seen[s] = true
+	d.list = append(d.list, s)
 }
 
 // dirsFrom is every distinct directory in dirs (clean absolute slash paths
@@ -542,21 +566,26 @@ func compactCodexResults(uses []toolUse, exitByCall map[string]int, failedByCall
 		if use.id == "" || use.declined {
 			continue
 		}
-		if use.exitCode != nil {
-			exitByCall[use.id] = *use.exitCode
+		if code, ok := compactCodexExitCode(use); ok {
+			exitByCall[use.id] = code
 		}
-		if use.name == codexItemCommandTool {
-			if use.status == transcript.ToolStatusError {
-				failedByCall[use.id] = true
-			}
-			continue
-		}
-		if use.exitCode == nil {
-			if code, ok := parseExitCode(use.output); ok {
-				exitByCall[use.id] = code
-			}
+		if use.name == codexItemCommandTool && use.status == transcript.ToolStatusError {
+			failedByCall[use.id] = true
 		}
 	}
+}
+
+// compactCodexExitCode is the exit code a compact codex call's result gives:
+// its exitCode field, or else, for any call but an item-path command, the one
+// in Codex's wrapper text.
+func compactCodexExitCode(use toolUse) (int, bool) {
+	if use.exitCode != nil {
+		return *use.exitCode, true
+	}
+	if use.name == codexItemCommandTool {
+		return 0, false
+	}
+	return parseExitCode(use.output)
 }
 
 // codexItemCommandTool is the name the cli's item path gives every command,
