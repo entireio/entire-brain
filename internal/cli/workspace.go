@@ -46,13 +46,12 @@ type workspaceRetrieveOptions struct {
 	// Retrieval source selector and conversation filters, mirroring the
 	// top-level verbs (Phase 5: the conversation source fans out across member
 	// brains with the same explicit opt-in and caveat contract).
-	source          string
-	after           string
-	before          string
-	session         string
-	agent           string
-	concepts        []string
-	includeAbstract bool
+	source   string
+	after    string
+	before   string
+	session  string
+	agent    string
+	concepts []string
 }
 
 type workspaceImpactOptions struct {
@@ -75,14 +74,12 @@ type workspaceContextResult struct {
 }
 
 type workspaceRetrieveResult struct {
-	RepoKey                   string                   `json:"repo_key"`
-	Name                      string                   `json:"name,omitempty"`
-	Branch                    string                   `json:"branch,omitempty"`
-	Freshness                 workspace.RepoFreshness  `json:"freshness"`
-	Results                   []unifiedResult          `json:"results"`
-	AbstractPreviews          []sessionAbstractPreview `json:"abstract_previews,omitempty"`
-	AbstractPreviewsTruncated bool                     `json:"abstract_previews_truncated,omitempty"`
-	Error                     string                   `json:"error,omitempty"`
+	RepoKey   string                  `json:"repo_key"`
+	Name      string                  `json:"name,omitempty"`
+	Branch    string                  `json:"branch,omitempty"`
+	Freshness workspace.RepoFreshness `json:"freshness"`
+	Results   []unifiedResult         `json:"results"`
+	Error     string                  `json:"error,omitempty"`
 }
 
 type workspaceGetResult struct {
@@ -575,7 +572,6 @@ func newWorkspaceRetrieveCommand(opts Options, use string, mode retrievalMode, s
 	cmd.Flags().StringVar(&retrieveOpts.session, "session", "", "Conversation source only: exchanges from this session id")
 	cmd.Flags().StringVar(&retrieveOpts.agent, "agent", "", "Conversation source only: exchanges captured by this agent/harness")
 	cmd.Flags().StringArrayVar(&retrieveOpts.concepts, "concept", nil, "Conversation source only: additional concept (repeatable, up to 4); each member repo's sessions must match the query AND every concept")
-	cmd.Flags().BoolVar(&retrieveOpts.includeAbstract, "include-abstract", false, "Conversation source only: include bounded evidence-linked session previews per member repo")
 	return cmd
 }
 
@@ -1028,10 +1024,6 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	if err != nil {
 		return fmt.Errorf("--%s", err.Error())
 	}
-	ropts.IncludeAbstract = retrieveOpts.includeAbstract
-	if ropts.IncludeAbstract && ropts.Source != brainstore.RetrievalSourceConversation {
-		return fmt.Errorf(`--include-abstract requires --source conversation (got %q)`, ropts.Source)
-	}
 	if mode == retrieval.ModeVector && ropts.Source == brainstore.RetrievalSourceConversation {
 		return errConversationVectorUnsupported
 	}
@@ -1071,15 +1063,6 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 					found = retrieval.AnnotateCurrentCodeUnavailable(found)
 				}
 				result.Results = found
-			}
-			if ropts.IncludeAbstract {
-				previews, truncated, previewErr := abstractPreviewsForResults(brainDir, found)
-				if previewErr != nil {
-					result.Error = previewErr.Error()
-				} else {
-					result.AbstractPreviews = previews
-					result.AbstractPreviewsTruncated = truncated
-				}
 			}
 		}
 		results = append(results, result)

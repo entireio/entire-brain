@@ -10,10 +10,12 @@ const (
 	ActionMerge     = "merge"
 	ActionSupersede = "supersede"
 
-	// DefaultConfidenceThreshold gates automatic merge/supersede. At or
-	// above it, the action applies; below it both facts stay active and the
-	// action is queued as a proposal for `facts review`, so a low-confidence
-	// machine judgment never silently rewrites memory.
+	// DefaultConfidenceThreshold gates automatic merge/supersede in
+	// ApplyActions. At or above it, the action applies; below it both facts
+	// stay active and are cross-linked via RelatedIDs. Production reconcile
+	// (internal/cli/reconcile_batch.go) never applies confidence — only tests
+	// drive ApplyActions today; the nightly compaction loop (COR-2273) is the
+	// prospective production caller.
 	DefaultConfidenceThreshold = 0.75
 )
 

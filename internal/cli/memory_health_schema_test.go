@@ -2,7 +2,6 @@ package cli
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -123,93 +122,6 @@ func TestMemoryReadOnlyHealthReportsAbsentVectorAndCanonicalSourceSchema(t *test
 	if vectorObserved["state"] != "absent" || vectorObserved["supported_schema_version"] != memoryVectorSchema {
 		t.Fatalf("absent vector schema observation = %#v", vectorObserved)
 	}
-}
-
-func TestMemoryReadOnlyHealthDoesNotResolveConfiguredProvider(t *testing.T) {
-	brainDir := t.TempDir()
-	if err := saveMemoryConfig(brainDir, memoryConfig{SchemaVersion: memoryConfigSchemaVersion, Abstracts: memoryAbstractsConfig{
-		Enabled: true, Automatic: true, Provider: "codex", Model: "configured", HostedEgressAllowed: true,
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	oldFactory := memoryAbstractorFactory
-	calls := 0
-	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) {
-		calls++
-		return nil, fmt.Errorf("status must not resolve providers")
-	}
-	t.Cleanup(func() { memoryAbstractorFactory = oldFactory })
-
-	snapshot := memoryReadOnlyHealth(brainDir, time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC))
-	if calls != 0 {
-		t.Fatalf("read-only health resolved provider %d times", calls)
-	}
-	install, _ := snapshot.Payload["install"].(map[string]any)
-	provider, _ := install["provider_egress"].(map[string]any)
-	if provider["provider_state"] != "configured_unverified" || provider["effective_state"] != "available_unverified" {
-		t.Fatalf("provider health = %#v", provider)
-	}
-}
-
-func TestMemoryReadOnlyHealthReportsAbstractAndEgressObservedVersions(t *testing.T) {
-	now := time.Date(2026, 8, 10, 9, 30, 0, 0, time.UTC)
-	t.Run("unknown newer abstract", func(t *testing.T) {
-		brainDir := t.TempDir()
-		digest := strings.Repeat("a", 64)
-		writeHealthFixtureFile(t, brainDir, filepath.ToSlash(filepath.Join(abstractsDirRel, digest+".json")), []byte(fmt.Sprintf(`{"schema_version":%d,"future":true}`, abstractSchemaVersion+1)+"\n"))
-		snapshot := memoryReadOnlyHealth(brainDir, now)
-		install, _ := snapshot.Payload["install"].(map[string]any)
-		abstracts, _ := install["abstracts"].(map[string]any)
-		if abstracts["state"] != "unsupported" || abstracts["schema_version"] != abstractSchemaVersion+1 || !reflect.DeepEqual(abstracts["schema_versions_observed"], []int{abstractSchemaVersion + 1}) {
-			t.Fatalf("abstract health = %#v", abstracts)
-		}
-		schemas, _ := snapshot.Payload["schemas"].(map[string]any)
-		observed, _ := schemas["observed_health"].(map[string]any)
-		artifact, _ := observed["abstract_artifact"].(map[string]any)
-		if normalizeMemoryObservedState(memoryObservedStateValue(artifact["state"])) != "unsupported" || artifact["schema_version"] != abstractSchemaVersion+1 {
-			t.Fatalf("abstract schema observation = %#v", artifact)
-		}
-	})
-
-	t.Run("unknown newer egress", func(t *testing.T) {
-		brainDir := t.TempDir()
-		ref := brainstore.ConversationSessionIDPrefix + strings.Repeat("b", 64)
-		writeHealthFixtureFile(t, brainDir, abstractEgressReceiptRel(ref), []byte(fmt.Sprintf(`{"schema_version":%d,"future":true}`, abstractEgressSchemaVersion+1)+"\n"))
-		snapshot := memoryReadOnlyHealth(brainDir, now)
-		install, _ := snapshot.Payload["install"].(map[string]any)
-		abstracts, _ := install["abstracts"].(map[string]any)
-		egress, _ := abstracts["hosted_egress"].(map[string]any)
-		if egress["state"] != "unsupported" || egress["schema_version"] != abstractEgressSchemaVersion+1 || !reflect.DeepEqual(egress["schema_versions_observed"], []int{abstractEgressSchemaVersion + 1}) {
-			t.Fatalf("egress health = %#v", egress)
-		}
-	})
-
-	t.Run("legacy egress migration", func(t *testing.T) {
-		brainDir := t.TempDir()
-		receipt := abstractEgressReceipt{
-			SchemaVersion: abstractEgressLegacyVersion,
-			OperationID:   "0123456789abcdefabcd",
-			SessionRef:    brainstore.ConversationSessionIDPrefix + strings.Repeat("c", 64),
-			SessionDigest: "sha256:" + strings.Repeat("d", 64),
-			Provider:      "codex",
-			Model:         "legacy",
-			StartedAt:     now.Add(-time.Minute),
-			FinishedAt:    now,
-			Status:        "completed",
-		}
-		data, err := json.Marshal(receipt)
-		if err != nil {
-			t.Fatal(err)
-		}
-		writeHealthFixtureFile(t, brainDir, filepath.ToSlash(filepath.Join(abstractEgressDirRel, receipt.OperationID+".json")), append(data, '\n'))
-		snapshot := memoryReadOnlyHealth(brainDir, now)
-		install, _ := snapshot.Payload["install"].(map[string]any)
-		abstracts, _ := install["abstracts"].(map[string]any)
-		egress, _ := abstracts["hosted_egress"].(map[string]any)
-		if egress["state"] != brainstore.MigrationRequiredCode || egress["schema_version"] != abstractEgressLegacyVersion || !reflect.DeepEqual(egress["schema_versions_observed"], []int{abstractEgressLegacyVersion}) {
-			t.Fatalf("legacy egress health = %#v", egress)
-		}
-	})
 }
 
 func writeHealthFixtureFile(t *testing.T, brainDir, rel string, data []byte) {

@@ -7,9 +7,11 @@ shellcheck = "0.11.0"
 description = "Run gofmt"
 run = "gofmt -s -w ."
 
+# Tests run with brain_harness so the eval/bench developer harnesses stay
+# covered (COR-2322); `build` stays untagged, matching the release binary.
 [tasks.test]
 description = "Run tests"
-run = "go test ./..."
+run = "go test -tags brain_harness ./..."
 
 [tasks."test:mutations"]
 description = "Verify that four deliberate bugs fail their regression assertions"
@@ -17,7 +19,7 @@ run = "go run ./tools/mutationcheck"
 
 [tasks."test:ci"]
 description = "Run tests with race detection"
-run = "go test -race ./..."
+run = "go test -tags brain_harness -race ./..."
 
 # The pre-push gate CONTRIBUTING.md points at. Deliberately NOT `test`:
 # `test` is cached, which is right for the inner loop and wrong as the last
@@ -30,7 +32,7 @@ run = "go test -race ./..."
 description = "Uncached full suite + fmt + vet, the gate before you push"
 run = """
 set -e
-go test ./... -count=1
+go test -tags brain_harness ./... -count=1
 # gofmt -l PRINTS the offending files and still exits 0, so running it bare
 # under `set -e` is a check that can never fail. CI gets this right; a
 # pre-push gate that does not is worse than none, because it sends people to
@@ -42,6 +44,7 @@ if [ -n "$unformatted" ]; then
   exit 1
 fi
 go vet ./...
+go vet -tags brain_harness ./...
 """
 
 [tasks.lint]
@@ -55,6 +58,7 @@ if [ -n "$unformatted" ]; then
   exit 1
 fi
 go vet ./...
+go vet -tags brain_harness ./...
 """
 
 [tasks."release:readiness"]

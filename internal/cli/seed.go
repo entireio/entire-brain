@@ -100,15 +100,20 @@ type seedFileIndexEntry struct {
 type seedScanResult struct {
 	MaxFileBytes int
 	RepoDir      string
-	RepoKey      string
-	Commit       string
-	Files        []seedFileIndexEntry
-	Docs         []seedDocument
-	Entrypoints  []string
-	Commands     []seedCommand
-	Coverage     *seedHistoryCoverage
-	Warnings     []string
-	Fingerprint  string
+	// ContentDir, when set, is the directory file CONTENT is read from — a
+	// materialized committed-HEAD snapshot when the worktree is dirty
+	// (COR-2316). RepoDir stays the real repository for git commands,
+	// identity, and display; only reads of file bytes go through here.
+	ContentDir  string
+	RepoKey     string
+	Commit      string
+	Files       []seedFileIndexEntry
+	Docs        []seedDocument
+	Entrypoints []string
+	Commands    []seedCommand
+	Coverage    *seedHistoryCoverage
+	Warnings    []string
+	Fingerprint string
 }
 
 func newSeedCommand(opts Options) *cobra.Command {
@@ -181,6 +186,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	if !local {
 		return fmt.Errorf("seed target must be an existing local path: %s", target)
 	}
+	contentDir, contentCommit := "", ""
 	if !seedOpts.worktree {
 		gateIgnore, err := worktreeGateIgnore(repoDir)
 		if err != nil {
@@ -191,7 +197,18 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 			return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("check worktree before repository context refresh: %w", err))
 		}
 		if dirty {
-			return dirtyWorktreeRefusal("build repository context from", dirtyPaths)
+			// A dirty tree is a reason to exclude uncommitted content, not to
+			// skip the whole seed: permanently-dirty worktrees (every Conductor
+			// workspace) otherwise never get a background refresh (COR-2316).
+			// Build from a materialized committed-HEAD snapshot; the refusal
+			// survives only as the fallback when that snapshot cannot be built.
+			dir, commit, cleanup, snapErr := materializeHeadSnapshot(ctx, opts.Runner, repoDir)
+			if snapErr != nil {
+				return fmt.Errorf("%w (committed-snapshot fallback failed: %v)", dirtyWorktreeRefusal("build repository context from", dirtyPaths), snapErr)
+			}
+			defer cleanup()
+			contentDir, contentCommit = dir, commit
+			seedOpts.reportProgress(fmt.Sprintf("uncommitted changes excluded; building from committed HEAD %.12s", commit))
 		}
 	}
 
@@ -239,7 +256,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		}
 	}
 
-	scan, err := scanSeedRepository(ctx, opts.Runner, repoDir, storage.Key, seedOpts)
+	scan, err := scanSeedRepository(ctx, opts.Runner, repoDir, contentDir, contentCommit, storage.Key, seedOpts)
 	if err != nil {
 		return err
 	}
@@ -277,7 +294,10 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		}
 
 		if seedOpts.agent != "none" {
-			agentManifest, err := runSeedAgent(ctx, repoDir, outputDir, scan, seedOpts)
+			// The agent works in the scan's content root: in snapshot mode the
+			// repository itself is dirty, and an agent run there could fold
+			// uncommitted content into the overview (trail #2845 finding).
+			agentManifest, err := runSeedAgent(ctx, scan.contentRoot(), outputDir, scan, seedOpts)
 			if err != nil {
 				if seedOpts.requireAgent {
 					return err
@@ -349,8 +369,30 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 	return nil
 }
 
-func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repoKey string, opts seedCommandOptions) (seedScanResult, error) {
-	paths, warnings := listSeedFiles(ctx, runner, repoDir, opts)
+// contentRoot is where a scan's file bytes live: the materialized snapshot in
+// committed-content mode, the repository otherwise.
+func (s seedScanResult) contentRoot() string {
+	if s.ContentDir != "" {
+		return s.ContentDir
+	}
+	return s.RepoDir
+}
+
+// scanSeedRepository reads file content from contentDir when it is non-empty
+// (a materialized snapshot of contentCommit); enumeration then asks git for
+// the committed file list, so the included set under --max-files matches a
+// clean worktree at the same commit. Walking the snapshot instead would
+// SkipDir denied names before the cap, while the clean path lists every
+// tracked file and denies later in inspectSeedFile.
+func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, contentDir, contentCommit, repoKey string, opts seedCommandOptions) (seedScanResult, error) {
+	contentRoot := repoDir
+	var paths, warnings []string
+	if contentDir != "" {
+		contentRoot = contentDir
+		paths, warnings = listCommittedSeedFiles(ctx, runner, repoDir, contentCommit, contentDir)
+	} else {
+		paths, warnings = listSeedFiles(ctx, runner, repoDir, opts)
+	}
 	if len(paths) > opts.maxFiles {
 		// Name what was dropped, not just the ceiling that dropped it. "file
 		// scan capped at 2000 files" is true of a 2,001-file repository and of
@@ -361,8 +403,11 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 		warnings = append(warnings, fmt.Sprintf("file scan capped at %d of %d files; %d files were not read (raise with --max-files)", opts.maxFiles, len(paths), len(paths)-opts.maxFiles))
 		paths = paths[:opts.maxFiles]
 	}
-	commit := strings.TrimSpace(string(clibase.GitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
-	result := seedScanResult{MaxFileBytes: opts.maxFileBytes, RepoDir: repoDir, RepoKey: repoKey, Commit: commit, Warnings: warnings}
+	commit := contentCommit
+	if commit == "" {
+		commit = strings.TrimSpace(string(clibase.GitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
+	}
+	result := seedScanResult{MaxFileBytes: opts.maxFileBytes, RepoDir: repoDir, ContentDir: contentDir, RepoKey: repoKey, Commit: commit, Warnings: warnings}
 	// Reserve source paths and their directories before allocating derived
 	// names: spec.pdf.md may itself be an authored document (or a directory).
 	reserved := map[string]bool{}
@@ -374,7 +419,7 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 		}
 	}
 	for _, rel := range paths {
-		entry := inspectSeedFile(repoDir, rel, opts)
+		entry := inspectSeedFile(contentRoot, rel, opts)
 		result.Files = append(result.Files, entry)
 		if !entry.Included {
 			continue
@@ -402,14 +447,14 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 			result.Entrypoints = append(result.Entrypoints, filepath.ToSlash(rel))
 		}
 		if filepath.Base(rel) == "package.json" {
-			commands, err := packageJSONCommands(filepath.Join(repoDir, rel), rel)
+			commands, err := packageJSONCommands(filepath.Join(contentRoot, rel), rel)
 			if err != nil {
 				result.Warnings = append(result.Warnings, err.Error())
 			}
 			result.Commands = append(result.Commands, commands...)
 		}
 		if filepath.Base(rel) == "mise.toml" {
-			commands, err := miseCommands(filepath.Join(repoDir, rel), rel)
+			commands, err := miseCommands(filepath.Join(contentRoot, rel), rel)
 			if err != nil {
 				result.Warnings = append(result.Warnings, err.Error())
 			}
@@ -422,6 +467,53 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 	sort.Slice(result.Commands, func(i, j int) bool { return result.Commands[i].Name < result.Commands[j].Name })
 	result.Fingerprint = seedFingerprint(result)
 	return result, nil
+}
+
+// walkSeedFiles enumerates files under root on disk: the fallback when git
+// cannot list files, for the repository and for a materialized snapshot alike.
+func walkSeedFiles(root string) ([]string, []string) {
+	var paths []string
+	var warnings []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			warnings = append(warnings, err.Error())
+			return nil
+		}
+		if path == root {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		if d.IsDir() && isDeniedSeedDir(rel) {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() {
+			paths = append(paths, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		warnings = append(warnings, "walk repository: "+err.Error())
+	}
+	sort.Strings(paths)
+	return paths, warnings
+}
+
+// listCommittedSeedFiles enumerates the files of commit for a materialized
+// snapshot: `git ls-tree` is the committed counterpart of the clean path's
+// `git ls-files`, so denied paths still reach inspectSeedFile (and the
+// --max-files cap) instead of vanishing in a directory walk. The walk remains
+// the fallback when git cannot answer.
+func listCommittedSeedFiles(ctx context.Context, runner CommandRunner, repoDir, commit, contentDir string) ([]string, []string) {
+	stdout, _, err := runner.Run(ctx, repoDir, "git", "ls-tree", "-r", "--name-only", commit)
+	if err != nil {
+		return walkSeedFiles(contentDir)
+	}
+	paths := splitNonEmptyLines(stdout)
+	sort.Strings(paths)
+	return compactSortedStrings(paths), nil
 }
 
 func listSeedFiles(ctx context.Context, runner CommandRunner, repoDir string, opts seedCommandOptions) ([]string, []string) {
@@ -441,33 +533,7 @@ func listSeedFiles(ctx context.Context, runner CommandRunner, repoDir string, op
 		sort.Strings(paths)
 		return compactSortedStrings(paths), nil
 	}
-	var paths []string
-	var warnings []string
-	err = filepath.WalkDir(repoDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			warnings = append(warnings, err.Error())
-			return nil
-		}
-		if path == repoDir {
-			return nil
-		}
-		rel, relErr := filepath.Rel(repoDir, path)
-		if relErr != nil {
-			return nil
-		}
-		if d.IsDir() && isDeniedSeedDir(rel) {
-			return filepath.SkipDir
-		}
-		if !d.IsDir() {
-			paths = append(paths, filepath.ToSlash(rel))
-		}
-		return nil
-	})
-	if err != nil {
-		warnings = append(warnings, "walk repository: "+err.Error())
-	}
-	sort.Strings(paths)
-	return paths, warnings
+	return walkSeedFiles(repoDir)
 }
 
 func splitNonEmptyLines(data []byte) []string {
@@ -874,7 +940,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			dropSeedDocument(scan, doc, "unsafe source path")
 			continue
 		}
-		if err := clibase.RejectSymlinkPathComponents(scan.RepoDir, cleanSrc); err != nil {
+		if err := clibase.RejectSymlinkPathComponents(scan.contentRoot(), cleanSrc); err != nil {
 			dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 			continue
 		}
@@ -888,7 +954,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 				return fmt.Errorf("validate seed document directory %s: %w", dir, err)
 			}
 		}
-		src := filepath.Join(scan.RepoDir, cleanSrc)
+		src := filepath.Join(scan.contentRoot(), cleanSrc)
 		if err := clibase.RejectExistingSymlinkPathComponents(outputDir, cleanDst); err != nil {
 			return fmt.Errorf("validate seed document path %s: %w", cleanDst, err)
 		}
@@ -1820,4 +1886,48 @@ func writeAgentArtifacts(outputDir string, artifacts map[string]string) ([]strin
 func bytesFingerprint(data []byte) string {
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// materializeHeadSnapshot extracts the committed HEAD tree into a temporary
+// directory so a dirty worktree can still seed from committed state
+// (COR-2316). A scratch index plus `git checkout-index` writes every committed
+// file verbatim. `git archive` was rejected here: it applies export-ignore and
+// export-subst, so the snapshot could silently omit committed files (docs are
+// commonly export-ignored) or rewrite their bytes. Committed symlinks are
+// materialized as symlinks and excluded later by the scan's symlink rejection,
+// exactly as on the clean path. The caller owns cleanup.
+func materializeHeadSnapshot(ctx context.Context, runner CommandRunner, repoDir string) (dir, commit string, cleanup func(), err error) {
+	envRunner, ok := runner.(EnvironmentCommandRunner)
+	if !ok {
+		return "", "", nil, errors.New("command runner cannot set GIT_INDEX_FILE for the snapshot checkout")
+	}
+	commit, err = clibase.GitScalar(ctx, runner, repoDir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", "", nil, fmt.Errorf("resolve HEAD for committed snapshot: %w", err)
+	}
+	dir, err = os.MkdirTemp("", "entire-brain-seed-head-")
+	if err != nil {
+		return "", "", nil, fmt.Errorf("create snapshot directory: %w", err)
+	}
+	// The scratch index lives next to dir, not inside it, so the content scan
+	// never sees it; it also keeps the repository's real index untouched.
+	indexFile := dir + ".index"
+	cleanup = func() {
+		_ = os.Remove(indexFile)
+		_ = os.RemoveAll(dir)
+	}
+	env := map[string]string{"GIT_INDEX_FILE": indexFile}
+	if _, _, runErr := envRunner.RunWithEnv(ctx, repoDir, env, "git", "read-tree", commit); runErr != nil {
+		cleanup()
+		return "", "", nil, fmt.Errorf("read committed tree %s: %w", commit, runErr)
+	}
+	// attr.tree pins attribute lookup (text/eol/ident) to the committed tree:
+	// checkout-index otherwise reads .gitattributes from the dirty worktree,
+	// letting uncommitted attribute edits rewrite snapshot bytes. Git older
+	// than 2.43 ignores the unknown key and keeps the worktree lookup.
+	if _, _, runErr := envRunner.RunWithEnv(ctx, repoDir, env, "git", "-c", "attr.tree="+commit, "checkout-index", "--all", "--force", "--prefix="+dir+string(filepath.Separator)); runErr != nil {
+		cleanup()
+		return "", "", nil, fmt.Errorf("extract committed tree %s: %w", commit, runErr)
+	}
+	return dir, commit, cleanup, nil
 }

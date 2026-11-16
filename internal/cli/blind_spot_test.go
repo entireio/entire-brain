@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -48,5 +49,33 @@ func TestEmptyResultBlindSpot(t *testing.T) {
 	// stay silent about. See TestEmptyResultBlindSpotNamesAMissingBrain.
 	if note := emptyResultBlindSpot(t.TempDir()); !strings.Contains(note, "no brain has been built") {
 		t.Fatalf("missing manifest must name the missing brain, got %q", note)
+	}
+}
+
+// The precomputed-integrity variant exists so read surfaces that already
+// loaded and inspected the store once do not read it again for the empty-result
+// note. It must trust the caller's verdict, not recompute its own.
+func TestEmptyResultBlindSpotWithIntegrityUsesCallerVerdict(t *testing.T) {
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	manifest, err := bmanifest.Load(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A caller that saw loss must get the loss note, even though re-inspecting
+	// this brain's (empty, healthy) store would say nothing is wrong.
+	lossy := factstore.Integrity{Declared: 5, Readable: 2, Distinct: 2, Mode: factstore.DefectLossy}
+	note := emptyResultBlindSpotWithIntegrity(brainDir, "main", manifest, lossy)
+	if !strings.Contains(note, "NOT evidence of absence") || !strings.Contains(note, lossy.Warning()) {
+		t.Fatalf("lossy integrity must produce the loss note, got %q", note)
+	}
+
+	// A healthy verdict must fall through to the same coverage note the
+	// re-inspecting surface produces.
+	want := emptyResultBlindSpot(brainDir)
+	got := emptyResultBlindSpotWithIntegrity(brainDir, "", manifest, factstore.Integrity{})
+	if got != want {
+		t.Fatalf("healthy integrity must match the re-inspecting note:\n got %q\nwant %q", got, want)
 	}
 }

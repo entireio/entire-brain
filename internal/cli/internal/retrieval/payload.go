@@ -230,14 +230,6 @@ type TaskHints struct {
 	ActionChecklist []BriefAction
 }
 
-type SessionAbstractPreview struct {
-	SessionRef     string             `json:"session_ref"`
-	AbstractStatus string             `json:"abstract_status"`
-	AbstractIssue  string             `json:"abstract_issue,omitempty"`
-	Overview       *AbstractStatement `json:"overview,omitempty"`
-	InputTruncated bool               `json:"input_truncated,omitempty"`
-}
-
 type RelatedPatternRef struct {
 	Type  string `json:"type"`
 	ID    string `json:"id"`
@@ -249,11 +241,9 @@ type RelatedPatternRef struct {
 // complete serialized shape: these fields, query/branch, indentation, and an
 // envelope all count.
 type TransportExtras struct {
-	AbstractPreviews          []SessionAbstractPreview
-	AbstractPreviewsTruncated bool
-	Hints                     TaskHints
-	Related                   []RelatedPatternRef
-	BlindSpot                 string
+	Hints     TaskHints
+	Related   []RelatedPatternRef
+	BlindSpot string
 }
 
 // GetOptions is the navigation contract for get: context counts for a

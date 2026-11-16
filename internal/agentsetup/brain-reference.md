@@ -1,13 +1,13 @@
 Retrieval (query takes --json/--format json|cli/--limit/-n/--branch,
 get/multi-get take --json/--format json|cli/--branch):
-  entire brain query "<query>" --json       # hybrid (lexical+vector, RRF) — the default
-  entire brain query --keyword "<query>" --json      # lexical keyword over memories + history + docs (BM25 for history/docs)
-  entire brain query --semantic "<query>" --json     # vector/semantic over memories + docs (+ history/conversation with a Gemma-class embedder)
+  entire brain query "<query>" --json       # BM25 lexical over memories + history + docs — the only ranking (semantic retrieval was removed)
+  entire brain query --keyword "<query>" --json      # match keywords and identifiers only
+  entire brain query --source history "<query>" --json  # explicit transcript-history escalation when memories miss
   entire brain get <id> --json              # fetch one item by id (fact:… | history:… | doc:…)
   entire brain multi-get <id>... --json     # fetch several by id
 
 Small top-level surface:
-  entire brain status [repo] --json         # sources, memories+verification, semantic coverage/freshness/blind spots, live state
+  entire brain status [repo] --json         # sources, memories+verification, retrieval identity, freshness/blind spots, live state
   entire brain status --fail-on release     # CI gate: nonzero when freshness is not ok or blind spots exist (also: unsafe, degraded, blind-spots)
   entire brain overview [repo] --json
   entire brain brief "<task>" --json

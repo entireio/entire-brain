@@ -59,6 +59,10 @@ type transcriptStore struct {
 	// repoDir overrides a legacy manifest worktree during cache migration.
 	repoDir string
 
+	// pinned keeps every read on the blobs listed when the snapshot resolved.
+	// See newPinnedTranscriptStore.
+	pinned bool
+
 	// snapMu guards the memoized snapshot. The store outlives its first caller
 	// (a long-lived watch loop shares it for the process), so memoization must
 	// not freeze the first attempt's outcome:
@@ -110,6 +114,21 @@ func newTranscriptStore(runner CommandRunner, brainDir string) *transcriptStore 
 	return &transcriptStore{runner: runner, brainDir: brainDir}
 }
 
+// newPinnedTranscriptStore builds a store for ONE history rebuild, whose reads
+// must all see the same bytes. Checkpoint refs move outside any Brain lock: a
+// commit in another session can finalize an existing checkpoint, rewriting its
+// transcript under the same checkpoint id. An unpinned read follows the ref, so
+// the rebuild's parse, its receipts and its identity check could each see
+// different bytes. Pinned reads go by blob id, which cannot change, and a finalize
+// that lands mid-rebuild simply belongs to the next one.
+//
+// Never share one beyond a single rebuild. A long-lived pinned store would keep
+// serving superseded transcripts until the manifest next changed, which is why
+// pinning is opt-in rather than how every store reads.
+func newPinnedTranscriptStore(runner CommandRunner, brainDir string) *transcriptStore {
+	return &transcriptStore{runner: runner, brainDir: brainDir, pinned: true}
+}
+
 // transcriptStores shares resolution for legacy direct-read helpers. Stores
 // revalidate manifest identity and privacy policy across calls, including
 // calls made by long-lived processes.
@@ -158,7 +177,12 @@ func (s *transcriptStore) lookupLocation(ctx context.Context, rel string) (trans
 				needResolve = true
 			}
 		} else if s.currentManifestStamp() != s.stamp {
-			needResolve = true
+			// A pinned store keeps its blobs across unrelated manifest writes;
+			// re-resolving would follow the moved ref and break the pin. A path
+			// it has never seen means the session set really changed, which the
+			// rebuild's identity check rejects either way.
+			_, known := s.byRel[rel]
+			needResolve = !s.pinned || !known
 		}
 	}
 	if needResolve {
@@ -220,6 +244,7 @@ func (s *transcriptStore) resolveSnapshot(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("transcript store: resolve checkpoint snapshot: %w", err)
 	}
+	snapshot.ReadPinned = s.pinned
 	s.snapshot = snapshot
 
 	// Index EVERY (session, checkpoint) pair the snapshot read — not just each

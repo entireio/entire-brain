@@ -306,7 +306,7 @@ func TestFactStoreIntegrityDetectsFactLineWithoutID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := factstore.SummarizeSource(time.Now().UTC(), records, 0, 0, 0, nil).Facts; got != 4 {
+	if got := factstore.SummarizeSource(time.Now().UTC(), records, 0, 0, nil).Facts; got != 4 {
 		t.Fatalf("factstore.SummarizeSource counted %d facts, want 4: an id-less line must never be declared as a fact", got)
 	}
 }
