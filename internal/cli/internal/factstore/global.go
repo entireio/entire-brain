@@ -56,11 +56,18 @@ func LoadGlobal(env base.EntireEnv) ([]factmerge.Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, statErr := os.Stat(brainDir); statErr != nil {
+	info, statErr := os.Stat(brainDir)
+	if statErr != nil {
 		if os.IsNotExist(statErr) {
 			return nil, nil
 		}
 		return nil, statErr
+	}
+	// A file where the store directory belongs is damaged, not absent. Decide
+	// that here: probing under it reports ENOTDIR on Unix (an error) but
+	// not-exist on Windows, so the deeper readers would read it as empty there.
+	if !info.IsDir() {
+		return nil, fmt.Errorf("global memory store is not a directory: %s", brainDir)
 	}
 	return Load(brainDir)
 }
