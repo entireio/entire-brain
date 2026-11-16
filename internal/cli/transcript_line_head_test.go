@@ -17,7 +17,12 @@ func TestUnreadLineIsUserTurn(t *testing.T) {
 		want bool
 	}{
 		{"claude pasted screenshot, text first", `{"parentUuid":"p","isSidechain":false,"cwd":"/repo","type":"user","message":{"role":"user","content":[{"type":"text","text":"What does this show?"},{"type":"image","source":{"type":"base64","data":"` + bulk + `"}}]}}`, true},
-		{"claude pasted screenshot, image first", `{"type":"user","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","data":"` + bulk + `"}},{"type":"text","text":"What does this show?"}]}}`, true},
+		{"claude pasted screenshot, text past the head", `{"type":"user","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","data":"` + bulk + `"}},{"type":"text","text":"What does this show?"}]}}`, false},
+		{"claude small image, then text", `{"type":"user","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","data":"iVBOR"}},{"type":"text","text":"What does this show? ` + bulk + `"}]}}`, true},
+		{"claude small image, then a reminder", `{"type":"user","message":{"role":"user","content":[{"type":"image","source":{"data":"iVBOR"}},{"type":"text","text":"<system-reminder>` + bulk + `"}]}}`, false},
+		{"claude blank text, then text", `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"  "},{"type":"text","text":"What does this show? ` + bulk + `"}]}}`, true},
+		{"claude small tool result, then user text", `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":"ok"},{"type":"text","text":"Now look at this: ` + bulk + `"}]}}`, true},
+		{"claude tool result, content before type", `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","content":[{"type":"image","source":{"data":"` + bulk + `"}}],"type":"tool_result"}]}}`, false},
 		{"claude pasted text", `{"type":"user","message":{"role":"user","content":"Please review this log: ` + bulk + `"}}`, true},
 		{"claude pasted text with escapes", `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"line one\nline \"two\" é` + bulk + `"}]}}`, true},
 		{"claude screenshot read (tool result)", `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":[{"type":"image","source":{"data":"` + bulk + `"}}]}]}}`, false},
@@ -57,6 +62,21 @@ func TestUnreadLineHeadEndingInsideAnEscape(t *testing.T) {
 	}
 	if unreadLineIsUserTurn([]byte(head)) {
 		t.Fatal("an injected stop-hook turn was read as a user turn")
+	}
+	// A complete escaped backslash at the cut stays, and so does the text.
+	for _, tc := range []struct{ body, want string }{
+		{`C:\\`, `C:\`},
+		{`C:\\\`, `C:\`},
+		{`a\"b\`, `a"b`},
+		{`a\u00e9\u00`, "a\u00e9"},
+	} {
+		if got := decodeJSONStringStart([]byte(tc.body)); got != tc.want {
+			t.Fatalf("decodeJSONStringStart(%q) = %q, want %q", tc.body, got, tc.want)
+		}
+	}
+	wrapped := `{"type":"user","message":{"role":"user","content":"<local-command-stdout>C:\\`
+	if unreadLineIsUserTurn([]byte(wrapped)) {
+		t.Fatal("a wrapper cut after an escaped backslash was read as a user turn")
 	}
 	// Or inside a multi-byte character: the text stops before it rather than
 	// ending in a replacement character.

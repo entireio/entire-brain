@@ -215,10 +215,11 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 	var result conversationScanResult
 	var open *conversationExchange
 	// openType is the record type of the open exchange's request line, and
-	// unread is the last user turn too long to read, until something answers
-	// it or a request follows. Both exist to recognize codex's two copies of
-	// one turn (see codexTurnCopy).
-	openType := ""
+	// openPaired is set once both codex copies of that turn were seen. unread
+	// is the last user turn too long to read, until something answers it or a
+	// request follows. They exist to recognize codex's two copies of one turn
+	// (see codexTurnCopy), and only those.
+	openType, openPaired := "", false
 	var unread unreadConversationTurn
 	lineNumber := 0
 	closeOpen := func(endLine int) {
@@ -243,20 +244,24 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 			if head := readTranscriptLineHead(scanner.Head()); head.userTurn() {
 				turn := unreadConversationTurn{counted: true, recordType: head.recordType, start: head.requestStart()}
 				// An unread codex copy of the still-unanswered open request
-				// is that request, not a new turn.
-				if open != nil && strings.TrimSpace(open.Response) == "" && len(open.ToolNames) == 0 && codexTurnCopy(openType, open.Request, turn.recordType, turn.start) {
+				// is that request, not a new turn. The exchange still spans
+				// a line nobody read, as its expansion will say.
+				if open != nil && !openPaired && strings.TrimSpace(open.Response) == "" && len(open.ToolNames) == 0 && codexTurnCopy(openType, open.Request, turn.recordType, turn.start) {
+					open.ResponseOverflow = true
+					openPaired = true
+					continue
+				}
+				// Nor is the other unread codex copy of the turn just counted.
+				if unread.counted && !unread.paired && codexTurnCopy(unread.recordType, unread.start, turn.recordType, turn.start) {
+					unread.paired = true
 					continue
 				}
 				// A user turn nobody can read (a pasted screenshot, say)
 				// ends the open exchange: the answer after it belongs to a
 				// request without text, not to the one before it. It counts
-				// as an incomplete exchange, so turn ordinals stay aligned,
-				// unless it is the other codex copy of the unread turn just
-				// counted.
+				// as an incomplete exchange, so turn ordinals stay aligned.
 				closeOpen(lineNumber - 1)
-				if !unread.counted || !codexTurnCopy(unread.recordType, unread.start, turn.recordType, turn.start) {
-					result.Incomplete++
-				}
+				result.Incomplete++
 				unread = turn
 				continue
 			}
@@ -284,14 +289,17 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 			// request with no narrative between them is that duplication, not a
 			// new turn.
 			if open != nil && open.Request == request && strings.TrimSpace(open.Response) == "" && len(open.ToolNames) == 0 {
+				openPaired = true
 				continue
 			}
 			closeOpen(lineNumber - 1)
 			requestType := transcriptRecordType(record)
-			if unread.counted && codexTurnCopy(unread.recordType, unread.start, requestType, request) {
+			openPaired = false
+			if unread.counted && !unread.paired && codexTurnCopy(unread.recordType, unread.start, requestType, request) {
 				// The readable codex copy of the unread turn just counted:
 				// it is that turn, so the turn no longer counts apart.
 				result.Incomplete--
+				openPaired = true
 			}
 			unread = unreadConversationTurn{}
 			open = &conversationExchange{TurnOrdinal: len(result.Exchanges) + result.Incomplete + 1, Request: request, Line: lineNumber}
@@ -319,10 +327,12 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 }
 
 // unreadConversationTurn is a user turn the conversation scan could not read:
-// counted once it is counted as incomplete, with the record type and the
-// start of the text its head showed.
+// counted once it counts as incomplete, with the record type and the start of
+// the text its head showed.
 type unreadConversationTurn struct {
-	counted    bool
+	counted bool
+	// paired is set once both codex copies of the turn were seen.
+	paired     bool
 	recordType string
 	start      string
 }

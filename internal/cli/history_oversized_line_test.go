@@ -268,9 +268,11 @@ func TestConversationScanKeepsTurnWithOneReadableCodexCopy(t *testing.T) {
 		name                  string
 		itemImage, eventImage bool
 		requestLine           int
+		// truncated: the unread copy falls inside the exchange's range.
+		truncated bool
 	}{
-		{"event copy too long", false, true, 4},
-		{"item copy too long", true, false, 5},
+		{"event copy too long", false, true, 4, true},
+		{"item copy too long", true, false, 5, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -284,6 +286,9 @@ func TestConversationScanKeepsTurnWithOneReadableCodexCopy(t *testing.T) {
 			middle := scan.Exchanges[1]
 			if middle.Request != "Here is the screenshot." || middle.Response != "Answer to the screenshot turn." || middle.Line != tc.requestLine || middle.EndLine != 6 || middle.TurnOrdinal != 2 {
 				t.Fatalf("screenshot exchange = %+v, want its request from line %d and its answer, as turn 2", middle, tc.requestLine)
+			}
+			if middle.ResponseOverflow != tc.truncated {
+				t.Fatalf("screenshot exchange truncated = %v, want %v", middle.ResponseOverflow, tc.truncated)
 			}
 			if last := scan.Exchanges[2]; last.TurnOrdinal != 3 {
 				t.Fatalf("last exchange = %+v, want turn 3", last)
@@ -311,6 +316,38 @@ func TestConversationScanSeparatesUnreadCodexTurnsByAnUnreadAnswer(t *testing.T)
 		t.Fatalf("exchanges = %+v incomplete = %d, want 2 exchanges and two incomplete turns", scan.Exchanges, scan.Incomplete)
 	}
 	if last := scan.Exchanges[1]; last.TurnOrdinal != 4 {
+		t.Fatalf("last exchange = %+v, want turn 4", last)
+	}
+}
+
+// Once both codex copies of a turn were seen, a third user record with the
+// same opening text is a new turn, even with nothing answered between them,
+// and the answer after it is not the earlier turn's.
+func TestConversationScanPairsCodexCopiesOnce(t *testing.T) {
+	t.Parallel()
+	image := `,"x":"` + strings.Repeat("A", historyMaxLineBytes+1024) + `"`
+	item := func(text, extra string) string {
+		return `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"` + text + `"}]` + extra + `}}` + "\n"
+	}
+	event := func(text, extra string) string {
+		return `{"type":"event_msg","payload":{"type":"user_message","message":"` + text + `"` + extra + `}}` + "\n"
+	}
+	answer := func(text string) string {
+		return `{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"` + text + `"}]}}` + "\n"
+	}
+	content := item("First question?", "") + event("First question?", "") + answer("First answer.") +
+		item("Same opening, turn A.", image) + event("Same opening, turn A.", "") +
+		item("Same opening, turn A.", image) + answer("Answer to the third turn.") +
+		item("Last question?", "") + event("Last question?", "") + answer("Last answer.")
+
+	scan, err := scanLineConversation(strings.NewReader(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scan.Exchanges) != 2 || scan.Incomplete != 2 {
+		t.Fatalf("exchanges = %+v incomplete = %d, want the first and last exchanges and two incomplete turns", scan.Exchanges, scan.Incomplete)
+	}
+	if last := scan.Exchanges[1]; last.Request != "Last question?" || last.TurnOrdinal != 4 {
 		t.Fatalf("last exchange = %+v, want turn 4", last)
 	}
 }

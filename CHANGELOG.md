@@ -76,8 +76,9 @@ All notable changes to `entire-brain` are recorded here. The format follows
   that line instead of failing the transcript; every later line keeps its
   number, the rest of the session is indexed, the build warns which transcript
   lost how many lines, and an exchange that spans a skipped line is marked
-  truncated. A skipped line that is a user turn (a pasted screenshot) ends the
-  exchange before it, so its answer is not attributed to the earlier request.
+  truncated. A skipped line whose first bytes show a user turn (text with a
+  pasted screenshot after it) ends the exchange before it, so its answer is not
+  attributed to the earlier request.
   The short-term delta no longer lists such a session in `failed_files` on
   every tick; it records the skipped lines, and doctor reports the overlay as
   partial until consolidation. The history extraction revision moves to 14 so
