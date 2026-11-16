@@ -455,53 +455,60 @@ func uninstallPushHook(ctx context.Context, opts Options, repoDir string) error 
 // removeLivePushHook takes the copy of our hook that runs out of the chain.
 func removeLivePushHook(hooksDir string) error {
 	primary := filepath.Join(hooksDir, pushHookName)
-	backup := primary + pushHookBackupSuffix
-
 	if data, err := readHookFile(primary); err == nil && strings.Contains(string(data), pushHookMarker) {
-		restore := ""
-		if _, err := os.Stat(backup); err == nil {
-			restore = backup
-		} else {
-			// The host's uninstall moved us back from its slot; the hook we
-			// ran from there is the one to restore.
-			restore = strandedChainTarget(primary)
-		}
-		if restore != "" {
-			// Remove first: on Windows, rename cannot replace an existing file.
-			if err := os.Remove(primary); err != nil {
-				return err
-			}
-			return os.Rename(restore, primary)
-		}
-		return os.Remove(primary)
+		return removePrimaryPushHook(primary)
 	}
 	for _, candidate := range movedPushHookCandidates(hooksDir) {
 		data, err := readHookFile(candidate)
 		if err != nil || !strings.Contains(string(data), pushHookMarker) {
 			continue
 		}
-		// Our copy runs the hook behind it when we joined the host's chain
-		// (or a host re-wrap kept that hook there): it takes our copy's place,
-		// so the chain that ran us runs it. Rename replaces our copy in one
-		// step. Without one, delete our copy; the host's chain call is
-		// [ -x ]-guarded, so a missing chain target is a clean no-op.
-		if _, statErr := os.Lstat(candidate + pushHookBackupSuffix); statErr == nil {
-			if err := os.Rename(candidate+pushHookBackupSuffix, candidate); err != nil {
-				return err
-			}
-		} else if err := os.Remove(candidate); err != nil {
+		return removeMovedPushHook(candidate, primary+pushHookBackupSuffix)
+	}
+	return nil
+}
+
+// removePrimaryPushHook removes our hook from the primary and puts back the
+// hook it ran: its own backup, or the hook behind the host's slot after the
+// host's uninstall moved us back from there. Without either, it just goes.
+func removePrimaryPushHook(primary string) error {
+	restore := ""
+	if _, err := os.Stat(primary + pushHookBackupSuffix); err == nil {
+		restore = primary + pushHookBackupSuffix
+	} else {
+		// The host's uninstall moved us back from its slot; the hook we
+		// ran from there is the one to restore.
+		restore = strandedChainTarget(primary)
+	}
+	// Remove first: on Windows, rename cannot replace an existing file.
+	if err := os.Remove(primary); err != nil || restore == "" {
+		return err
+	}
+	return os.Rename(restore, primary)
+}
+
+// removeMovedPushHook removes our copy at candidate, further down a chain.
+// Our copy runs the hook behind it when we joined the host's chain (or a host
+// re-wrap kept that hook there): it takes our copy's place, so the chain that
+// ran us runs it. Rename replaces our copy in one step. Without one, delete
+// our copy; the host's chain call is [ -x ]-guarded, so a missing chain
+// target is a clean no-op.
+func removeMovedPushHook(candidate, backup string) error {
+	if _, err := os.Lstat(candidate + pushHookBackupSuffix); err == nil {
+		if err := os.Rename(candidate+pushHookBackupSuffix, candidate); err != nil {
 			return err
 		}
-		// Our old backup (the host hook we once wrapped) is a DORMANT stale
-		// copy: nothing runs it once our hook left the primary. Renaming it
-		// into the candidate slot would put a second host pre-push back into
-		// the live chain and run it twice, so it is deleted. A restored
-		// candidate that resolves to it (a symlink to it) runs it, so then it
-		// stays.
-		if _, statErr := os.Stat(backup); statErr == nil && !sameFile(candidate, backup) {
-			return os.Remove(backup)
-		}
-		return nil
+	} else if err := os.Remove(candidate); err != nil {
+		return err
+	}
+	// Our old backup (the host hook we once wrapped) is a DORMANT stale
+	// copy: nothing runs it once our hook left the primary. Renaming it
+	// into the candidate slot would put a second host pre-push back into
+	// the live chain and run it twice, so it is deleted. A restored
+	// candidate that resolves to it (a symlink to it) runs it, so then it
+	// stays.
+	if _, err := os.Stat(backup); err == nil && !sameFile(candidate, backup) {
+		return os.Remove(backup)
 	}
 	return nil
 }
