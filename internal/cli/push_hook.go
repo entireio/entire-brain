@@ -263,7 +263,7 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 // first sets aside the file that would get in the chain line's way there.
 func wrapTarget(primary, primaryContent string) (string, string, error) {
 	if slot, slotContent, ok := hostChainSlot(primary, primaryContent); ok {
-		return slot, slotContent, setAsideOldPrimaryBackup(primary)
+		return slot, slotContent, setAsideOldPrimaryBackup(primary, slot)
 	}
 	return primary, primaryContent, setAsideStrandedChainTarget(primary)
 }
@@ -272,12 +272,12 @@ func wrapTarget(primary, primaryContent string) (string, string, error) {
 // earlier wrap, when our copy in the host's slot has a hook of its own behind
 // it: ours is about to join the host's chain there, or to move out of it into
 // the primary. With our hook in the primary, the chain line would run that
-// old backup instead of falling back to the hook behind the slot. A slot that
-// resolves to the backup itself (a symlink to it) is the hook being joined,
-// so the backup stays.
-func setAsideOldPrimaryBackup(primary string) error {
+// old backup instead of falling back to the hook behind the slot. behind is
+// the hook that ends up behind our copy; when it resolves to the backup itself
+// (a symlink to it), the backup is that hook, so it stays.
+func setAsideOldPrimaryBackup(primary, behind string) error {
 	backup := primary + pushHookBackupSuffix
-	if sameFile(primary+hostBackupSuffix, backup) {
+	if sameFile(behind, backup) {
 		return nil
 	}
 	return setAside(backup, "is an older backup that nothing runs")
@@ -304,7 +304,7 @@ func installIntoEmptyPrimary(primary, selfPath string) error {
 	slot := primary + hostBackupSuffix
 	if data, err := readHookFile(slot); err == nil && strings.Contains(string(data), pushHookMarker) {
 		if pathExists(slot + pushHookBackupSuffix) {
-			if err := setAsideOldPrimaryBackup(primary); err != nil {
+			if err := setAsideOldPrimaryBackup(primary, slot+pushHookBackupSuffix); err != nil {
 				return err
 			}
 		}
@@ -495,8 +495,10 @@ func removeLivePushHook(hooksDir string) error {
 		// Our old backup (the host hook we once wrapped) is a DORMANT stale
 		// copy: nothing runs it once our hook left the primary. Renaming it
 		// into the candidate slot would put a second host pre-push back into
-		// the live chain and run it twice, so it is deleted.
-		if _, statErr := os.Stat(backup); statErr == nil {
+		// the live chain and run it twice, so it is deleted. A restored
+		// candidate that resolves to it (a symlink to it) runs it, so then it
+		// stays.
+		if _, statErr := os.Stat(backup); statErr == nil && !sameFile(candidate, backup) {
 			return os.Remove(backup)
 		}
 		return nil
