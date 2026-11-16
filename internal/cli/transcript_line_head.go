@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -22,6 +23,9 @@ type transcriptLineHead struct {
 	// is blank), joined with spaces. Empty when the head ends, or the content
 	// does, before any text.
 	text string
+	// whole is set when the head carried the content to its end, so text is
+	// all of the turn's text rather than its start.
+	whole bool
 }
 
 // add joins one text to the head's text the way transcriptContentText joins
@@ -83,7 +87,8 @@ func readTranscriptLineHead(head []byte) transcriptLineHead {
 		case "type":
 			return r.str(&h.recordType)
 		case "content": // the format, and unversioned turns
-			return r.content(&h)
+			h.whole = r.content(&h)
+			return h.whole
 		case "message", "payload":
 			if r.next() != '{' {
 				return r.skip()
@@ -95,7 +100,8 @@ func readTranscriptLineHead(head []byte) transcriptLineHead {
 				case "role":
 					return r.str(&h.role)
 				case "content", "message": // codex event_msg carries its text as "message"
-					return r.content(&h)
+					h.whole = r.content(&h)
+					return h.whole
 				}
 				return r.skip()
 			})
@@ -233,8 +239,8 @@ func (r *transcriptHeadReader) text(out *string) bool {
 }
 
 // decodeJSONStringStart decodes the start of a JSON string body that the head
-// cuts off, ending before an escape or a UTF-8 sequence the cut would split.
-// "" when the bytes are not a string body.
+// cuts off, ending before an escape, a surrogate pair or a UTF-8 sequence the
+// cut would split. "" when the bytes are not a string body.
 func decodeJSONStringStart(raw []byte) string {
 	for i := 0; i < len(raw); i++ {
 		if raw[i] != '\\' {
@@ -243,6 +249,11 @@ func decodeJSONStringStart(raw []byte) string {
 		size := 2
 		if i+1 < len(raw) && raw[i+1] == 'u' {
 			size = 6
+			// A high surrogate decodes only with the low one after it; on its
+			// own it would decode to U+FFFD, which the whole text never has.
+			if i+size <= len(raw) && len(raw)-(i+size) < 6 && isHighSurrogateEscape(raw[i+2:i+size]) {
+				size = 12
+			}
 		}
 		if i+size > len(raw) {
 			raw = raw[:i]
@@ -260,4 +271,11 @@ func decodeJSONStringStart(raw []byte) string {
 		return ""
 	}
 	return s
+}
+
+// isHighSurrogateEscape reports whether the four hex digits of a \u escape
+// are the first half of a UTF-16 surrogate pair.
+func isHighSurrogateEscape(hex []byte) bool {
+	v, err := strconv.ParseUint(string(hex), 16, 16)
+	return err == nil && v >= 0xD800 && v < 0xDC00
 }

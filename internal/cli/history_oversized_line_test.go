@@ -352,6 +352,48 @@ func TestConversationScanPairsCodexCopiesOnce(t *testing.T) {
 	}
 }
 
+// A codex copy whose whole text the head shows must match the other copy's
+// text exactly: a longer or shorter request that only shares its opening is a
+// different turn, in either order. A head cut inside the text still matches by
+// its start.
+func TestConversationScanMatchesWholeCodexTextExactly(t *testing.T) {
+	t.Parallel()
+	big := strings.Repeat("A", historyMaxLineBytes+1024)
+	item := func(text string) string {
+		return `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"` + text + `"}]}}` + "\n"
+	}
+	event := func(text string) string {
+		return `{"type":"event_msg","payload":{"type":"user_message","message":"` + text + `","images":["data:` + big + `"]}}` + "\n"
+	}
+	// Longer than a head, so the unread copy's head shows only its start.
+	long := "Review the export " + strings.Repeat("A", 2*historyOversizedLineHeadBytes) + " and say what fails."
+	answer := `{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Answered."}]}}` + "\n"
+	for _, tc := range []struct {
+		name, content     string
+		exchanges, unread int
+		request           string
+	}{
+		{"unread copy with longer text", item("Review the export") + event("Review the export with this screenshot") + answer, 0, 2, ""},
+		{"unread copy with shorter text", item("Review the export with this screenshot") + event("Review the export") + answer, 0, 2, ""},
+		{"unread copy with the same text", item("Review the export") + event("Review the export") + answer, 1, 0, "Review the export"},
+		{"head cut inside the text", item(long) + event(long) + answer, 1, 0, long},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			scan, err := scanLineConversation(strings.NewReader(tc.content))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(scan.Exchanges) != tc.exchanges || scan.Incomplete != tc.unread {
+				t.Fatalf("exchanges = %+v incomplete = %d, want %d exchanges and %d incomplete turns", scan.Exchanges, scan.Incomplete, tc.exchanges, tc.unread)
+			}
+			if tc.exchanges == 1 && scan.Exchanges[0].Request != tc.request {
+				t.Fatalf("exchange = %+v, want the request %q", scan.Exchanges[0], tc.request)
+			}
+		})
+	}
+}
+
 // Only codex writes a turn twice. Distinct unread turns in other dialects, or
 // unread turns with an answer between them, each count.
 func TestConversationScanCountsEachDistinctUnreadTurn(t *testing.T) {

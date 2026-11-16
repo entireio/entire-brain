@@ -89,6 +89,12 @@ func TestUnreadLineHeadEndingInsideAnEscape(t *testing.T) {
 		{`C:\\\`, `C:\`},
 		{`a\"b\`, `a"b`},
 		{`a\u00e9\u00`, "a\u00e9"},
+		// A surrogate pair the cut splits is dropped whole, not decoded to
+		// U+FFFD.
+		{`a\ud83d`, "a"},
+		{`a\ud83d\ude0`, "a"},
+		{`a\ud83d\ude00`, "a\U0001F600"},
+		{`a\ude00`, "a\uFFFD"},
 	} {
 		if got := decodeJSONStringStart([]byte(tc.body)); got != tc.want {
 			t.Fatalf("decodeJSONStringStart(%q) = %q, want %q", tc.body, got, tc.want)
@@ -103,6 +109,41 @@ func TestUnreadLineHeadEndingInsideAnEscape(t *testing.T) {
 	cut := `{"type":"user","message":{"role":"user","content":"Here is caf` + "\xc3"
 	if got := readTranscriptLineHead([]byte(cut)).requestStart(); got != "Here is caf" {
 		t.Fatalf("request start = %q, want the text before the cut character", got)
+	}
+}
+
+// A head is whole when it carries the content to its end; only then is its
+// text the turn's whole text rather than its start.
+func TestUnreadLineHeadKnowsWhetherItsTextIsWhole(t *testing.T) {
+	t.Parallel()
+	bulk := strings.Repeat("A", 8*1024)
+	const headBytes = 4 * 1024
+	for _, tc := range []struct {
+		name, line string
+		whole      bool
+	}{
+		{"codex event, images after the message", `{"type":"event_msg","payload":{"type":"user_message","message":"What does this show?","images":["data:` + bulk + `"]}}`, true},
+		{"codex event, message past the head", `{"type":"event_msg","payload":{"type":"user_message","message":"What does this show? ` + bulk + `"}}`, false},
+		{"codex item, text then an image", `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"What does this show?"},{"type":"input_image","image_url":"data:` + bulk + `"}]}}`, false},
+		{"claude, text then a later field", `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"What does this show?"}]},"toolUseResult":"` + bulk + `"}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if head := readTranscriptLineHead([]byte(tc.line[:headBytes])); head.whole != tc.whole || !head.userTurn() {
+				t.Fatalf("head = %+v, want a user turn with whole = %v", head, tc.whole)
+			}
+		})
+	}
+	// A head cut after a high surrogate still starts the whole text.
+	emoji := `{"type":"event_msg","payload":{"type":"user_message","message":"Why \ud83d\ude00`
+	full := emoji + ` here?"}}`
+	record, ok := decodeTranscriptRecord(full)
+	if !ok {
+		t.Fatal("the whole line does not decode")
+	}
+	cut := readTranscriptLineHead([]byte(emoji[:len(emoji)-len(`\ude00`)])).requestStart()
+	if request := conversationSubstantiveRequest(record); cut != "Why" || !strings.HasPrefix(request, cut) {
+		t.Fatalf("request start %q, want %q, the start of %q", cut, "Why", request)
 	}
 }
 

@@ -242,17 +242,17 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 		lineNumber++
 		if scanner.Oversized() {
 			if head := readTranscriptLineHead(scanner.Head()); head.userTurn() {
-				turn := unreadConversationTurn{counted: true, recordType: head.recordType, start: head.requestStart()}
+				turn := unreadConversationTurn{counted: true, request: turnRequest{recordType: head.recordType, text: head.requestStart(), whole: head.whole}}
 				// An unread codex copy of the still-unanswered open request
 				// is that request, not a new turn. The exchange still spans
 				// a line nobody read, as its expansion will say.
-				if open != nil && !openPaired && strings.TrimSpace(open.Response) == "" && len(open.ToolNames) == 0 && codexTurnCopy(openType, open.Request, turn.recordType, turn.start) {
+				if open != nil && !openPaired && strings.TrimSpace(open.Response) == "" && len(open.ToolNames) == 0 && codexTurnCopy(turnRequest{recordType: openType, text: open.Request, whole: true}, turn.request) {
 					open.ResponseOverflow = true
 					openPaired = true
 					continue
 				}
 				// Nor is the other unread codex copy of the turn just counted.
-				if unread.counted && !unread.paired && codexTurnCopy(unread.recordType, unread.start, turn.recordType, turn.start) {
+				if unread.counted && !unread.paired && codexTurnCopy(unread.request, turn.request) {
 					unread.paired = true
 					continue
 				}
@@ -295,7 +295,7 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 			closeOpen(lineNumber - 1)
 			requestType := transcriptRecordType(record)
 			openPaired = false
-			if unread.counted && !unread.paired && codexTurnCopy(unread.recordType, unread.start, requestType, request) {
+			if unread.counted && !unread.paired && codexTurnCopy(unread.request, turnRequest{recordType: requestType, text: request, whole: true}) {
 				// The readable codex copy of the unread turn just counted:
 				// it is that turn, so the turn no longer counts apart.
 				result.Incomplete--
@@ -326,31 +326,44 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 	return result, nil
 }
 
-// unreadConversationTurn is a user turn the conversation scan could not read:
-// counted once it counts as incomplete, with the record type and the start of
-// the text its head showed.
+// unreadConversationTurn is a user turn the conversation scan could not read,
+// counted once it counts as incomplete, with the request its head showed.
 type unreadConversationTurn struct {
 	counted bool
 	// paired is set once both codex copies of the turn were seen.
-	paired     bool
+	paired  bool
+	request turnRequest
+}
+
+// turnRequest is a user turn's request as the scan knows it: the line's record
+// type and the normalized request text, whole (a readable request, or a head
+// that carried all of it) or only its start.
+type turnRequest struct {
 	recordType string
-	start      string
+	text       string
+	whole      bool
 }
 
 // codexTurnCopy reports whether two user-turn lines are codex's two copies of
-// one turn: one response_item and one event_msg, with the same text as far as
-// both show it. Codex wraps the turn's image differently in each copy, so near
-// the line limit only one may be too long to read. Other dialects write a turn
-// once, so two of their turns are never copies.
-func codexTurnCopy(typeA, textA, typeB, textB string) bool {
+// one turn: one response_item and one event_msg with the same text, or, where
+// a head shows only the start of one, text that begins the other. Codex wraps
+// the turn's image differently in each copy, so near the line limit only one
+// may be too long to read. Other dialects write a turn once, so two of their
+// turns are never copies.
+func codexTurnCopy(a, b turnRequest) bool {
 	codex := func(recordType string) bool { return recordType == "response_item" || recordType == "event_msg" }
-	if typeA == typeB || !codex(typeA) || !codex(typeB) {
+	if a.recordType == b.recordType || !codex(a.recordType) || !codex(b.recordType) || a.text == "" || b.text == "" {
 		return false
 	}
-	if textA == "" || textB == "" {
-		return textA == textB
+	switch {
+	case a.whole && b.whole:
+		return a.text == b.text
+	case a.whole:
+		return strings.HasPrefix(a.text, b.text)
+	case b.whole:
+		return strings.HasPrefix(b.text, a.text)
 	}
-	return strings.HasPrefix(textA, textB) || strings.HasPrefix(textB, textA)
+	return strings.HasPrefix(a.text, b.text) || strings.HasPrefix(b.text, a.text)
 }
 
 // transcriptRecordType is a native record's top-level "type", "" for a line in
