@@ -102,7 +102,7 @@ func dashSourceDetails(manifest *exportManifest) map[string]string {
 		out["history"] = fmt.Sprintf("%d records (%d decisions · %d learnings)", h.Records, h.Decisions, h.Learnings)
 	}
 	if f := src.Facts; f != nil {
-		out["facts"] = fmt.Sprintf("%d facts across %d branch(es)", f.Facts, len(f.Branches))
+		out["facts"] = fmt.Sprintf("%d facts", f.Facts)
 	}
 	if s := src.Seed; s != nil {
 		out["seed"] = fmt.Sprintf("%d entrypoints · %d commands", len(s.Entrypoints), len(s.Commands))

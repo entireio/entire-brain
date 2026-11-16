@@ -186,6 +186,31 @@ func nativeToolUses(content any) []toolUse {
 	return out
 }
 
+// recordToolUses returns the tool calls an assistant transcript line makes: a
+// format line's tool_use blocks, or the tool_use and tool blocks of a native
+// Claude Code or pi assistant message. Any other line makes none. Every reader
+// of a line's tool calls (corpusEpisodeOps, codexFileChangePaths,
+// toolCallsFromRecord) goes through it, so they agree on which blocks are
+// tool calls. A codex response_item is not a tool_use block; its readers
+// handle it separately.
+func recordToolUses(record transcriptRecord) []toolUse {
+	if record.etf != nil {
+		if !record.etfIs(transcript.TypeAssistant) {
+			return nil
+		}
+		return etfToolUses(record.etf)
+	}
+	switch recordType := jsonString(record.obj["type"]); recordType {
+	case "assistant", "message":
+		msg := jsonMap(record.obj["message"])
+		if recordType == "message" && jsonString(msg["role"]) != "assistant" {
+			return nil
+		}
+		return nativeToolUses(msg["content"])
+	}
+	return nil
+}
+
 func normalizeToolName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }

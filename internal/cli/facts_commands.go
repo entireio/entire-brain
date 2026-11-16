@@ -28,7 +28,7 @@ func factsCommandConfig(opts Options) facts.Config {
 			DistillTimeout:                  defaultDistillTimeout,
 			RankFacts:                       rankFacts,
 			RecordServedFacts:               recordServedFactsReceipt,
-			EmptyResultBlindSpot:            emptyResultBlindSpotOnBranch,
+			EmptyResultBlindSpot:            emptyResultBlindSpotWithIntegrity,
 			RunRecallEvidence:               runRecallEvidence,
 			ExpandQuery:                     expandRecallQuery,
 		},

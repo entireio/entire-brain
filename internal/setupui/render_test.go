@@ -137,7 +137,7 @@ func TestRenderModes(t *testing.T) {
 				}
 			}
 			// Every mode says the same things, whatever glyphs it says them in.
-			for _, want := range []string{"acme-payments", "claude-code", "entire-graph", "not bound", "COR-2029", "background watcher not installed"} {
+			for _, want := range []string{"acme-payments", "claude-code", "entire-graph", "not bound", "memories stay local", "background watcher not installed"} {
 				if !strings.Contains(plain, want) {
 					t.Errorf("mode %s lost %q", m.name, want)
 				}
@@ -447,7 +447,7 @@ func TestDetectNamesARemedyForEveryAbsentCapability(t *testing.T) {
 	// Ground truth: setup cannot bind a hosted brain today, so it must not
 	// imply that it will.
 	hosted := absent.Details(rend)[2]
-	if !strings.Contains(hosted, "not bound") || !strings.Contains(hosted, "COR-2029") {
+	if !strings.Contains(hosted, "not bound") || !strings.Contains(hosted, "memories stay local") {
 		t.Errorf("hosted row does not state local-only: %q", hosted)
 	}
 	for _, forbidden := range []string{"entire repo view", "entire repo whereami", "binding automatically"} {

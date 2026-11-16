@@ -193,7 +193,7 @@ func TestRunDistillMaxSessionsDefersRatherThanSkips(t *testing.T) {
 	}
 
 	// The deferred session must be undistilled, not silently cached.
-	status := factsBackfillStatusForBrain(brainDir)
+	status := factsBackfillStatusForBrain(brainDir, nil)
 	if status.Sessions != 3 || status.Distilled != 2 {
 		t.Fatalf("expected 2/3 sessions distilled after a capped run, got %d/%d", status.Distilled, status.Sessions)
 	}
@@ -210,7 +210,7 @@ func TestRunDistillMaxSessionsDefersRatherThanSkips(t *testing.T) {
 	if got := strings.Join(second, ","); got != "old" {
 		t.Fatalf("the follow-up run must distill only the deferred session, visited %s", got)
 	}
-	if status := factsBackfillStatusForBrain(brainDir); status.Distilled != 3 {
+	if status := factsBackfillStatusForBrain(brainDir, nil); status.Distilled != 3 {
 		t.Fatalf("all three sessions should be distilled after the follow-up, got %d", status.Distilled)
 	}
 }
@@ -240,7 +240,7 @@ func TestForcedCappedDistillDoesNotStrandDeferredSessions(t *testing.T) {
 	if _, err := runDistillForBrain(context.Background(), repoDir, brainDir, opts, now); err != nil {
 		t.Fatalf("initial runDistillForBrain: %v", err)
 	}
-	if status := factsBackfillStatusForBrain(brainDir); status.Distilled != 3 {
+	if status := factsBackfillStatusForBrain(brainDir, nil); status.Distilled != 3 {
 		t.Fatalf("all three sessions should be distilled first, got %d", status.Distilled)
 	}
 
@@ -258,7 +258,7 @@ func TestForcedCappedDistillDoesNotStrandDeferredSessions(t *testing.T) {
 	if got := strings.Join(second, ","); got != "new,mid" {
 		t.Fatalf("the forced pass must spend on exactly the two newest sessions, visited %s", got)
 	}
-	if status := factsBackfillStatusForBrain(brainDir); status.Distilled != 2 {
+	if status := factsBackfillStatusForBrain(brainDir, nil); status.Distilled != 2 {
 		t.Fatalf("a forced pass dropped the deferred session's facts but still marked it distilled: %d/%d\nit is skipped by every later run and status lies about it",
 			status.Distilled, status.Sessions)
 	}
@@ -275,7 +275,7 @@ func TestForcedCappedDistillDoesNotStrandDeferredSessions(t *testing.T) {
 	if got := strings.Join(third, ","); got != "old" {
 		t.Fatalf("the follow-up run must re-distill the stranded session, visited %s", got)
 	}
-	if status := factsBackfillStatusForBrain(brainDir); status.Distilled != 3 {
+	if status := factsBackfillStatusForBrain(brainDir, nil); status.Distilled != 3 {
 		t.Fatalf("all three sessions should be distilled after the follow-up, got %d", status.Distilled)
 	}
 }

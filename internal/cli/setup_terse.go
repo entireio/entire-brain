@@ -88,6 +88,7 @@ func terseReportFor(report setupReport, timings *setupTimings, queryable bool, o
 	// explicitly opted out. The short form is the DEFAULT, so this is where
 	// the opt-in actually gets discovered.
 	out.OfferConnect = setupOffersConnect(report.BrainPath)
+	out.HostedError = report.HostedConnectError
 
 	out.Distill = terseDistillOutcome(report)
 	if out.Distill == setupui.DistillFailed {

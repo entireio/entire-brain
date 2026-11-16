@@ -37,6 +37,14 @@ with query and not from the brief's memories sample alone:
 
     entire brain recall "<question>" --json
 
+Memories are the default retrieval surface. The brief's precedent section lists
+each surfaced memory's source sessions (session, transcript, commit,
+checkpoint); follow those anchors when you need the detail behind a memory.
+The brief does not search transcript history. Search transcripts only as an
+explicit escalation, when memories and their anchors miss:
+
+    entire brain query --source history "<question>" --json
+
 Use Brain retrieval for recorded knowledge. Use entities history when connecting
 code changes to earlier checkpoints or sessions. ALWAYS retrieve relevant prior
 decisions and attempts before proposing to replace an existing approach.
@@ -55,6 +63,8 @@ invariant, a gotcha that cost you time - RECORD it before finishing:
     entire brain remember "<memory>" --path <category.subcategory.type> --json
 
 Categories are architecture, constraints, preferences, project and workflow.
+Each path segment uses only lowercase letters, digits and underscores: write
+project.ci_cache.layout, not project.ci-cache.layout.
 Omitting --path classifies the memory for you and requires a supported coding
 agent on PATH; pass --path when none is guaranteed. Retrieve with recall and
 re-check anchors with verify. A memory you author has no source anchor, so verify

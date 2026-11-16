@@ -290,7 +290,8 @@ func TestFeatureMatrixShippedBrainCommandsExist(t *testing.T) {
 		{[]string{"remember"}, "global"},
 		{[]string{"query"}, "recency-half-life"},
 		{[]string{"facts", "files"}, ""},
-		{[]string{"bench", "scale"}, ""},
+		// `bench scale` backs the scale row but compiles only under
+		// brain_harness; harness_commands_tagged_test.go checks it (COR-2322).
 		{[]string{"webhook", "events"}, ""},
 	} {
 		cmd, rest, err := root.Find(tc.path)

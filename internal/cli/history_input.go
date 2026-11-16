@@ -126,6 +126,12 @@ func collectHistorySessionInventory(ctx context.Context, brainDir string) (*hist
 // physical is used only to inspect/sweep obsolete materializations. Projection
 // callers always use the manifest for checkpoint-backed brains.
 func collectHistorySessionInventoryMode(ctx context.Context, brainDir string, physical bool) (*historySessionInventory, error) {
+	return collectHistorySessionInventoryFromStore(ctx, brainDir, physical, nil)
+}
+
+// collectHistorySessionInventoryFromStore reads checkpoint-backed transcripts
+// through store when one is supplied, and through a fresh store otherwise.
+func collectHistorySessionInventoryFromStore(ctx context.Context, brainDir string, physical bool, store *transcriptStore) (*historySessionInventory, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -163,7 +169,10 @@ func collectHistorySessionInventoryMode(ctx context.Context, brainDir string, ph
 			return nil, &historySessionInventoryError{Reason: "session manifest exceeds inventory limit", Limit: historySessionInventoryMaxEntries}
 		}
 		inventory.manifestIdentity = sessionSourceFingerprint(source)
-		inventory.store = newTranscriptStore(ExecRunner{}, brainDir)
+		if store == nil {
+			store = newTranscriptStore(ExecRunner{}, brainDir)
+		}
+		inventory.store = store
 		inventory.manifestStamp = inventory.store.currentManifestStamp()
 		seen := make(map[string]bool, len(source.Sessions))
 		for _, session := range source.Sessions {

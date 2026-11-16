@@ -28,7 +28,7 @@ const metaRef = "refs/meta/local/main"
 // mechanical and retried; exhaustion is surfaced as an error, never a silent drop.
 const maxRefCASRetries = 5
 
-// ErrLockBusy is returned by TryUpdate/TryLock when another writer holds the
+// ErrLockBusy is returned by TryLock when another writer holds the
 // store's advisory lock. It is a normal outcome for a best-effort pass, not a
 // failure: the caller skips this round and tries again on the next one.
 var ErrLockBusy = errors.New("factgitmeta: git-meta store is locked by another writer")
@@ -68,10 +68,6 @@ func OpenMetaStore(gitDir string, now func() time.Time) (*MetaStore, error) {
 	}
 	return &MetaStore{repo: repo, now: now}, nil
 }
-
-// Ref is the git ref the local git-meta state lives on. Exposed so callers can
-// name it in diagnostics.
-func (s *MetaStore) Ref() string { return metaRef }
 
 // Tip returns the current metaRef commit hash in hex, or "" when the ref does
 // not exist yet. It is the cheap cache-invalidation token for any derived,
@@ -137,13 +133,6 @@ func (s *MetaStore) ReadString(target gitmeta.Target, key string) (string, bool,
 	return contents, true, nil
 }
 
-// HasString reports whether a string record exists, without materializing the
-// whole state. See ReadString for the scope of "exists".
-func (s *MetaStore) HasString(target gitmeta.Target, key string) (bool, error) {
-	_, ok, err := s.ReadString(target, key)
-	return ok, err
-}
-
 // TryLock takes the store's cross-process advisory lock WITHOUT blocking and
 // returns the release func. ErrLockBusy means another writer holds it; that is
 // a normal outcome for a best-effort caller, not a failure.
@@ -189,9 +178,11 @@ func (s *MetaStore) UpdateLocked(records int, mutate func(gitmeta.State) (gitmet
 // ErrNoUpdate leaves the ref untouched. records is the change count stamped in
 // the git-meta commit message.
 //
-// It WAITS for the lock. A caller that must not wait (a background freshness
-// pass under a deadline) uses TryUpdate instead: flock(2) is not interruptible
-// by a Go context, so a contended Update outlives any timeout around it.
+// It WAITS for the lock: flock(2) is not interruptible by a Go context, so a
+// contended Update outlives any timeout around it. A caller that must not
+// wait takes TryLock and UpdateLocked itself. Production writers go through
+// Lock/TryLock + UpdateLocked directly; Update survives for the entityindex
+// tests that seed stores through it (COR-2317).
 func (s *MetaStore) Update(records int, mutate func(gitmeta.State) (gitmeta.State, error)) (string, error) {
 	if mutate == nil {
 		return "", errors.New("factgitmeta: mutate is required")
@@ -204,22 +195,8 @@ func (s *MetaStore) Update(records int, mutate func(gitmeta.State) (gitmeta.Stat
 	return s.updateLocked(records, mutate)
 }
 
-// TryUpdate is Update with a non-blocking lock acquisition: it returns
-// ErrLockBusy immediately when another writer holds the lock, writing nothing.
-func (s *MetaStore) TryUpdate(records int, mutate func(gitmeta.State) (gitmeta.State, error)) (string, error) {
-	if mutate == nil {
-		return "", errors.New("factgitmeta: mutate is required")
-	}
-	unlock, err := s.TryLock()
-	if err != nil {
-		return "", err
-	}
-	defer unlock()
-	return s.updateLocked(records, mutate)
-}
-
-// updateLocked is the read-materialize-CAS-retry loop both Update and TryUpdate
-// run. The caller must already hold the advisory lock.
+// updateLocked is the read-materialize-CAS-retry loop behind Update and
+// UpdateLocked. The caller must already hold the advisory lock.
 func (s *MetaStore) updateLocked(records int, mutate func(gitmeta.State) (gitmeta.State, error)) (string, error) {
 	for attempt := 0; attempt < maxRefCASRetries; attempt++ {
 		st, headRefObj, err := s.state()

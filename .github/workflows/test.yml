@@ -40,6 +40,8 @@ jobs:
       - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af # Official current-main v7.0.0 bundle with the repeated-DOCTYPE parser fix.
         with: { go-version: "1.27.3" }
       - run: go vet ./...
+      - name: Release build omits the eval/bench harnesses (COR-2322)
+        run: go test ./internal/cli -count=1 -run TestReleaseBuildOmitsHarnessCommands
       - name: Test browser controller request lifetimes
         run: node --test webui/tests/*.test.cjs
       - run: |
@@ -116,6 +118,10 @@ jobs:
       - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with: { go-version: "1.27.3" }
       - name: Test with race detection, coverage, and CLI contracts
+        # brain_harness compiles the eval/bench developer harnesses (COR-2322)
+        # so their tests keep running; release builds stay untagged.
+        env:
+          GOFLAGS: -tags=brain_harness
         run: go run ./tools/coverage -race -output "${{ runner.temp }}/brain-coverage"
       - name: Retain coverage and test results
         if: always()
@@ -139,7 +145,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: entireio/entire-graph
-          ref: 28382d8ee2f0cb4ebc962255a3d8cbd364d2f258
+          ref: 3f632e403e6bd70ac015f3a80980ca39e4dadd0d
           path: .context/integration-graph
           persist-credentials: false
       - name: Build both real products
@@ -169,8 +175,10 @@ jobs:
         with: { go-version: "1.27.3" }
       - name: Vet every Windows package with race settings
         if: matrix.shard == 0
-        run: go vet -race ./...
+        run: go vet -tags brain_harness -race ./...
       - name: Run assigned tests with race detection and coverage
+        env:
+          GOFLAGS: -tags=brain_harness
         run: go run ./tools/coverage -race -cli-shards 6 -cli-shard ${{ matrix.shard }} -test-timeout 20m -output "${{ runner.temp }}/brain-coverage"
       - name: Retain test evidence
         if: always()

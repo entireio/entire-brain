@@ -38,25 +38,6 @@ func writeRetrievalResponseBytes(out io.Writer, data []byte) error {
 	return err
 }
 
-func filterAbstractPreviewsForRows(previews []sessionAbstractPreview, rows []compactUnifiedResult) ([]sessionAbstractPreview, bool) {
-	if len(previews) == 0 {
-		return nil, false
-	}
-	refs := make(map[string]bool, len(rows))
-	for _, row := range rows {
-		if row.SessionRef != "" {
-			refs[row.SessionRef] = true
-		}
-	}
-	out := make([]sessionAbstractPreview, 0, len(previews))
-	for _, preview := range previews {
-		if refs[preview.SessionRef] {
-			out = append(out, preview)
-		}
-	}
-	return out, len(out) != len(previews)
-}
-
 func buildRetrievalJSONPayload(query, branch string, rows []compactUnifiedResult, extras retrievalTransportExtras, truncated bool) map[string]any {
 	payload := map[string]any{"query": query, "branch": branch, "results": rows}
 	if truncated {
@@ -67,10 +48,6 @@ func buildRetrievalJSONPayload(query, branch string, rows []compactUnifiedResult
 			rows[len(rows)-1].ResponseTruncated = true
 			payload["results"] = rows
 		}
-	}
-	if previews, cut := filterAbstractPreviewsForRows(extras.AbstractPreviews, rows); len(previews) > 0 || extras.AbstractPreviews != nil {
-		payload["abstract_previews"] = previews
-		payload["abstract_previews_truncated"] = extras.AbstractPreviewsTruncated || cut
 	}
 	if len(extras.Hints.LikelyEditFiles) > 0 {
 		payload["likely_edit_files"] = extras.Hints.LikelyEditFiles
@@ -91,7 +68,6 @@ func buildRetrievalJSONPayload(query, branch string, rows []compactUnifiedResult
 }
 
 func cloneRetrievalTransportExtras(extras retrievalTransportExtras) retrievalTransportExtras {
-	extras.AbstractPreviews = append([]sessionAbstractPreview(nil), extras.AbstractPreviews...)
 	extras.Hints.LikelyEditFiles = append([]string(nil), extras.Hints.LikelyEditFiles...)
 	extras.Hints.LikelyTestFiles = append([]string(nil), extras.Hints.LikelyTestFiles...)
 	extras.Hints.ActionChecklist = append([]brainBriefAction(nil), extras.Hints.ActionChecklist...)
@@ -104,9 +80,6 @@ func cloneRetrievalTransportExtras(extras retrievalTransportExtras) retrievalTra
 // pointers consume the budget before any ranked row does.
 func trimRetrievalExtrasOnce(extras *retrievalTransportExtras) bool {
 	switch {
-	case len(extras.AbstractPreviews) > 0:
-		extras.AbstractPreviews = extras.AbstractPreviews[:len(extras.AbstractPreviews)-1]
-		extras.AbstractPreviewsTruncated = true
 	case len(extras.Related) > 0:
 		extras.Related = extras.Related[:len(extras.Related)-1]
 	case len(extras.Hints.ActionChecklist) > 0:
@@ -244,11 +217,6 @@ func renderRetrievalRowsText(out io.Writer, results []unifiedResult, qualify ret
 	}
 }
 
-func filteredAbstractPreviewsForResults(previews []sessionAbstractPreview, results []unifiedResult) ([]sessionAbstractPreview, bool) {
-	rows := retrieval.CompactResults(results, "")
-	return filterAbstractPreviewsForRows(previews, rows)
-}
-
 func renderSingleRepoRetrievalText(query string, results []unifiedResult, extras retrievalTransportExtras, truncated bool) []byte {
 	var out bytes.Buffer
 	if len(results) == 0 && !truncated {
@@ -270,21 +238,6 @@ func renderSingleRepoRetrievalText(query string, results []unifiedResult, extras
 	renderRetrievalRowsText(&out, results, nil)
 	for _, pattern := range extras.Related {
 		fmt.Fprintf(&out, "related [%s] %s  %s\n", pattern.Type, pattern.ID, pattern.Title)
-	}
-	previews, previewCut := filteredAbstractPreviewsForResults(extras.AbstractPreviews, results)
-	for _, preview := range previews {
-		text := ""
-		if preview.Overview != nil {
-			text = "  " + strings.Join(strings.Fields(preview.Overview.Text), " ")
-		}
-		fmt.Fprintf(&out, "abstract [%s] %s%s\n", preview.AbstractStatus, preview.SessionRef, text)
-		if preview.AbstractIssue != "" {
-			issue, _ := truncateUTF8Bytes(strings.Join(strings.Fields(preview.AbstractIssue), " "), 1024)
-			fmt.Fprintf(&out, "  automatic enqueue issue: %s\n", issue)
-		}
-	}
-	if extras.AbstractPreviewsTruncated || previewCut {
-		fmt.Fprintln(&out, "abstract previews truncated")
 	}
 	fmt.Fprintf(&out, "response_truncated %t\n", truncated)
 	return out.Bytes()
@@ -342,18 +295,10 @@ func qualifyWorkspaceAddressableID(repoKey, workspaceName, id string) string {
 	return repoKey + "/" + id
 }
 
-func qualifyAbstractStatement(repoKey, workspaceName string, statement abstractStatement) abstractStatement {
-	statement.EvidenceIDs = append([]string(nil), statement.EvidenceIDs...)
-	for i := range statement.EvidenceIDs {
-		statement.EvidenceIDs[i] = qualifyWorkspaceAddressableID(repoKey, workspaceName, statement.EvidenceIDs[i])
-	}
-	return statement
-}
-
 // qualifyWorkspaceUnifiedResult recursively qualifies every addressable id,
-// not merely the top-level hit. A nested concept proof, session turn, related
-// id, or abstract citation can therefore be pasted directly into workspace
-// get without reconstructing the member namespace.
+// not merely the top-level hit. A nested concept proof, session turn, or
+// related id can therefore be pasted directly into workspace get without
+// reconstructing the member namespace.
 func qualifyWorkspaceUnifiedResult(repoKey, workspaceName string, result unifiedResult) unifiedResult {
 	qualify := func(id string) string { return qualifyWorkspaceAddressableID(repoKey, workspaceName, id) }
 	result.ID = qualify(result.ID)
@@ -376,34 +321,7 @@ func qualifyWorkspaceUnifiedResult(repoKey, workspaceName string, result unified
 	for i := range result.Turns {
 		result.Turns[i].ConversationID = qualify(result.Turns[i].ConversationID)
 	}
-	if result.Abstract != nil {
-		abstract := *result.Abstract
-		abstract.SessionRef = qualify(abstract.SessionRef)
-		abstract.Overview = qualifyAbstractStatement(repoKey, workspaceName, abstract.Overview)
-		abstract.Outcomes = append([]abstractStatement(nil), abstract.Outcomes...)
-		for i := range abstract.Outcomes {
-			abstract.Outcomes[i] = qualifyAbstractStatement(repoKey, workspaceName, abstract.Outcomes[i])
-		}
-		abstract.Decisions = append([]abstractStatement(nil), abstract.Decisions...)
-		for i := range abstract.Decisions {
-			abstract.Decisions[i] = qualifyAbstractStatement(repoKey, workspaceName, abstract.Decisions[i])
-		}
-		abstract.Unresolved = append([]abstractStatement(nil), abstract.Unresolved...)
-		for i := range abstract.Unresolved {
-			abstract.Unresolved[i] = qualifyAbstractStatement(repoKey, workspaceName, abstract.Unresolved[i])
-		}
-		result.Abstract = &abstract
-	}
 	return result
-}
-
-func qualifyWorkspacePreview(repoKey, workspaceName string, preview sessionAbstractPreview) sessionAbstractPreview {
-	preview.SessionRef = qualifyWorkspaceAddressableID(repoKey, workspaceName, preview.SessionRef)
-	if preview.Overview != nil {
-		overview := qualifyAbstractStatement(repoKey, workspaceName, *preview.Overview)
-		preview.Overview = &overview
-	}
-	return preview
 }
 
 func qualifyWorkspaceRetrieveGroups(workspaceName string, groups []workspaceRetrieveResult) []workspaceRetrieveResult {
@@ -413,10 +331,6 @@ func qualifyWorkspaceRetrieveGroups(workspaceName string, groups []workspaceRetr
 		out[i].Results = make([]unifiedResult, len(group.Results))
 		for j, result := range group.Results {
 			out[i].Results[j] = qualifyWorkspaceUnifiedResult(group.RepoKey, workspaceName, result)
-		}
-		out[i].AbstractPreviews = make([]sessionAbstractPreview, len(group.AbstractPreviews))
-		for j, preview := range group.AbstractPreviews {
-			out[i].AbstractPreviews[j] = qualifyWorkspacePreview(group.RepoKey, workspaceName, preview)
 		}
 	}
 	return out
@@ -434,20 +348,6 @@ func trimWorkspaceGroupsToCount(groups []workspaceRetrieveResult, keep int, trun
 		if count > 0 {
 			lastGroup, lastRow = i, count-1
 		}
-		refs := map[string]bool{}
-		for _, result := range out[i].Results {
-			if result.SessionRef != "" {
-				refs[result.SessionRef] = true
-			}
-		}
-		previews := make([]sessionAbstractPreview, 0, len(group.AbstractPreviews))
-		for _, preview := range group.AbstractPreviews {
-			if refs[preview.SessionRef] {
-				previews = append(previews, preview)
-			}
-		}
-		out[i].AbstractPreviews = previews
-		out[i].AbstractPreviewsTruncated = group.AbstractPreviewsTruncated || len(previews) != len(group.AbstractPreviews)
 	}
 	if truncated && lastGroup >= 0 {
 		out[lastGroup].Results[lastRow].ResponseTruncated = true
@@ -460,7 +360,6 @@ func cloneWorkspaceRetrieveGroups(groups []workspaceRetrieveResult) []workspaceR
 	for i, group := range groups {
 		out[i] = group
 		out[i].Results = append([]unifiedResult(nil), group.Results...)
-		out[i].AbstractPreviews = append([]sessionAbstractPreview(nil), group.AbstractPreviews...)
 	}
 	return out
 }
@@ -474,10 +373,6 @@ func cloneWorkspaceRetrieveGroups(groups []workspaceRetrieveResult) []workspaceR
 func trimWorkspaceExtrasOnce(groups []workspaceRetrieveResult) bool {
 	for i := len(groups) - 1; i >= 0; i-- {
 		switch {
-		case len(groups[i].AbstractPreviews) > 0:
-			groups[i].AbstractPreviews = groups[i].AbstractPreviews[:len(groups[i].AbstractPreviews)-1]
-			groups[i].AbstractPreviewsTruncated = true
-			return true
 		case groups[i].Freshness.Detail != "":
 			groups[i].Freshness.Detail = ""
 			return true

@@ -105,7 +105,7 @@ func updateFactSourceManifestRecordsLocked(brainDir string, now time.Time, recor
 	if manifest.Sources != nil && manifest.Sources.Facts != nil {
 		previous = manifest.Sources.Facts
 	}
-	source := factstore.SummarizeSource(now, records, 0, 0, 0, nil)
+	source := factstore.SummarizeSource(now, records, 0, 0, nil)
 	preserveFactDistillEvidence(source, previous)
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}

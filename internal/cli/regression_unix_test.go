@@ -31,11 +31,17 @@ func TestRegressionScanHistoryClosesFilesDuringLargeWalk(t *testing.T) {
 	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &original); err != nil {
 		t.Skipf("get rlimit: %v", err)
 	}
-	if original.Cur <= 96 {
-		t.Skipf("soft file descriptor limit is already low (%d)", original.Cur)
+	// The walk reads 161 files, so any limit below that file count proves the
+	// walk closes files as it goes. The limit must be relative: the rest of the
+	// suite holds an unrelated, growing number of descriptors when this test
+	// runs (pooled batch cat-file children alone once held ~130), and an
+	// absolute cap made that load look like a walk regression.
+	lowCur := uint64(openFileDescriptorCount(t)) + 64
+	if original.Cur <= lowCur {
+		t.Skipf("soft file descriptor limit is already low (%d, want above %d)", original.Cur, lowCur)
 	}
 	low := original
-	low.Cur = 96
+	low.Cur = lowCur
 	if low.Cur > low.Max {
 		t.Skipf("cannot lower soft file descriptor limit below hard limit %d", low.Max)
 	}
@@ -58,4 +64,15 @@ func TestRegressionScanHistoryClosesFilesDuringLargeWalk(t *testing.T) {
 	if _, ok := files["pkg/review_context.go"]; !ok {
 		t.Fatalf("late signal file was scanned but file hint was not retained: changes=%+v files=%v", changes, files)
 	}
+}
+
+// openFileDescriptorCount counts this process's open descriptors via /dev/fd,
+// which darwin and linux both provide.
+func openFileDescriptorCount(t *testing.T) int {
+	t.Helper()
+	entries, err := os.ReadDir("/dev/fd")
+	if err != nil {
+		t.Skipf("count open descriptors: %v", err)
+	}
+	return len(entries)
 }

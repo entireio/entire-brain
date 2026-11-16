@@ -179,6 +179,57 @@ func TestCodexSessionRoot(t *testing.T) {
 	}
 }
 
+// The root and the stored refs come from the same FileChange calls: a block
+// the episode ops read as an edit votes for the root, and one they don't read
+// doesn't, so a session's edits are made relative exactly when the root
+// they'd vote for is found.
+func TestCodexFileChangeRootAndRefsAgree(t *testing.T) {
+	lines := func(records ...string) string { return strings.Join(records, "\n") + "\n" }
+	edit := codexFileChange(t, codexChange{Path: "/w/r/main.go", Kind: "update"})
+	cases := []struct {
+		name, transcript string
+		wantRoot         string
+		wantFiles        string
+	}{
+		{"a lowercase tool name is an edit and votes",
+			`{"v":1,"agent":"codex","type":"assistant","ts":"t","id":"f1","content":[{"id":"f1","input":{"changes":[{"path":"/w/r/main.go","kind":"update"}]},"name":"filechange","type":"tool_use"}]}` + "\n",
+			"/w/r", `["edit main.go"]`},
+		{"a FileChange that isn't a tool call doesn't vote", lines(edit,
+			`{"v":1,"agent":"codex","type":"assistant","ts":"t","id":"x1","content":[{"type":"text","text":"","name":"FileChange","input":{"changes":[{"path":"/tmp/x/main.go","kind":"update"}]}}]}`),
+			"/w/r", `["edit main.go"]`},
+		{"a FileChange on a user line doesn't vote", lines(edit,
+			`{"v":1,"agent":"codex","type":"user","ts":"t","id":"u1","content":[{"id":"f2","input":{"changes":[{"path":"/tmp/x/main.go","kind":"update"}]},"name":"FileChange","type":"tool_use"}]}`),
+			"/w/r", `["edit main.go"]`},
+		{"a move path on an add is not a ref and doesn't vote",
+			lines(codexFileChange(t, codexChange{Path: "/w/r/main.go", Kind: "add", MovePath: "/tmp/x/main.go"})),
+			"/w/r", `["add main.go"]`},
+		{"a .. move path on an add doesn't block the root",
+			lines(codexFileChange(t, codexChange{Path: "/w/r/main.go", Kind: "add", MovePath: "/w/r/x/../y.go"})),
+			"/w/r", `["add main.go"]`},
+		{"a native assistant message's FileChange is an edit and votes",
+			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"f1","name":"FileChange","input":{"changes":[{"path":"/w/r/main.go","kind":"update"}]}}]}}` + "\n",
+			"/w/r", `["edit main.go"]`},
+		{"a tool name with a JSON escape is an edit and votes",
+			`{"v":1,"agent":"codex","type":"assistant","ts":"t","id":"f1","content":[{"id":"f1","input":{"changes":[{"path":"/w/r/main.go","kind":"update"}]},"name":"File\u0043hange","type":"tool_use"}]}` + "\n",
+			"/w/r", `["edit main.go"]`},
+		{"a tool name that only lowercases to filechange is an edit and votes",
+			`{"v":1,"agent":"codex","type":"assistant","ts":"t","id":"f1","content":[{"id":"f1","input":{"changes":[{"path":"/w/r/main.go","kind":"update"}]},"name":"F\u0130leChange","type":"tool_use"}]}` + "\n",
+			"/w/r", `["edit main.go"]`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root := codexSessionRoot(c.transcript, []string{"main.go"})
+			if root != c.wantRoot {
+				t.Errorf("root = %q, want %q", root, c.wantRoot)
+			}
+			_, _, files := corpusEpisodeOps(c.transcript, root)
+			if got := describeFileRefs(files); got != c.wantFiles {
+				t.Errorf("files = %s, want %s", got, c.wantFiles)
+			}
+		})
+	}
+}
+
 // codexItemPathCorpus is a brain with codex item-path sessions and a live
 // graph context whose semantic index has main.go's 2 symbols.
 type codexItemPathCorpus struct {

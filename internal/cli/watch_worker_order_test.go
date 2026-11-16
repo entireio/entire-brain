@@ -50,7 +50,7 @@ func TestStandaloneRefreshStillLaunchesMemoryWorker(t *testing.T) {
 							t.Fatal(componentErr)
 						}
 					}
-				}, false)
+				}, false, true)
 				if memoryReports != 1 {
 					t.Fatalf("setup memory reports = %d, want 1", memoryReports)
 				}
@@ -62,5 +62,34 @@ func TestStandaloneRefreshStillLaunchesMemoryWorker(t *testing.T) {
 			}
 			assertMemoryWorkerLaunches(t, *launches, repoDir, 1)
 		})
+	}
+}
+
+// Issue #582 side finding: `setup --no-backfill --no-daemon` left a detached
+// `memory worker --once` running. launchWorker=false must reconcile the queue
+// without spawning anything that outlives setup.
+func TestSetupWithoutDaemonLaunchesNoMemoryWorker(t *testing.T) {
+	opts, repoDir, _, launches := watchCommandFixture(t)
+	opts.Runner.(*fakeCommandRunner).responses[fakeRoutedCheckpointListKey("entire", true)] = fakeCommandResponse{stdout: `[]`}
+	cmd := &cobra.Command{}
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	memoryReports := 0
+	err := watchDeterministicRefreshComponents(context.Background(), cmd, opts, repoDir, true, true, func(component string, componentErr error) {
+		if component == brainComponentMemory {
+			memoryReports++
+			if componentErr != nil {
+				t.Fatal(componentErr)
+			}
+		}
+	}, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if memoryReports != 1 {
+		t.Fatalf("memory reports = %d, want 1", memoryReports)
+	}
+	if len(*launches) != 0 {
+		t.Fatalf("setup --no-daemon launched a worker: %v", *launches)
 	}
 }
