@@ -492,30 +492,36 @@ func TestInstallPushHookWrapsThePrimaryOutsideTheHostChain(t *testing.T) {
 		"no slot":                   {primary: testHostChainHook},
 		"pre-commit wrapper":        {primary: testHostChainHook, slot: preCommit},
 	} {
-		t.Run(name, func(t *testing.T) {
-			opts, repoDir, hooksDir := pushHookHarness(t)
-			primary := filepath.Join(hooksDir, "pre-push")
-			slot := primary + ".pre-entire"
-			writeHook(t, primary, tc.primary)
-			if tc.slot != "" {
-				writeHook(t, slot, tc.slot)
-			}
-
-			state, path, err := installPushHook(context.Background(), opts, repoDir)
-			if err != nil || state != pushHookInstalled || path != primary {
-				t.Fatalf("state=%v path=%v err=%v", state, path, err)
-			}
-			if got := readHook(t, primary+pushHookBackupSuffix); got != tc.primary {
-				t.Fatalf("host hook must move behind ours: %q", got)
-			}
-			if tc.slot != "" {
-				if got := readHook(t, slot); got != tc.slot {
-					t.Fatalf("slot must stay as it was: %q", got)
-				}
-			}
-			requireNoFile(t, slot+pushHookBackupSuffix)
-		})
+		t.Run(name, func(t *testing.T) { requireWrapsThePrimary(t, tc.primary, tc.slot) })
 	}
+}
+
+// requireWrapsThePrimary installs with hostHook in the primary and slotHook
+// (none when empty) in the host's slot, and checks that ours went in front of
+// the primary and left the slot alone.
+func requireWrapsThePrimary(t *testing.T, hostHook, slotHook string) {
+	t.Helper()
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	primary := filepath.Join(hooksDir, "pre-push")
+	slot := primary + ".pre-entire"
+	writeHook(t, primary, hostHook)
+	if slotHook != "" {
+		writeHook(t, slot, slotHook)
+	}
+
+	state, path, err := installPushHook(context.Background(), opts, repoDir)
+	if err != nil || state != pushHookInstalled || path != primary {
+		t.Fatalf("state=%v path=%v err=%v", state, path, err)
+	}
+	if got := readHook(t, primary+pushHookBackupSuffix); got != hostHook {
+		t.Fatalf("host hook must move behind ours: %q", got)
+	}
+	if slotHook == "" {
+		requireNoFile(t, slot)
+	} else if got := readHook(t, slot); got != slotHook {
+		t.Fatalf("slot must stay as it was: %q", got)
+	}
+	requireNoFile(t, slot+pushHookBackupSuffix)
 }
 
 // Uninstall puts back the hook our copy in the host's chain was running, so
@@ -585,4 +591,23 @@ func TestIsRotatedHookCopy(t *testing.T) {
 			t.Errorf("isRotatedHookCopy(%q) = %v, want %v", name, got, want)
 		}
 	}
+}
+
+// After the host's uninstall moved our hook from its slot back into the
+// primary, disconnect restores the hook we ran from the slot to the primary.
+func TestUninstallPushHookRestoresTheHookTheHostUninstallLeftBehind(t *testing.T) {
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	primary := filepath.Join(hooksDir, "pre-push")
+	stranded := primary + ".pre-entire" + pushHookBackupSuffix
+	userHook := "#!/bin/sh\necho user hook\n"
+	writeHook(t, primary, pushHookContent("/managed/entire-brain"))
+	writeHook(t, stranded, userHook)
+
+	if err := uninstallPushHook(context.Background(), opts, repoDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := readHook(t, primary); got != userHook {
+		t.Fatalf("the hook we chained to must be back in the primary: %q", got)
+	}
+	requireNoFile(t, stranded)
 }

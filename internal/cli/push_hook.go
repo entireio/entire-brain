@@ -66,8 +66,33 @@ func pushHookContent(selfPath string) string {
 	b.WriteString("# Chain: run the pre-existing hook with the original stdin and arguments;\n")
 	b.WriteString("# its exit code decides the push, exactly as before.\n")
 	fmt.Fprintf(&b, "backup=\"$0%s\"\n", pushHookBackupSuffix)
+	// The fallback is for one layout: we joined the host's chain from its
+	// slot, and the host's uninstall moved us back into the primary. The
+	// hook we ran from the slot is still behind the slot's name, and with no
+	// slot left nothing else runs it. See strandedChainTarget.
+	b.WriteString("# After the Entire CLI's uninstall moved this hook back from its\n")
+	b.WriteString("# backup slot, the hook it ran from there is still behind that name.\n")
+	fmt.Fprintf(&b, "if [ ! -e \"$backup\" ] && [ ! -e \"$0%s\" ]; then backup=\"$0%s%s\"; fi\n",
+		hostBackupSuffix, hostBackupSuffix, pushHookBackupSuffix)
 	b.WriteString("if [ -x \"$backup\" ]; then exec \"$backup\" \"$@\"; fi\n")
 	return b.String()
+}
+
+// strandedChainTarget is the Go side of the hook's fallback chain line: for
+// our hook at path with no backup of its own and no host slot beside it, the
+// hook it chained to from that slot, if one is there. Empty otherwise.
+func strandedChainTarget(path string) string {
+	stranded := path + hostBackupSuffix + pushHookBackupSuffix
+	if pathExists(path+pushHookBackupSuffix) || pathExists(path+hostBackupSuffix) || !pathExists(stranded) {
+		return ""
+	}
+	return stranded
+}
+
+// pathExists is Lstat-based: a symlink at a hook path counts as present.
+func pathExists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
 }
 
 // shellSingleQuote wraps s in single quotes, escaping embedded single quotes,
@@ -319,12 +344,20 @@ func removeLivePushHook(hooksDir string) error {
 	backup := primary + pushHookBackupSuffix
 
 	if data, err := readHookFile(primary); err == nil && strings.Contains(string(data), pushHookMarker) {
+		restore := ""
 		if _, err := os.Stat(backup); err == nil {
+			restore = backup
+		} else {
+			// The host's uninstall moved us back from its slot; the hook we
+			// ran from there is the one to restore.
+			restore = strandedChainTarget(primary)
+		}
+		if restore != "" {
 			// Remove first: on Windows, rename cannot replace an existing file.
 			if err := os.Remove(primary); err != nil {
 				return err
 			}
-			return os.Rename(backup, primary)
+			return os.Rename(restore, primary)
 		}
 		return os.Remove(primary)
 	}

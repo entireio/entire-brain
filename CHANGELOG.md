@@ -132,9 +132,10 @@ All notable changes to `entire-brain` are recorded here. The format follows
   hook no longer runs and names the copy. When the CLI's hook already chains
   to another hook, `connect` adds Brain's hook to that chain. It no longer puts
   its hook in front of the CLI's: the CLI's next check moved it back and set
-  the hook it had chained aside, where it no longer ran. `disconnect` puts that
-  hook back in the chain and also removes rotated copies of Brain's hook
-  (#645).
+  the hook it had chained aside, where it no longer ran. When the CLI's
+  uninstall moves Brain's hook back into `pre-push`, Brain's hook still runs
+  the hook it chained to. `disconnect` puts that hook back in the chain and
+  also removes rotated copies of Brain's hook (#645).
 
 ## [0.5.1] - 2026-11-04
 
