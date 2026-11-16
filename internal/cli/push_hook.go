@@ -367,10 +367,17 @@ func hostChainSlot(primary, primaryContent string) (string, string, bool) {
 
 // chainBehind moves the hook at target (whose content is targetContent) to
 // target+pushHookBackupSuffix, the name our chain line runs from there, and
-// writes ours at target.
+// writes ours at target. A target that links to that name is the file there:
+// it moves into the link first, so the rename moves the file, not a link to
+// itself.
 func chainBehind(target, targetContent, selfPath string) error {
 	backup := target + pushHookBackupSuffix
 	name := filepath.Base(target)
+	if sameFile(target, backup) {
+		if err := moveIntoLink(backup, target); err != nil {
+			return err
+		}
+	}
 	if existing, err := readHookFile(backup); err == nil {
 		if string(existing) != targetContent {
 			rotated, err := rotateAside(backup)
