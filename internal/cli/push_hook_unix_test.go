@@ -149,113 +149,112 @@ func TestRotateAsideFailsOnARefusedName(t *testing.T) {
 	}
 }
 
-// A host slot that is a symlink to our backup of the primary is the hook
-// being joined: the backup stays, the hook behind ours still resolves, and
-// disconnect keeps the file the restored link points at.
-func TestInstallPushHookKeepsTheBackupAHostSlotLinksTo(t *testing.T) {
-	opts, repoDir, hooksDir := pushHookHarness(t)
-	primary := filepath.Join(hooksDir, "pre-push")
-	slot := primary + ".pre-entire"
-	userHook := "#!/bin/sh\necho user hook\n"
-	writeHook(t, primary, testHostChainHook)
-	writeHook(t, primary+pushHookBackupSuffix, userHook)
-	if err := os.Symlink("pre-push"+pushHookBackupSuffix, slot); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, _, err := installPushHook(context.Background(), opts, repoDir); err != nil {
-		t.Fatal(err)
-	}
-	if got := readHook(t, slot); !strings.Contains(got, pushHookMarker) {
-		t.Fatalf("our hook must join the host's slot: %q", got)
-	}
-	if got := readHook(t, slot+pushHookBackupSuffix); got != userHook {
-		t.Fatalf("the hook behind ours must still resolve: %q", got)
-	}
-
-	if err := uninstallPushHook(context.Background(), opts, repoDir); err != nil {
-		t.Fatal(err)
-	}
-	if got := readHook(t, slot); got != userHook {
-		t.Fatalf("the host's slot must resolve to the user's hook again: %q", got)
-	}
-	if got := readHook(t, primary); got != testHostChainHook {
-		t.Fatalf("the host's hook must stay in the primary: %q", got)
-	}
-}
-
-// With the primary gone, our copy in the host's slot moves back into it. When
-// the hook behind that copy is a symlink to our backup of the primary, the
-// backup is that hook: it stays, and disconnect restores it.
-func TestInstallPushHookKeepsTheBackupTheHookBehindItsSlotCopyLinksTo(t *testing.T) {
-	opts, repoDir, hooksDir := pushHookHarness(t)
-	primary := filepath.Join(hooksDir, "pre-push")
-	slot := primary + ".pre-entire"
-	userHook := "#!/bin/sh\necho user hook\n"
-	writeHook(t, slot, pushHookContent("/managed/entire-brain"))
-	writeHook(t, primary+pushHookBackupSuffix, userHook)
-	if err := os.Symlink("pre-push"+pushHookBackupSuffix, slot+pushHookBackupSuffix); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, _, err := installPushHook(context.Background(), opts, repoDir); err != nil {
-		t.Fatal(err)
-	}
-	if got := readHook(t, primary); !strings.Contains(got, pushHookMarker) {
-		t.Fatalf("our copy must move back into the primary: %q", got)
-	}
-	if got := readHook(t, primary+pushHookBackupSuffix); got != userHook {
-		t.Fatalf("the hook behind ours must stay where the chain line runs it: %q", got)
-	}
-
-	if err := uninstallPushHook(context.Background(), opts, repoDir); err != nil {
-		t.Fatal(err)
-	}
-	if got := readHook(t, primary); got != userHook {
-		t.Fatalf("disconnect must put the user's hook back in the primary: %q", got)
-	}
-}
-
-// A file connect would set aside stays when the primary is a symlink to it:
-// then it is the hook in the primary, and ours chains to it. For the fallback
-// file our hook wraps it; for our old backup the host's hook stays in the
-// primary and ours joins the host's chain. Disconnect puts the primary back.
-func TestInstallPushHookKeepsAFileThePrimaryLinksTo(t *testing.T) {
-	const userHook = "#!/bin/sh\necho user hook\n"
+// A file connect would set aside or delete is a hook that runs when a live
+// hook links to it: it moves into the link's place, so the chain keeps running
+// it and nothing is left at a name of ours to shadow the hook behind ours. The
+// user's hook runs after connect, after the host's uninstall where ours joined
+// the host's chain, and after disconnect.
+func TestInstallPushHookMovesALinkedHookIntoItsLink(t *testing.T) {
+	ours := pushHookContent("/managed/entire-brain")
 	for name, tc := range map[string]struct {
-		linkTo     string // the primary links here, relative to the hooks dir
-		linked     string // the linked file's content
-		slot       string // the host's slot, if set
-		wantBehind string // where the linked file must still resolve after connect
+		files         map[string]string // file name in the hooks dir -> content
+		link, to      string            // a symlink at link pointing to to
+		hostUninstall bool              // the host's uninstall runs after connect
 	}{
-		"fallback file": {linkTo: "pre-push.pre-entire.pre-entire-brain", linked: userHook, wantBehind: "pre-push.pre-entire-brain"},
-		"old backup":    {linkTo: "pre-push.pre-entire-brain", linked: testHostChainHook, slot: userHook, wantBehind: "pre-push"},
+		"host slot links to our old backup": {
+			files: map[string]string{"pre-push": testRunnableHostHook, "pre-push.pre-entire-brain": testUserHook},
+			link:  "pre-push.pre-entire", to: "pre-push.pre-entire-brain",
+		},
+		"host slot links to our old backup, then the host uninstalls": {
+			files: map[string]string{"pre-push": testRunnableHostHook, "pre-push.pre-entire-brain": testUserHook},
+			link:  "pre-push.pre-entire", to: "pre-push.pre-entire-brain", hostUninstall: true,
+		},
+		"the hook behind our slot copy links to our old backup": {
+			files: map[string]string{"pre-push.pre-entire": ours, "pre-push.pre-entire-brain": testUserHook},
+			link:  "pre-push.pre-entire.pre-entire-brain", to: "pre-push.pre-entire-brain",
+		},
+		"primary links to the fallback file": {
+			files: map[string]string{"pre-push.pre-entire.pre-entire-brain": testUserHook},
+			link:  "pre-push", to: "pre-push.pre-entire.pre-entire-brain",
+		},
+		"primary with the host's hook links to our old backup": {
+			files: map[string]string{"pre-push.pre-entire-brain": testRunnableHostHook, "pre-push.pre-entire": testUserHook},
+			link:  "pre-push", to: "pre-push.pre-entire-brain",
+		},
+		"primary with the host's hook links to our old backup, then the host uninstalls": {
+			files: map[string]string{"pre-push.pre-entire-brain": testRunnableHostHook, "pre-push.pre-entire": testUserHook},
+			link:  "pre-push", to: "pre-push.pre-entire-brain", hostUninstall: true,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			opts, repoDir, hooksDir := pushHookHarness(t)
-			primary := filepath.Join(hooksDir, "pre-push")
-			writeHook(t, filepath.Join(hooksDir, tc.linkTo), tc.linked)
-			writeHookIfSet(t, primary+hostBackupSuffix, tc.slot)
-			if err := os.Symlink(tc.linkTo, primary); err != nil {
+			for file, content := range tc.files {
+				writeHook(t, filepath.Join(hooksDir, file), content)
+			}
+			if err := os.Symlink(tc.to, filepath.Join(hooksDir, tc.link)); err != nil {
 				t.Fatal(err)
 			}
+			primary := filepath.Join(hooksDir, "pre-push")
 
 			if _, _, err := installPushHook(context.Background(), opts, repoDir); err != nil {
 				t.Fatal(err)
 			}
-			if got := readHook(t, filepath.Join(hooksDir, tc.wantBehind)); got != tc.linked {
-				t.Fatalf("%s must still resolve to the linked hook: %q", tc.wantBehind, got)
-			}
-			if rotated := rotatedCopiesOf(t, filepath.Join(hooksDir, tc.linkTo)); len(rotated) != 0 {
+			if rotated := rotatedCopiesOf(t, filepath.Join(hooksDir, tc.to)); len(rotated) != 0 {
 				t.Fatalf("the linked hook must not be set aside: %v", rotated)
 			}
+			if tc.hostUninstall {
+				// The host's uninstall removes its hook and moves its slot back.
+				if err := os.Remove(primary); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(primary+hostBackupSuffix, primary); err != nil {
+					t.Fatal(err)
+				}
+			}
+			requireRunsTheUserHook(t, hooksDir)
 
 			if err := uninstallPushHook(context.Background(), opts, repoDir); err != nil {
 				t.Fatal(err)
 			}
-			if got := readHook(t, primary); got != tc.linked {
-				t.Fatalf("disconnect must leave the primary resolving to the linked hook: %q", got)
-			}
+			requireRunsTheUserHook(t, hooksDir)
+			requireNoHookOfOurs(t, hooksDir)
 		})
+	}
+}
+
+// testUserHook prints a line the chain tests look for.
+const testUserHook = "#!/bin/sh\necho user hook\n"
+
+// testRunnableHostHook is the host's hook without its call to the entire
+// binary, so a test can run it.
+var testRunnableHostHook = strings.Replace(testHostChainHook, "entire hooks git pre-push \"$1\"\n", "", 1)
+
+// requireRunsTheUserHook runs the primary hook the way git does and fails
+// unless the user's hook runs. Our copies are rewritten first to point at a
+// missing plugin: install bakes in the running binary, here the test binary.
+func requireRunsTheUserHook(t *testing.T, hooksDir string) {
+	t.Helper()
+	for _, sibling := range append(pushHookSiblings(hooksDir), filepath.Join(hooksDir, "pre-push")) {
+		if data, err := readHookFile(sibling); err == nil && strings.Contains(string(data), pushHookMarker) {
+			writeHook(t, sibling, pushHookContent(filepath.Join(hooksDir, "no-such-plugin")))
+		}
+	}
+	out, err := exec.Command(filepath.Join(hooksDir, "pre-push"), "origin", "url").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "user hook") {
+		t.Fatalf("the user's hook must run: err=%v output=%q", err, out)
+	}
+}
+
+// requireNoHookOfOurs fails if a copy of our hook is left in the hooks dir.
+func requireNoHookOfOurs(t *testing.T, hooksDir string) {
+	t.Helper()
+	entries, err := os.ReadDir(hooksDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if data, err := readHookFile(filepath.Join(hooksDir, entry.Name())); err == nil && strings.Contains(string(data), pushHookMarker) {
+			t.Fatalf("%s still holds our hook", entry.Name())
+		}
 	}
 }
