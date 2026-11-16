@@ -216,8 +216,10 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 	var open *conversationExchange
 	// unreadTurn is set from a user turn too long to read until something
 	// answers it or a readable request follows, so the duplicate shapes of
-	// one turn (codex response_item + event_msg) count once.
+	// one turn (codex response_item + event_msg) count once. unreadStart is
+	// the start of its text, to recognize a readable copy that follows.
 	unreadTurn := false
+	unreadStart := ""
 	lineNumber := 0
 	closeOpen := func(endLine int) {
 		if open == nil {
@@ -238,7 +240,15 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 		}
 		lineNumber++
 		if scanner.Oversized() {
-			if unreadLineIsUserTurn(scanner.Head()) {
+			if head := readTranscriptLineHead(scanner.Head()); head.userTurn() {
+				start := head.requestStart()
+				// Codex wraps one turn's image differently in its two
+				// copies, so near the limit only one can be too long. An
+				// unread copy of the still-unanswered open request is that
+				// duplicate, not a new turn.
+				if open != nil && start != "" && strings.HasPrefix(open.Request, start) && strings.TrimSpace(open.Response) == "" && len(open.ToolNames) == 0 {
+					continue
+				}
 				// A user turn nobody can read (a pasted screenshot, say)
 				// ends the open exchange: the answer after it belongs to a
 				// request without text, not to the one before it. It counts
@@ -246,7 +256,7 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 				closeOpen(lineNumber - 1)
 				if !unreadTurn {
 					result.Incomplete++
-					unreadTurn = true
+					unreadTurn, unreadStart = true, start
 				}
 				continue
 			}
@@ -275,6 +285,11 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 				continue
 			}
 			closeOpen(lineNumber - 1)
+			if unreadTurn && unreadStart != "" && strings.HasPrefix(request, unreadStart) {
+				// The readable copy of the unanswered turn just counted as
+				// unread: it is that turn, so it no longer counts apart.
+				result.Incomplete--
+			}
 			unreadTurn = false
 			open = &conversationExchange{TurnOrdinal: len(result.Exchanges) + result.Incomplete + 1, Request: request, Line: lineNumber}
 			continue

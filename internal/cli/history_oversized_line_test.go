@@ -208,16 +208,20 @@ func TestConversationScanEndsExchangeAtUnreadUserTurn(t *testing.T) {
 	}
 }
 
-// Codex records each user turn twice (response_item and event_msg). When both
-// are too long to read they are still one turn.
-func TestConversationScanCountsDuplicateUnreadTurnOnce(t *testing.T) {
-	t.Parallel()
+// codexImageTranscript is a Codex session whose second turn carries a
+// screenshot. Codex records each user turn twice (response_item, then
+// event_msg); itemImage and eventImage choose which copies carry the image
+// that makes them too long to read.
+func codexImageTranscript(t *testing.T, itemImage, eventImage bool) string {
+	t.Helper()
 	image := `"data:image/png;base64,` + strings.Repeat("A", historyMaxLineBytes+1024) + `"`
-	user := func(text, image string) string {
+	user := func(text string, itemImage, eventImage bool) string {
 		item := `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"` + text + `"}`
 		event := `{"type":"event_msg","payload":{"type":"user_message","message":"` + text + `"`
-		if image != "" {
+		if itemImage {
 			item += `,{"type":"input_image","image_url":` + image + `}`
+		}
+		if eventImage {
 			event += `,"images":[` + image + `]`
 		}
 		return item + "]}}\n" + event + "}}\n"
@@ -225,27 +229,66 @@ func TestConversationScanCountsDuplicateUnreadTurnOnce(t *testing.T) {
 	assistant := func(text string) string {
 		return `{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"` + text + `"}]}}` + "\n"
 	}
-	content := user("First question about the export?", "") + assistant("First answer.") +
-		user("Here is the screenshot.", image) + assistant("Answer to the unread turn.") +
-		user("Second question about the export?", "") + assistant("Second answer.")
+	content := user("First question about the export?", false, false) + assistant("First answer.") +
+		user("Here is the screenshot.", itemImage, eventImage) + assistant("Answer to the screenshot turn.") +
+		user("Second question about the export?", false, false) + assistant("Second answer.")
 	for i, line := range strings.Split(strings.TrimSuffix(content, "\n"), "\n") {
 		if !json.Valid([]byte(line)) {
 			t.Fatalf("fixture line %d is not JSON", i+1)
 		}
 	}
+	return content
+}
 
-	scan, err := scanLineConversation(strings.NewReader(content))
+// When both Codex copies of a turn are too long to read they are one unread
+// turn, counted once.
+func TestConversationScanCountsDuplicateUnreadTurnOnce(t *testing.T) {
+	t.Parallel()
+	scan, err := scanLineConversation(strings.NewReader(codexImageTranscript(t, true, true)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(scan.Exchanges) != 2 || scan.Incomplete != 1 {
 		t.Fatalf("exchanges = %+v incomplete = %d, want 2 exchanges and one incomplete turn", scan.Exchanges, scan.Incomplete)
 	}
-	if first := scan.Exchanges[0]; first.EndLine != 3 || strings.Contains(first.Response, "unread turn") {
+	if first := scan.Exchanges[0]; first.EndLine != 3 || strings.Contains(first.Response, "screenshot turn") {
 		t.Fatalf("first exchange = %+v, want it to end before the unread turn", first)
 	}
 	if second := scan.Exchanges[1]; second.Line != 7 || second.TurnOrdinal != 3 || second.Response != "Second answer." {
 		t.Fatalf("second exchange = %+v, want line 7, turn 3", second)
+	}
+}
+
+// Codex wraps the image differently in its two copies of a turn, so near the
+// limit only one copy can be too long. The readable copy is then the turn,
+// whichever comes first, and it keeps its answer.
+func TestConversationScanKeepsTurnWithOneReadableCodexCopy(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name                  string
+		itemImage, eventImage bool
+		requestLine           int
+	}{
+		{"event copy too long", false, true, 4},
+		{"item copy too long", true, false, 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			scan, err := scanLineConversation(strings.NewReader(codexImageTranscript(t, tc.itemImage, tc.eventImage)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(scan.Exchanges) != 3 || scan.Incomplete != 0 {
+				t.Fatalf("exchanges = %+v incomplete = %d, want 3 exchanges and none incomplete", scan.Exchanges, scan.Incomplete)
+			}
+			middle := scan.Exchanges[1]
+			if middle.Request != "Here is the screenshot." || middle.Response != "Answer to the screenshot turn." || middle.Line != tc.requestLine || middle.EndLine != 6 || middle.TurnOrdinal != 2 {
+				t.Fatalf("screenshot exchange = %+v, want its request from line %d and its answer, as turn 2", middle, tc.requestLine)
+			}
+			if last := scan.Exchanges[2]; last.TurnOrdinal != 3 {
+				t.Fatalf("last exchange = %+v, want turn 3", last)
+			}
+		})
 	}
 }
 

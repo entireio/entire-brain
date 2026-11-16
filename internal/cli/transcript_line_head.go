@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
+	"unicode/utf8"
 )
 
 // transcriptLineHead is what the first bytes of a transcript line say about
@@ -37,7 +38,10 @@ const transcriptLineHeadTextBytes = 256
 // assistant line, a line whose head does not show its type, role and content,
 // and anything else is not one.
 func unreadLineIsUserTurn(head []byte) bool {
-	h := readTranscriptLineHead(head)
+	return readTranscriptLineHead(head).userTurn()
+}
+
+func (h transcriptLineHead) userTurn() bool {
 	switch h.recordType {
 	case "user": // claude-code nests the turn under "message"; the format does not
 	case "message": // pi
@@ -60,6 +64,13 @@ func unreadLineIsUserTurn(head []byte) bool {
 	}
 	text := strings.TrimSpace(h.text)
 	return text == "" || (!isWrapperRequest(text) && !isConversationInjectedRequest(text))
+}
+
+// requestStart is the start of the turn's request text, normalized like a
+// readable request, so a readable copy of the same turn starts with it. Empty
+// when the head shows no text.
+func (h transcriptLineHead) requestStart() string {
+	return normalizeConversationText(h.text)
 }
 
 // readTranscriptLineHead reads the record's type, role and first content
@@ -198,9 +209,13 @@ func (r *transcriptHeadReader) text() string {
 	if len(raw) > transcriptLineHeadTextBytes {
 		raw = raw[:transcriptLineHeadTextBytes]
 	}
-	// Do not end inside an escape sequence; the longest is \uXXXX.
+	// Do not end inside an escape sequence, the longest is \uXXXX, or inside
+	// a UTF-8 sequence, which would decode as a replacement character.
 	if i := bytes.LastIndexByte(raw, '\\'); i >= 0 && i >= len(raw)-6 {
 		raw = raw[:i]
+	}
+	for n := 0; n < utf8.UTFMax && len(raw) > 0 && !utf8.Valid(raw); n++ {
+		raw = raw[:len(raw)-1]
 	}
 	quoted := make([]byte, 0, len(raw)+2)
 	quoted = append(append(append(quoted, '"'), raw...), '"')

@@ -58,6 +58,12 @@ func TestUnreadLineHeadEndingInsideAnEscape(t *testing.T) {
 	if unreadLineIsUserTurn([]byte(head)) {
 		t.Fatal("an injected stop-hook turn was read as a user turn")
 	}
+	// Or inside a multi-byte character: the text stops before it rather than
+	// ending in a replacement character.
+	cut := `{"type":"user","message":{"role":"user","content":"Here is caf` + "\xc3"
+	if got := readTranscriptLineHead([]byte(cut)).requestStart(); got != "Here is caf" {
+		t.Fatalf("request start = %q, want the text before the cut character", got)
+	}
 }
 
 // The scanner keeps the head of each line it skips, and only of those.
