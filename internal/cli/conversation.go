@@ -214,12 +214,12 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 
 	var result conversationScanResult
 	var open *conversationExchange
-	// unreadTurn is set from a user turn too long to read until something
-	// answers it or a readable request follows, so the duplicate shapes of
-	// one turn (codex response_item + event_msg) count once. unreadStart is
-	// the start of its text, to recognize a readable copy that follows.
-	unreadTurn := false
-	unreadStart := ""
+	// openType is the record type of the open exchange's request line, and
+	// unread is the last user turn too long to read, until something answers
+	// it or a request follows. Both exist to recognize codex's two copies of
+	// one turn (see codexTurnCopy).
+	openType := ""
+	var unread unreadConversationTurn
 	lineNumber := 0
 	closeOpen := func(endLine int) {
 		if open == nil {
@@ -241,28 +241,30 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 		lineNumber++
 		if scanner.Oversized() {
 			if head := readTranscriptLineHead(scanner.Head()); head.userTurn() {
-				start := head.requestStart()
-				// Codex wraps one turn's image differently in its two
-				// copies, so near the limit only one can be too long. An
-				// unread copy of the still-unanswered open request is that
-				// duplicate, not a new turn.
-				if open != nil && start != "" && strings.HasPrefix(open.Request, start) && strings.TrimSpace(open.Response) == "" && len(open.ToolNames) == 0 {
+				turn := unreadConversationTurn{counted: true, recordType: head.recordType, start: head.requestStart()}
+				// An unread codex copy of the still-unanswered open request
+				// is that request, not a new turn.
+				if open != nil && strings.TrimSpace(open.Response) == "" && len(open.ToolNames) == 0 && codexTurnCopy(openType, open.Request, turn.recordType, turn.start) {
 					continue
 				}
 				// A user turn nobody can read (a pasted screenshot, say)
 				// ends the open exchange: the answer after it belongs to a
 				// request without text, not to the one before it. It counts
-				// as an incomplete exchange, so turn ordinals stay aligned.
+				// as an incomplete exchange, so turn ordinals stay aligned,
+				// unless it is the other codex copy of the unread turn just
+				// counted.
 				closeOpen(lineNumber - 1)
-				if !unreadTurn {
+				if !unread.counted || !codexTurnCopy(unread.recordType, unread.start, turn.recordType, turn.start) {
 					result.Incomplete++
-					unreadTurn, unreadStart = true, start
 				}
+				unread = turn
 				continue
 			}
 			// The open exchange spans a line nobody read. It is usually a
 			// screenshot or a command's output, but it could be narrative, so
-			// the projection must not claim to be whole.
+			// the projection must not claim to be whole. It also separates
+			// an unread turn from the next one.
+			unread = unreadConversationTurn{}
 			if open != nil {
 				open.ResponseOverflow = true
 			}
@@ -285,19 +287,21 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 				continue
 			}
 			closeOpen(lineNumber - 1)
-			if unreadTurn && unreadStart != "" && strings.HasPrefix(request, unreadStart) {
-				// The readable copy of the unanswered turn just counted as
-				// unread: it is that turn, so it no longer counts apart.
+			requestType := transcriptRecordType(record)
+			if unread.counted && codexTurnCopy(unread.recordType, unread.start, requestType, request) {
+				// The readable codex copy of the unread turn just counted:
+				// it is that turn, so the turn no longer counts apart.
 				result.Incomplete--
 			}
-			unreadTurn = false
+			unread = unreadConversationTurn{}
 			open = &conversationExchange{TurnOrdinal: len(result.Exchanges) + result.Incomplete + 1, Request: request, Line: lineNumber}
+			openType = requestType
 			continue
 		}
 		narrative, tools := conversationAssistantNarrative(record), conversationToolNames(record)
 		if open == nil {
 			if len(narrative) > 0 || len(tools) > 0 {
-				unreadTurn = false
+				unread = unreadConversationTurn{}
 			}
 			continue
 		}
@@ -312,6 +316,40 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 	closeOpen(lineNumber)
 	result.SourceDigest = "sha256:" + hex.EncodeToString(hasher.Sum(nil))
 	return result, nil
+}
+
+// unreadConversationTurn is a user turn the conversation scan could not read:
+// counted once it is counted as incomplete, with the record type and the
+// start of the text its head showed.
+type unreadConversationTurn struct {
+	counted    bool
+	recordType string
+	start      string
+}
+
+// codexTurnCopy reports whether two user-turn lines are codex's two copies of
+// one turn: one response_item and one event_msg, with the same text as far as
+// both show it. Codex wraps the turn's image differently in each copy, so near
+// the line limit only one may be too long to read. Other dialects write a turn
+// once, so two of their turns are never copies.
+func codexTurnCopy(typeA, textA, typeB, textB string) bool {
+	codex := func(recordType string) bool { return recordType == "response_item" || recordType == "event_msg" }
+	if typeA == typeB || !codex(typeA) || !codex(typeB) {
+		return false
+	}
+	if textA == "" || textB == "" {
+		return textA == textB
+	}
+	return strings.HasPrefix(textA, textB) || strings.HasPrefix(textB, textA)
+}
+
+// transcriptRecordType is a native record's top-level "type", "" for a line in
+// the Entire Transcript Format.
+func transcriptRecordType(record transcriptRecord) string {
+	if record.obj == nil {
+		return ""
+	}
+	return jsonString(record.obj["type"])
 }
 
 // scanDocumentConversation applies the same role semantics to a document-form

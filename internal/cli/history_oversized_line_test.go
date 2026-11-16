@@ -292,6 +292,67 @@ func TestConversationScanKeepsTurnWithOneReadableCodexCopy(t *testing.T) {
 	}
 }
 
+// An unread answer between two unread codex turns with the same text makes
+// them two turns, not two copies of one.
+func TestConversationScanSeparatesUnreadCodexTurnsByAnUnreadAnswer(t *testing.T) {
+	t.Parallel()
+	turn := codexImageTranscript(t, true, true)
+	lines := strings.SplitAfter(turn, "\n")
+	// Lines 4 and 5 are the two unread copies of the screenshot turn.
+	unreadTurn := lines[3] + lines[4]
+	output := `{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"` + strings.Repeat("A", historyMaxLineBytes+1024) + `"}}` + "\n"
+	content := strings.Join(lines[:3], "") + unreadTurn + output + unreadTurn + strings.Join(lines[5:], "")
+
+	scan, err := scanLineConversation(strings.NewReader(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scan.Exchanges) != 2 || scan.Incomplete != 2 {
+		t.Fatalf("exchanges = %+v incomplete = %d, want 2 exchanges and two incomplete turns", scan.Exchanges, scan.Incomplete)
+	}
+	if last := scan.Exchanges[1]; last.TurnOrdinal != 4 {
+		t.Fatalf("last exchange = %+v, want turn 4", last)
+	}
+}
+
+// Only codex writes a turn twice. Distinct unread turns in other dialects, or
+// unread turns with an answer between them, each count.
+func TestConversationScanCountsEachDistinctUnreadTurn(t *testing.T) {
+	t.Parallel()
+	big := strings.Repeat("A", historyMaxLineBytes+1024)
+	user := func(text string) string {
+		return `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + text + `"}]}}` + "\n"
+	}
+	pasted := func(text string) string {
+		return `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + text + `"},{"type":"image","source":{"type":"base64","data":"` + big + `"}}]}}` + "\n"
+	}
+	assistant := func(text string) string {
+		return `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + text + `"}]}}` + "\n"
+	}
+	first, last := user("First question?")+assistant("First answer."), user("Last question?")+assistant("Last answer.")
+	for _, tc := range []struct {
+		name, middle string
+	}{
+		{"two pasted screenshots", pasted("First screenshot.") + pasted("Second screenshot.") + assistant("Both answered.")},
+		{"same text with an unread answer between", pasted("Look at this.") + assistant(big) + pasted("Look at this.") + assistant("Answered.")},
+		{"readable then pasted with the same text", user("Look at this.") + pasted("Look at this.") + assistant("Answered.")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			scan, err := scanLineConversation(strings.NewReader(first + tc.middle + last))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(scan.Exchanges) != 2 || scan.Incomplete != 2 {
+				t.Fatalf("exchanges = %+v incomplete = %d, want the first and last exchanges and two incomplete turns", scan.Exchanges, scan.Incomplete)
+			}
+			if got := scan.Exchanges[1]; got.Request != "Last question?" || got.TurnOrdinal != 4 {
+				t.Fatalf("last exchange = %+v, want turn 4", got)
+			}
+		})
+	}
+}
+
 // An exchange whose range spans an oversized line must still expand, from the
 // same line numbers, and say that it is not the faithful full content.
 func TestConversationExpansionReadsPastOversizedLine(t *testing.T) {
