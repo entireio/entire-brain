@@ -21,6 +21,8 @@ func TestUnreadLineIsUserTurn(t *testing.T) {
 		{"claude small image, then text", `{"type":"user","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","data":"iVBOR"}},{"type":"text","text":"What does this show? ` + bulk + `"}]}}`, true},
 		{"claude small image, then a reminder", `{"type":"user","message":{"role":"user","content":[{"type":"image","source":{"data":"iVBOR"}},{"type":"text","text":"<system-reminder>` + bulk + `"}]}}`, false},
 		{"claude blank text, then text", `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"  "},{"type":"text","text":"What does this show? ` + bulk + `"}]}}`, true},
+		{"claude request split across text blocks", `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Please review"},{"type":"text","text":"this log: ` + bulk + `"}]}}`, true},
+		{"claude wrapper split across text blocks", `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Stop hook"},{"type":"text","text":"feedback: ` + bulk + `"}]}}`, false},
 		{"claude small tool result, then user text", `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":"ok"},{"type":"text","text":"Now look at this: ` + bulk + `"}]}}`, true},
 		{"claude tool result, content before type", `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","content":[{"type":"image","source":{"data":"` + bulk + `"}}],"type":"tool_result"}]}}`, false},
 		{"claude pasted text", `{"type":"user","message":{"role":"user","content":"Please review this log: ` + bulk + `"}}`, true},
@@ -46,8 +48,22 @@ func TestUnreadLineIsUserTurn(t *testing.T) {
 			if len(tc.line) <= headBytes {
 				t.Fatal("case must run past the head")
 			}
+			head := readTranscriptLineHead([]byte(tc.line[:headBytes]))
 			if got := unreadLineIsUserTurn([]byte(tc.line[:headBytes])); got != tc.want {
-				t.Fatalf("unreadLineIsUserTurn = %v, want %v (head %+v)", got, tc.want, readTranscriptLineHead([]byte(tc.line[:headBytes])))
+				t.Fatalf("unreadLineIsUserTurn = %v, want %v (head %+v)", got, tc.want, head)
+			}
+			if !tc.want {
+				return
+			}
+			// What the head reads is how the whole line's request, read as a
+			// readable line, starts.
+			record, ok := decodeTranscriptRecord(tc.line)
+			if !ok {
+				t.Fatal("the whole line does not decode")
+			}
+			request := conversationSubstantiveRequest(record)
+			if start := head.requestStart(); start == "" || !strings.HasPrefix(request, start) {
+				t.Fatalf("request start %q does not begin the line's request %.80q", start, request)
 			}
 		})
 	}
