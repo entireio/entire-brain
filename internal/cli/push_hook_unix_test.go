@@ -215,3 +215,47 @@ func TestInstallPushHookKeepsTheBackupTheHookBehindItsSlotCopyLinksTo(t *testing
 		t.Fatalf("disconnect must put the user's hook back in the primary: %q", got)
 	}
 }
+
+// A file connect would set aside stays when the primary is a symlink to it:
+// then it is the hook in the primary, and ours chains to it. For the fallback
+// file our hook wraps it; for our old backup the host's hook stays in the
+// primary and ours joins the host's chain. Disconnect puts the primary back.
+func TestInstallPushHookKeepsAFileThePrimaryLinksTo(t *testing.T) {
+	const userHook = "#!/bin/sh\necho user hook\n"
+	for name, tc := range map[string]struct {
+		linkTo     string // the primary links here, relative to the hooks dir
+		linked     string // the linked file's content
+		slot       string // the host's slot, if set
+		wantBehind string // where the linked file must still resolve after connect
+	}{
+		"fallback file": {linkTo: "pre-push.pre-entire.pre-entire-brain", linked: userHook, wantBehind: "pre-push.pre-entire-brain"},
+		"old backup":    {linkTo: "pre-push.pre-entire-brain", linked: testHostChainHook, slot: userHook, wantBehind: "pre-push"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			opts, repoDir, hooksDir := pushHookHarness(t)
+			primary := filepath.Join(hooksDir, "pre-push")
+			writeHook(t, filepath.Join(hooksDir, tc.linkTo), tc.linked)
+			writeHookIfSet(t, primary+hostBackupSuffix, tc.slot)
+			if err := os.Symlink(tc.linkTo, primary); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, _, err := installPushHook(context.Background(), opts, repoDir); err != nil {
+				t.Fatal(err)
+			}
+			if got := readHook(t, filepath.Join(hooksDir, tc.wantBehind)); got != tc.linked {
+				t.Fatalf("%s must still resolve to the linked hook: %q", tc.wantBehind, got)
+			}
+			if rotated := rotatedCopiesOf(t, filepath.Join(hooksDir, tc.linkTo)); len(rotated) != 0 {
+				t.Fatalf("the linked hook must not be set aside: %v", rotated)
+			}
+
+			if err := uninstallPushHook(context.Background(), opts, repoDir); err != nil {
+				t.Fatal(err)
+			}
+			if got := readHook(t, primary); got != tc.linked {
+				t.Fatalf("disconnect must leave the primary resolving to the linked hook: %q", got)
+			}
+		})
+	}
+}

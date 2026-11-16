@@ -100,16 +100,23 @@ func pathExists(path string) bool {
 // was not ours, with no copy of ours in the host's slot. A file at the
 // fallback's name there was left by an earlier join that something other than
 // the host's uninstall undid, and the fallback must not start running it.
-// Like a changed backup, it is kept under a timestamped name.
+// Like a changed backup, it is kept under a timestamped name. A primary that
+// is a symlink to it is the hook ours is about to wrap, so then it stays.
 func setAsideStrandedChainTarget(primary string) error {
-	return setAside(primary+hostBackupSuffix+pushHookBackupSuffix, "was left behind by an earlier install and nothing runs it")
+	return setAside(primary+hostBackupSuffix+pushHookBackupSuffix, "was left behind by an earlier install and nothing runs it", primary)
 }
 
 // setAside keeps a file at path under a rotated name, which nothing runs, and
-// says so; why completes the warning's "<name> ..." clause.
-func setAside(path, why string) error {
+// says so; why completes the warning's "<name> ..." clause. A file that one of
+// live resolves to (through a symlink) is a hook that runs, so it stays.
+func setAside(path, why string, live ...string) error {
 	if _, err := os.Lstat(path); err != nil {
 		return nil
+	}
+	for _, hook := range live {
+		if sameFile(hook, path) {
+			return nil
+		}
 	}
 	rotated, err := rotateAside(path)
 	if err != nil {
@@ -273,14 +280,11 @@ func wrapTarget(primary, primaryContent string) (string, string, error) {
 // it: ours is about to join the host's chain there, or to move out of it into
 // the primary. With our hook in the primary, the chain line would run that
 // old backup instead of falling back to the hook behind the slot. behind is
-// the hook that ends up behind our copy; when it resolves to the backup itself
-// (a symlink to it), the backup is that hook, so it stays.
+// the hook that ends up behind our copy; when it or the primary resolves to
+// the backup itself (a symlink to it), the backup is a hook that runs, so it
+// stays.
 func setAsideOldPrimaryBackup(primary, behind string) error {
-	backup := primary + pushHookBackupSuffix
-	if sameFile(behind, backup) {
-		return nil
-	}
-	return setAside(backup, "is an older backup that nothing runs")
+	return setAside(primary+pushHookBackupSuffix, "is an older backup that nothing runs", behind, primary)
 }
 
 // sameFile reports whether a and b both exist and resolve to one file.
@@ -463,7 +467,7 @@ func removeLivePushHook(hooksDir string) error {
 		if err != nil || !strings.Contains(string(data), pushHookMarker) {
 			continue
 		}
-		return removeMovedPushHook(candidate, primary+pushHookBackupSuffix)
+		return removeMovedPushHook(candidate, primary)
 	}
 	return nil
 }
@@ -493,7 +497,7 @@ func removePrimaryPushHook(primary string) error {
 // ran us runs it. Rename replaces our copy in one step. Without one, delete
 // our copy; the host's chain call is [ -x ]-guarded, so a missing chain
 // target is a clean no-op.
-func removeMovedPushHook(candidate, backup string) error {
+func removeMovedPushHook(candidate, primary string) error {
 	if _, err := os.Lstat(candidate + pushHookBackupSuffix); err == nil {
 		if err := os.Rename(candidate+pushHookBackupSuffix, candidate); err != nil {
 			return err
@@ -505,9 +509,10 @@ func removeMovedPushHook(candidate, backup string) error {
 	// copy: nothing runs it once our hook left the primary. Renaming it
 	// into the candidate slot would put a second host pre-push back into
 	// the live chain and run it twice, so it is deleted. A restored
-	// candidate that resolves to it (a symlink to it) runs it, so then it
-	// stays.
-	if _, err := os.Stat(backup); err == nil && !sameFile(candidate, backup) {
+	// candidate or a primary that resolves to it (a symlink to it) runs it,
+	// so then it stays.
+	backup := primary + pushHookBackupSuffix
+	if _, err := os.Stat(backup); err == nil && !sameFile(candidate, backup) && !sameFile(primary, backup) {
 		return os.Remove(backup)
 	}
 	return nil
