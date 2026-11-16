@@ -615,7 +615,8 @@ func TestUninstallPushHookRestoresTheHookTheHostUninstallLeftBehind(t *testing.T
 // A file at the name the chain line falls back to is set aside when our hook
 // goes into a primary that was not ours: the join that put it there was undone
 // by something other than the host's uninstall, and our new hook must not
-// start running it. A copy of ours in the host's slot keeps it as its backup.
+// start running it. A copy of ours in the host's slot moves into the primary
+// and keeps it as the hook it chains to.
 func TestInstallPushHookSetsAsideAFileTheFallbackWouldRun(t *testing.T) {
 	for name, tc := range map[string]struct {
 		primary, slot string // "" for no file
@@ -688,4 +689,77 @@ func rotatedCopiesOf(t *testing.T, path string) []string {
 		}
 	}
 	return rotated
+}
+
+// Joining the host's chain sets aside our backup of the primary from an
+// earlier wrap. Left in place, it would run instead of the hook we chained to
+// once the host's uninstall moves us back into the primary, and disconnect
+// would restore it there.
+func TestInstallPushHookSetsAsideItsOldBackupWhenItJoinsTheHostChain(t *testing.T) {
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	primary, slot, _ := rotatedHookLayout(t, hooksDir)
+	oldBackup := primary + pushHookBackupSuffix
+	writeHook(t, oldBackup, testHostChainHook)
+
+	if _, _, err := installPushHook(context.Background(), opts, repoDir); err != nil {
+		t.Fatal(err)
+	}
+	requireNoFile(t, oldBackup)
+	if rotated := rotatedCopiesOf(t, oldBackup); len(rotated) != 1 || readHook(t, rotated[0]) != testHostChainHook {
+		t.Fatalf("the old backup must be kept under a rotated name: %v", rotated)
+	}
+
+	// The host's uninstall moves our hook from its slot back into the primary.
+	if err := os.Remove(primary); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(slot, primary); err != nil {
+		t.Fatal(err)
+	}
+	if got := strandedChainTarget(primary); got != slot+pushHookBackupSuffix {
+		t.Fatalf("the chain line must fall back to the hook behind us, got %q", got)
+	}
+	if err := uninstallPushHook(context.Background(), opts, repoDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := readHook(t, primary); got != testHuskyStub {
+		t.Fatalf("disconnect must restore the hook we chained to: %q", got)
+	}
+}
+
+// With the host's hook gone from the primary, connect moves our copy out of
+// the host's slot into the primary instead of writing a second copy beside
+// it. The chain line then still reaches the hook behind it, and disconnect
+// restores that hook.
+func TestInstallPushHookMovesItsSlotCopyBackWhenThePrimaryIsGone(t *testing.T) {
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	primary := filepath.Join(hooksDir, "pre-push")
+	slot := primary + ".pre-entire"
+	behind := slot + pushHookBackupSuffix
+	userHook := "#!/bin/sh\necho user hook\n"
+	writeHook(t, slot, pushHookContent("/old/entire-brain"))
+	writeHook(t, behind, userHook)
+
+	state, path, err := installPushHook(context.Background(), opts, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state != pushHookInstalled || path != primary {
+		t.Fatalf("got %s at %s, want installed at the primary", state, path)
+	}
+	if got := readHook(t, primary); !strings.Contains(got, pushHookMarker) || strings.Contains(got, "/old/entire-brain") {
+		t.Fatalf("our current hook must be in the primary: %q", got)
+	}
+	requireNoFile(t, slot)
+	if got := strandedChainTarget(primary); got != behind {
+		t.Fatalf("the chain line must reach the hook behind our old copy, got %q", got)
+	}
+
+	if err := uninstallPushHook(context.Background(), opts, repoDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := readHook(t, primary); got != userHook {
+		t.Fatalf("disconnect must restore the hook we chained to: %q", got)
+	}
+	requireNoFile(t, behind)
 }

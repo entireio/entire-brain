@@ -97,25 +97,25 @@ func pathExists(path string) bool {
 }
 
 // setAsideStrandedChainTarget runs before our hook goes into a primary that
-// was not ours. A file at the fallback's name there was left by an earlier
-// join that something other than the host's uninstall undid, and the
-// fallback must not start running it. Like a changed backup, it is kept
-// under a timestamped name. A copy of ours in the host's slot keeps it: that
-// file is the copy's own backup.
+// was not ours, with no copy of ours in the host's slot. A file at the
+// fallback's name there was left by an earlier join that something other than
+// the host's uninstall undid, and the fallback must not start running it.
+// Like a changed backup, it is kept under a timestamped name.
 func setAsideStrandedChainTarget(primary string) error {
-	slot := primary + hostBackupSuffix
-	stranded := slot + pushHookBackupSuffix
-	if _, err := os.Lstat(stranded); err != nil {
+	return setAside(primary+hostBackupSuffix+pushHookBackupSuffix, "was left behind by an earlier install and nothing runs it")
+}
+
+// setAside keeps a file at path under a rotated name, which nothing runs, and
+// says so; why completes the warning's "<name> ..." clause.
+func setAside(path, why string) error {
+	if _, err := os.Lstat(path); err != nil {
 		return nil
 	}
-	if data, err := readHookFile(slot); err == nil && strings.Contains(string(data), pushHookMarker) {
-		return nil
-	}
-	rotated, err := rotateAside(stranded)
+	rotated, err := rotateAside(path)
 	if err != nil {
 		return err
 	}
-	tui.Warnf(os.Stderr, "entire-brain: %s was left behind by an earlier install and nothing runs it; it was kept as %s", filepath.Base(stranded), rotated)
+	tui.Warnf(os.Stderr, "entire-brain: %s %s; it was kept as %s", filepath.Base(path), why, rotated)
 	return nil
 }
 
@@ -159,7 +159,9 @@ const (
 // installPushHook puts our pre-push hook in place. Rules, mirroring the host
 // CLI's installer but for a GUEST of the slot rather than its owner:
 //
-//   - no hook: write ours (no chain line).
+//   - no hook: write ours. A copy of ours in the host's backup slot means the
+//     host's hook that ran it is gone: that copy moves back into the primary,
+//     where its chain line still reaches the hook behind it.
 //   - primary carries OUR marker: rewrite only when the content is stale.
 //   - OUR marker is reachable at the backup name (the host CLI re-wrapped us —
 //     its installer backs up "foreign" hooks and chains to them): do NOTHING.
@@ -171,7 +173,9 @@ const (
 //     was there moves behind ours, so the host's reconcile finds its own hook
 //     in the primary and has nothing to re-wrap. Wrapping the primary instead
 //     made that reconcile back ours up into the slot, rotating the hook it
-//     held to a copy that no longer runs.
+//     held to a copy that no longer runs. Our own backup of the primary is
+//     set aside first: after the host's uninstall moves us back into the
+//     primary, it would run instead of the hook we chained to.
 //   - anything else in the slot (the host CLI's hook with nothing chained,
 //     husky, a user script, a symlink): move it to the backup name and chain
 //     to it. Never chain a file carrying our own marker (self-call), matching
@@ -237,10 +241,8 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 			}
 			return pushHookChainedIn, candidate, nil
 		}
-		target, targetContent := primary, primaryContent
-		if slot, slotContent, ok := hostChainSlot(primary, primaryContent); ok {
-			target, targetContent = slot, slotContent
-		} else if err := setAsideStrandedChainTarget(primary); err != nil {
+		target, targetContent, err := wrapTarget(primary, primaryContent)
+		if err != nil {
 			return "", "", err
 		}
 		if err := chainBehind(target, targetContent, selfPath); err != nil {
@@ -249,14 +251,44 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 		return pushHookInstalled, target, nil
 
 	default:
-		if err := setAsideStrandedChainTarget(primary); err != nil {
-			return "", "", err
-		}
-		if err := writePushHookFile(primary, pushHookContent(selfPath)); err != nil {
+		if err := installIntoEmptyPrimary(primary, selfPath); err != nil {
 			return "", "", err
 		}
 		return pushHookInstalled, primary, nil
 	}
+}
+
+// wrapTarget picks where our hook goes when another hook holds the primary:
+// the host's slot when the host's hook chains to it, else the primary. It
+// first sets aside the file that would get in the chain line's way there.
+func wrapTarget(primary, primaryContent string) (string, string, error) {
+	if slot, slotContent, ok := hostChainSlot(primary, primaryContent); ok {
+		// Our backup of the primary, from when our hook was in it. Once the
+		// host's uninstall moves us back into the primary, the chain line
+		// would run it instead of falling back to the hook behind us.
+		return slot, slotContent, setAside(primary+pushHookBackupSuffix, "is an older backup that nothing runs")
+	}
+	return primary, primaryContent, setAsideStrandedChainTarget(primary)
+}
+
+// installIntoEmptyPrimary writes our hook into a missing primary. A copy of
+// ours in the host's slot means the host's hook that ran it is gone, so the
+// copy moves back into the primary. With no slot beside it, its chain line
+// falls back to the hook behind it, as after the host's uninstall. A second
+// copy in the primary would chain to nothing, and nothing would run the copy
+// in the slot.
+func installIntoEmptyPrimary(primary, selfPath string) error {
+	slot := primary + hostBackupSuffix
+	if data, err := readHookFile(slot); err == nil && strings.Contains(string(data), pushHookMarker) {
+		if err := writePushHookFile(primary, pushHookContent(selfPath)); err != nil {
+			return err
+		}
+		return os.Remove(slot)
+	}
+	if err := setAsideStrandedChainTarget(primary); err != nil {
+		return err
+	}
+	return writePushHookFile(primary, pushHookContent(selfPath))
 }
 
 // hostChainSlot returns the host CLI's backup slot and the hook in it when
