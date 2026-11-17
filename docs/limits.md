@@ -120,6 +120,13 @@ Go's `os` package still sees a path over the limit:
 - backup and sync agents, Explorer, and archive tools;
 - any script a user points at the store.
 
+That the Go half of this actually holds is measured, not reasoned: on Windows 11
+with `LongPathsEnabled` **0**, a probe going through Go's `os` package wrote and
+read back a 383-character absolute path, while PowerShell 5.1's `New-Item -Force`
+silently failed to create a 368-character directory on the same machine — no
+error, no directory. Both halves of the paragraph above are therefore confirmed:
+Brain's own I/O survives, and the tools around it do not.
+
 The margin is therefore not "277 of 260 used" — it is zero, and the thing
 holding it up is an implementation detail of the Go standard library. Enabling
 the `LongPathsEnabled` policy on the machine (`HKLM\SYSTEM\CurrentControlSet\
@@ -128,6 +135,13 @@ is the recommended setting for Windows users with deep repositories.
 
 `TestExportRelativePathStaysWithinItsBudget` pins the 277 in both directions, so
 a layout change that grows *or* shrinks it fails until this note is updated.
+
+The same ceiling bites the repository itself, and there it is confirmed rather
+than predicted: 13 tracked files under `benchmarks/agent-brain/evidence/` run to
+215 characters, and a stock `git clone` on Windows fails with `Filename too
+long` until `core.longpaths=true` is set. That is the "git subprocesses, unless
+the repository sets `core.longpaths=true`" bullet above, observed on real
+hardware. CONTRIBUTING.md carries the clone instructions.
 
 ## Egress threat model
 
