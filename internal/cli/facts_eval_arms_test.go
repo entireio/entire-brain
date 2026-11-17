@@ -1,3 +1,5 @@
+//go:build brain_harness
+
 package cli
 
 import (

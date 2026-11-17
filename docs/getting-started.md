@@ -50,7 +50,7 @@ first. Local migration is one-way; Brain v0.2.0 to v0.4.0 cannot read the result
 - Claude Code **2.1.78 or later**, if you use Claude capture. Follow the
   [capture requirements](memory-storage-compatibility.md#claude-capture-requirement).
 - Git.
-- A Go toolchain (1.27 or newer), **only if you build from source**. The
+- A Go toolchain (1.27.3 or newer), **only if you build from source**. The
   released binaries need no toolchain at all: Brain's default build is pure Go,
   so the published archives run as-is. See "Installing a release" below.
 - The `entire-graph` semantic provider, invoked as `entire graph`. The brain shells
@@ -98,7 +98,7 @@ and registers both plugins, writes the default plugin configuration
 the three provider routes it took. Neither checkout has to have a particular
 name, and they do not have to be siblings.
 
-The prerequisites do not go away: Go 1.27 or newer and a cgo-capable C compiler
+The prerequisites do not go away: Go 1.27.3 or newer and a cgo-capable C compiler
 are still required, because both components are built from source here. What
 goes away is having to arrange directories before you start.
 
@@ -821,7 +821,7 @@ captured sessions when explicitly asked or when a session-end integration is
 configured to do so.
 
 ```sh
-entire brain remember "Prefer table-driven tests for parser edge cases" --path preferences.tests
+entire brain remember "Prefer table-driven tests for parser edge cases" --path preferences.testing.style
 entire brain distill --dry-run --json
 entire brain distill --agent codex --model gpt-5.4-mini --effort low
 entire brain facts tree --depth 1
@@ -904,6 +904,8 @@ entire brain workspace patterns status <workspace>
 The brain includes evaluation harnesses for maintainers who need evidence that a
 retriever or fact layer is actually helping. These are not required for everyday
 use, but they are the right surface before claiming quality improvements.
+Released binaries do not carry them: run them from a checkout of this repository
+with `go run -tags brain_harness ./cmd/entire-brain <command>`.
 
 ```sh
 entire brain facts eval-gen > facts-tasks.json

@@ -608,3 +608,43 @@ func TestLegacyCleanupRetainsMatchingInvalidIdentity(t *testing.T) {
 		t.Fatal("cleanup changed damaged source data")
 	}
 }
+
+// Known orphans of removed subsystems (proposals, per-branch vitality copies,
+// embeddings) are swept with the verified facts copy so the branch dir can
+// actually empty (COR-2317); anything else still retains the directory.
+func TestLegacyCleanupSweepsKnownOrphansButRetainsUnknowns(t *testing.T) {
+	root, branch, _ := cleanupFixture(t)
+	for _, name := range []string{"proposals.ndjson", "vitality.ndjson", "vitality.json"} {
+		if err := os.WriteFile(filepath.Join(branch, name), []byte("orphan"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(branch, "embeddings"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(branch, "embeddings", "chunk.bin"), []byte("orphan"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runCleanup(t, root)
+	if _, err := os.Stat(branch); !os.IsNotExist(err) {
+		t.Fatalf("branch dir holding only known orphans must be removed, stat err=%v", err)
+	}
+
+	// An unknown file is never license to delete: the orphans go, the
+	// directory and the unknown stay.
+	root2, branch2, _ := cleanupFixture(t)
+	if err := os.WriteFile(filepath.Join(branch2, "proposals.ndjson"), []byte("orphan"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(branch2, "customer-backup.txt"), []byte("preserve"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runCleanup(t, root2)
+	if _, err := os.Stat(filepath.Join(branch2, "proposals.ndjson")); !os.IsNotExist(err) {
+		t.Fatal("known orphan survived cleanup")
+	}
+	data, err := os.ReadFile(filepath.Join(branch2, "customer-backup.txt"))
+	if err != nil || string(data) != "preserve" {
+		t.Fatalf("unknown file must be preserved: %v %q", err, data)
+	}
+}

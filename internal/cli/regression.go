@@ -391,7 +391,7 @@ func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal,
 func detectRegressionAnomaliesCapped(brainDir, repoRoot string, semSource *semanticSourceManifest, query string, limit int, includeDeletions bool) ([]regressionAnomaly, int, []string, regressionScanCaps) {
 	var warnings []string
 	var caps regressionScanCaps
-	ids := brainBriefRawHistoryQueries(query)
+	ids := taskIdentifierQueries(query)
 	if len(ids) == 0 {
 		return []regressionAnomaly{}, 0, []string{"no code identifiers found in query; pass the failing symbols/terms"}, caps
 	}

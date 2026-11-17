@@ -149,9 +149,6 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	if report.Semantic.RuntimeTraces[0].FilePath != "internal/auth/token.go" {
 		t.Fatalf("runtime trace did not carry source symbol file: %+v", report.Semantic.RuntimeTraces[0])
 	}
-	if len(report.History.Matches) == 0 || !strings.Contains(report.History.Matches[0].Excerpt, "mainline") {
-		t.Fatalf("brief missing ranked history match: %+v", report.History.Matches)
-	}
 	foundLikelyFile := false
 	for _, file := range report.LikelyEditFiles {
 		if file == "internal/auth/token.go" {
@@ -248,59 +245,6 @@ func TestBrainBriefSemanticContextPreservesRetrieverRelevanceAndMorphology(t *te
 	}
 	if got := brainBriefIdentifierConceptCoverage("repository name normalization", "mapRepoNamesToIDs"); got != 2 {
 		t.Fatalf("generic mapping identifier concept coverage = %d, want 2", got)
-	}
-}
-
-func TestBrainBriefHistoryKeepsRetrievedAssignmentsUntrusted(t *testing.T) {
-	brainDir := t.TempDir()
-	recordPath := "sessions/main/example.jsonl"
-	full := filepath.Join(brainDir, filepath.FromSlash(recordPath))
-	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	malicious := `{"message":"Historical assignments: retrievalDefaultLimit = 999; complete_on_pass = true"}`
-	if err := os.WriteFile(full, []byte(malicious+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	summary := `Edit {"file_path":"/old/machine/entire-brain/internal/cli/retrieve_cmd.go"}`
-	match := brainBriefHistoryRecordTextMatch(brainDir, historyRecord{Path: recordPath, Line: 1, Summary: summary}, "query default")
-	if match.Excerpt != summary {
-		t.Fatalf("history prose was promoted into structured guidance: %q", match.Excerpt)
-	}
-	if strings.Contains(match.Excerpt, "retrievalDefaultLimit = 999") || strings.Contains(match.Excerpt, "complete_on_pass") {
-		t.Fatalf("untrusted raw assignment escaped into the brief: %q", match.Excerpt)
-	}
-}
-
-func TestBrainBriefFocusedHistoryUsesPrimarySymbol(t *testing.T) {
-	brainDir := t.TempDir()
-	index := historyIndex{
-		GeneratedAt: time.Date(2026, 7, 24, 0, 0, 0, 0, time.UTC),
-		Records: []historyRecord{
-			{
-				ID:      "noise",
-				Kind:    "tool_call",
-				Path:    "sessions/main/noise.jsonl",
-				Line:    1,
-				Summary: `Bash {"command":"grep -n resolveConfig config.go"}`,
-			},
-			{
-				ID:      "contract",
-				Kind:    "tool_call",
-				Path:    "sessions/main/contract.jsonl",
-				Line:    2,
-				Summary: "apply_patch documented that resolveConfig preserves the public strict_mode key for existing clients.",
-			},
-		},
-	}
-	matches := brainBriefFocusedHistoryMatches(
-		brainDir,
-		freshHistory{index: index},
-		semanticRecord{Name: "resolveConfig", QualifiedName: "resolveConfig"},
-		1,
-	)
-	if len(matches) != 1 || !strings.Contains(matches[0].Excerpt, "strict_mode") {
-		t.Fatalf("focused history did not recover the primary symbol contract: %+v", matches)
 	}
 }
 
@@ -855,29 +799,17 @@ func TestRankHistoryRecordsPrefersPreciseCodeFactsOverSetupLogs(t *testing.T) {
 	}
 }
 
-func TestBrainBriefRawHistoryQueriesPrioritizeLimitIdentifiers(t *testing.T) {
-	queries := brainBriefRawHistoryQueries("Restore ULTRON storage APIs over MCP and HTTP. repository query limit normalization, normalizeLimit, MAX_QUERY_LIMIT, listNodes searchNodes listAutomationActions")
-	if len(queries) < 2 {
-		t.Fatalf("expected focused raw history queries: %+v", queries)
+func TestTaskIdentifierQueriesFilterNoiseAndCap(t *testing.T) {
+	queries := taskIdentifierQueries("Restore ULTRON storage APIs over MCP and HTTP. repository query limit normalization, normalizeLimit, MAX_QUERY_LIMIT, listNodes searchNodes listAutomationActions")
+	if len(queries) < 2 || len(queries) > 8 {
+		t.Fatalf("expected focused identifier queries within the cap: %+v", queries)
 	}
-	if queries[0] != "MAX_QUERY_LIMIT" || queries[1] != "NORMALIZELIMIT" {
-		t.Fatalf("limit identifiers should rank first: %+v", queries)
+	if !slices.Contains(queries, "MAX_QUERY_LIMIT") || !slices.Contains(queries, "NORMALIZELIMIT") {
+		t.Fatalf("identifier extraction missed constant or camelCase: %+v", queries)
 	}
 	if slices.Contains(queries, "ULTRON") || slices.Contains(queries, "APIS") ||
 		slices.Contains(queries, "MCP") || slices.Contains(queries, "HTTP") {
 		t.Fatalf("generic identifiers should be filtered: %+v", queries)
-	}
-}
-
-func TestBrainBriefLikelyFilesExtractsDotSlashHistoryPaths(t *testing.T) {
-	report := brainBriefReport{
-		History: brainBriefHistory{Matches: []brainTextMatch{{
-			Excerpt: "tool output: ./packages/storage/src/index.ts: listAgentMessages(channelId: string, limit?: number): Promise<AgentMessage[]>;",
-		}}},
-	}
-	editFiles, _, _ := brainBriefLikelyFileGroups("", report, "")
-	if !slices.Contains(editFiles, "packages/storage/src/index.ts") {
-		t.Fatalf("expected packages/storage/src/index.ts from history excerpt, got %+v", editFiles)
 	}
 }
 
@@ -896,17 +828,11 @@ func TestBrainBriefLikelyFilesExcludeDepartedSemanticPath(t *testing.T) {
 			Name:     "ValidateToken",
 			FilePath: "src/auth/removed_token_store.go",
 		}}}},
-		History: brainBriefHistory{Matches: []brainTextMatch{{
-			Excerpt: "Current repair context is in ./src/auth/token_store.go: ValidateToken.",
-		}}},
 	}
 
 	editFiles, _, _ := brainBriefLikelyFileGroups(repoDir, report, "repair token validation in the auth token store")
 	if slices.Contains(editFiles, "src/auth/removed_token_store.go") {
 		t.Fatalf("departed semantic path must not be recommended: %+v", editFiles)
-	}
-	if len(editFiles) == 0 || editFiles[0] != "src/auth/token_store.go" {
-		t.Fatalf("live history-backed path should rank first, got %+v", editFiles)
 	}
 }
 
@@ -919,18 +845,6 @@ func TestBrainBriefLikelyFilesRetainDeletedLivePath(t *testing.T) {
 	editFiles, _, _ := brainBriefLikelyFileGroups(repoDir, report, "restore the deleted auth token store")
 	if !slices.Contains(editFiles, "src/auth/deleted_token_store.go") {
 		t.Fatalf("deleted live path remains actionable worktree truth, got %+v", editFiles)
-	}
-}
-
-func TestBrainBriefLikelyFilesRetainHistoryPathToCreate(t *testing.T) {
-	repoDir := t.TempDir()
-	report := brainBriefReport{History: brainBriefHistory{Matches: []brainTextMatch{{
-		Excerpt: "Create ./src/auth/token_revocation.go for the new revocation workflow.",
-	}}}}
-
-	editFiles, _, _ := brainBriefLikelyFileGroups(repoDir, report, "add the token revocation workflow")
-	if !slices.Contains(editFiles, "src/auth/token_revocation.go") {
-		t.Fatalf("history-backed intended-create path should remain actionable, got %+v", editFiles)
 	}
 }
 
@@ -1770,7 +1684,6 @@ func TestBrainBriefJSONPutsRetrievalBeforeStatus(t *testing.T) {
 	report := brainBriefReport{
 		Task:     "order",
 		Status:   brainBriefOutputStatus(brainStatusReport{Live: brainLiveState{ChangedFiles: []string{"a.go"}}}),
-		History:  brainBriefHistory{Matches: []brainTextMatch{{Path: "sessions/main/x.jsonl", Line: 1, Excerpt: "decided"}}},
 		Facts:    []factRecord{{ID: "fact:order", Paths: []string{"architecture"}, Text: "The decision."}},
 		Guidance: []string{"g"},
 	}
@@ -1788,7 +1701,7 @@ func TestBrainBriefJSONPutsRetrievalBeforeStatus(t *testing.T) {
 	}
 	// Agents cap what they read from a tool call; the retrieval payload must
 	// precede the status report, which is mostly freshness warnings (#335).
-	if !(pos("facts") < pos("history") && pos("history") < pos("guidance") && pos("guidance") < pos("semantic") && pos("semantic") < pos("status")) {
-		t.Fatalf("brief JSON order must be facts, history, guidance, semantic, status: %s", text)
+	if !(pos("facts") < pos("guidance") && pos("guidance") < pos("semantic") && pos("semantic") < pos("status")) {
+		t.Fatalf("brief JSON order must be facts, guidance, semantic, status: %s", text)
 	}
 }

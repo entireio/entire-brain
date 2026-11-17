@@ -87,3 +87,70 @@ func TestResolveRememberPathsNoAgentRequiresPath(t *testing.T) {
 		t.Fatalf("expected error: no agent and no --path")
 	}
 }
+
+// An explicit --path entry that is not category.subcategory.type used to be
+// dropped without a word when another entry was valid, so the memory was stored
+// under fewer paths than the caller asked for, and an all-invalid --path failed
+// without saying which characters a path may use. Agents kebab-case segments
+// and retried blind (issue #588). Every malformed entry is now an error that
+// names that entry and the rule.
+func TestResolveRememberPathsRejectsMalformedEntryAndNamesTheRule(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	tax := factstore.DefaultTaxonomy(now)
+	for _, tc := range []struct {
+		path, rejected string
+	}{
+		{"project.my-notes.gotcha", "project.my-notes.gotcha"},
+		{"project.my-notes.gotcha,project.notes.gotcha", "project.my-notes.gotcha"},
+		{"preferences.tests,preferences.testing.style", "preferences.tests"},
+		{"project.notes.gotcha, workflow.ci cache.layout", "workflow.ci cache.layout"},
+	} {
+		got, err := ResolveRememberPaths(context.Background(), Config{}, RememberCommandOptions{Path: tc.path}, "/repo", "f", tax)
+		if err == nil {
+			t.Errorf("--path %q: stored under %v, want an error naming %q", tc.path, got, tc.rejected)
+			continue
+		}
+		for _, want := range []string{
+			`"` + tc.rejected + `"`,
+			"category.subcategory.type",
+			"lowercase letters, digits and underscores",
+		} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("--path %q: error %q does not contain %q", tc.path, err, want)
+			}
+		}
+	}
+}
+
+// What --path has always tolerated keeps working: surrounding spaces and
+// capitals are normalized, an empty entry from a trailing comma is ignored, and
+// a repeated path is stored once.
+func TestResolveRememberPathsKeepsAcceptedInputShapes(t *testing.T) {
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	tax := factstore.DefaultTaxonomy(now)
+	for path, want := range map[string]string{
+		" Project.Notes.Gotcha ":                    "project.notes.gotcha",
+		"project.notes.gotcha,":                     "project.notes.gotcha",
+		"project.notes.gotcha,project.notes.gotcha": "project.notes.gotcha",
+		"workflow.ci_cache.layout2":                 "workflow.ci_cache.layout2",
+	} {
+		got, err := ResolveRememberPaths(context.Background(), Config{}, RememberCommandOptions{Path: path}, "/repo", "f", tax)
+		if err != nil || strings.Join(got, ",") != want {
+			t.Errorf("--path %q: got %v err=%v, want [%s]", path, got, err, want)
+		}
+	}
+}
+
+// `remember --help` is where an agent looks before writing a path, so the flag
+// help spells the rule out instead of offering only an example.
+func TestRememberHelpSpellsOutThePathRule(t *testing.T) {
+	flag := NewRemember(Config{}).Flags().Lookup("path")
+	if flag == nil {
+		t.Fatal("remember has no --path flag")
+	}
+	for _, want := range []string{"category.subcategory.type", "lowercase letters, digits and underscores", "no hyphens", "at most 2"} {
+		if !strings.Contains(flag.Usage, want) {
+			t.Errorf("--path help %q does not contain %q", flag.Usage, want)
+		}
+	}
+}

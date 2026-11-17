@@ -716,43 +716,6 @@ func detectMemoryMigrations(brainDir string, source *historySourceManifest) []me
 			}
 		}
 	}
-	_, configState, configErr := loadMemoryConfigChecked(brainDir)
-	if configErr != nil {
-		state := string(configState)
-		findings = append(findings, memoryMigrationFinding{Path: memoryConfigRel, State: state, Action: "inspect and restore the content-free feature selection; configuration is not deleted automatically"})
-	}
-	abstractInventory := loadSessionAbstractInventory(brainDir)
-	seenAbstractIssues := map[string]bool{}
-	for _, issue := range abstractInventory.Issues {
-		path := abstractsDirRel
-		if issue.File != "" && issue.File != abstractsDirRel {
-			path = filepath.ToSlash(filepath.Join(abstractsDirRel, issue.File))
-		}
-		key := path + "\x00" + issue.Code
-		if seenAbstractIssues[key] {
-			continue
-		}
-		seenAbstractIssues[key] = true
-		action := "inspect the unsafe abstract state; no file is removed automatically"
-		switch issue.Code {
-		case brainstore.UnsupportedVersionCode:
-			action = "upgrade the binary; this newer abstract remains read-only"
-		case brainstore.StateCorruptCode:
-			action = "delete and regenerate this disposable abstract after verifying its session source"
-		case brainstore.QueryTooBroadCode:
-			action = fmt.Sprintf("reduce the abstract directory below the %d-file inventory ceiling", abstractInventoryMaxFiles)
-		}
-		findings = append(findings, memoryMigrationFinding{Path: path, State: issue.Code, Action: action})
-	}
-	if abstractInventory.Truncated {
-		key := abstractsDirRel + "\x00" + brainstore.QueryTooBroadCode
-		if !seenAbstractIssues[key] {
-			findings = append(findings, memoryMigrationFinding{
-				Path: abstractsDirRel, State: brainstore.QueryTooBroadCode,
-				Action: fmt.Sprintf("reduce the abstract directory below the %d-file inventory ceiling", abstractInventoryMaxFiles),
-			})
-		}
-	}
 	for _, issue := range scanMemoryJobSchemas(brainDir) {
 		action := "repair the corrupt content-free job file"
 		switch issue.Code {
@@ -1199,7 +1162,6 @@ func memoryInstallHealth(brainDir string) map[string]any {
 	brainRoot := inspectAbsoluteInstallDirectory(brainDir)
 	workDir := inspectMemoryInstallDirectory(brainDir, memoryWorkDirRel)
 	historyDir := inspectMemoryInstallDirectory(brainDir, brainstore.HistoryDirName)
-	providerEgress := memoryProviderEgressHealth(brainDir)
 	buildProfile := "pure_go"
 	hostAdapter := memoryHostAdapterHealth{
 		State:               "not_observable",
@@ -1234,280 +1196,9 @@ func memoryInstallHealth(brainDir string) map[string]any {
 		"filtered_scan_ceiling":  historyFTSFilteredScanCeiling,
 		"get_batch_ceiling":      maxGetBatchIDs,
 		"host_adapter":           hostAdapter,
-		"abstract_provider":      providerEgress["provider_summary"],
-		"provider_egress":        providerEgress,
-		"abstracts":              memoryAbstractHealth(brainDir),
-		"memory_config_schema":   memoryConfigSchemaVersion,
-		"abstract_schema":        abstractSchemaVersion,
 		"worker_log_path":        filepath.Join(brainDir, filepath.FromSlash(memoryWorkerLogRel)),
 		"worker_log_max_bytes":   memoryWorkerLogMaxBytes,
 	}
-}
-
-func memoryProviderEgressHealth(brainDir string) map[string]any {
-	noEgress := base.SecurityToggleEnabled("ENTIRE_BRAIN_NO_EGRESS")
-	localOnly := base.SecurityToggleEnabled("ENTIRE_BRAIN_LOCAL_ONLY")
-	globalLocalOnly := noEgress || localOnly
-	globalMode := "default"
-	if globalLocalOnly {
-		globalMode = "local_only"
-	}
-	config, state, err := loadMemoryConfigChecked(brainDir)
-	health := map[string]any{
-		"state":                       state,
-		"supported_schema_version":    memoryConfigSchemaVersion,
-		"config_path":                 memoryConfigRel,
-		"global_policy":               globalMode,
-		"global_no_egress":            noEgress,
-		"global_local_only":           localOnly,
-		"global_local_only_effective": globalLocalOnly,
-		"effective_state":             "disabled",
-		"effective_provider_allowed":  false,
-		"effective_egress_class":      "none",
-		"provider_summary":            "disabled",
-	}
-	if observedVersion, present := memoryConfigObservedSchemaVersion(brainDir); present {
-		health["schema_version"] = observedVersion
-	}
-	if err != nil {
-		health["error_code"] = brainstore.MemoryErrorCode(err)
-		health["effective_state"] = "config_unavailable"
-		health["provider_summary"] = string(state)
-		health["action"] = "inspect the content-free provider configuration; status leaves it untouched"
-		return health
-	}
-	health["enabled"] = config.Abstracts.Enabled
-	health["automatic"] = config.Abstracts.Automatic
-	health["provider"] = config.Abstracts.Provider
-	health["model"] = config.Abstracts.Model
-	health["hosted_egress_allowed"] = config.Abstracts.HostedEgressAllowed
-	providerName := strings.ToLower(strings.TrimSpace(config.Abstracts.Provider))
-	egressClass := "none"
-	switch providerName {
-	case "codex", "claude-code":
-		egressClass = "hosted"
-	case "ollama":
-		egressClass = "local"
-	}
-	health["egress_class"] = egressClass
-	health["effective_hosted_egress_allowed"] = egressClass == "hosted" && config.Abstracts.HostedEgressAllowed && !globalLocalOnly
-	providerSummary := "disabled"
-	if config.Abstracts.Enabled {
-		providerSummary = config.Abstracts.Provider
-		if config.Abstracts.HostedEgressAllowed {
-			providerSummary += " (hosted egress allowed)"
-		}
-	}
-	health["provider_summary"] = providerSummary
-	if !config.Abstracts.Enabled {
-		return health
-	}
-	if config.Abstracts.Enabled && strings.TrimSpace(config.Abstracts.Provider) == "" {
-		health["provider_state"] = brainstore.ProviderUnavailCode
-		health["effective_state"] = "provider_unavailable"
-		health["action"] = "configure exactly one abstract provider or disable abstracts"
-	} else {
-		health["provider_state"] = "configured_unverified"
-	}
-	if egressClass == "hosted" && globalLocalOnly {
-		health["effective_state"] = "blocked_by_global_policy"
-		health["effective_egress_class"] = "blocked"
-		health["block_code"] = "no_egress"
-		health["action"] = "use a local loopback provider, or explicitly disable the global no-egress/local-only policy before hosted generation"
-		return health
-	}
-	if egressClass == "hosted" && !config.Abstracts.HostedEgressAllowed {
-		health["effective_state"] = "blocked_by_configuration"
-		health["effective_egress_class"] = "blocked"
-		health["block_code"] = "hosted_egress_unacknowledged"
-		health["action"] = "acknowledge hosted egress explicitly or choose a local loopback provider"
-		return health
-	}
-	health["effective_state"] = "available_unverified"
-	health["effective_provider_allowed"] = true
-	health["effective_egress_class"] = egressClass
-	return health
-}
-
-// memoryConfigObservedSchemaVersion decodes only the bounded version header.
-// It does not turn a corrupt/unsafe config into a supported one; the strict
-// loader above remains the authority for state and error classification.
-func memoryConfigObservedSchemaVersion(brainDir string) (int, bool) {
-	data, present, err := brainstore.ReadMemoryStateFile(brainDir, memoryConfigRel, "memory config", base.MaxManifestBytes)
-	if err != nil || !present {
-		return 0, false
-	}
-	var header struct {
-		SchemaVersion int `json:"schema_version"`
-	}
-	if err := json.Unmarshal(data, &header); err != nil || header.SchemaVersion == 0 {
-		return 0, false
-	}
-	return header.SchemaVersion, true
-}
-
-func memoryAbstractProviderSummary(brainDir string) string {
-	config, state, err := loadMemoryConfigChecked(brainDir)
-	if err != nil {
-		return string(state)
-	}
-	if !config.Abstracts.Enabled {
-		return "disabled"
-	}
-	if strings.TrimSpace(config.Abstracts.Provider) == "" {
-		return "enabled but no provider configured"
-	}
-	if memoryAbstractorFactory == nil {
-		return brainstore.ProviderUnavailCode + ": no provider factory available"
-	}
-	if _, err := memoryAbstractorFactory(config.Abstracts); err != nil {
-		return brainstore.ProviderUnavailCode + ": " + err.Error()
-	}
-	summary := config.Abstracts.Provider
-	if config.Abstracts.HostedEgressAllowed {
-		summary += " (hosted egress allowed)"
-	}
-	return summary
-}
-
-func memoryAbstractHealth(brainDir string) map[string]any {
-	inventory := loadSessionAbstractInventory(brainDir)
-	egress := loadAbstractEgressInventory(brainDir)
-	abstractState := "absent"
-	currentAbstracts := 0
-	for _, entry := range inventory.ByDigest {
-		if entry.State == sessionAbstractCurrent {
-			currentAbstracts++
-		}
-	}
-	if currentAbstracts > 0 {
-		abstractState = "current"
-	}
-	if len(inventory.Issues) > 0 {
-		abstractState, _ = memoryInventoryIssueState(inventory.Issues)
-	}
-	egressState := "absent"
-	if len(egress.Receipts) > 0 {
-		egressState = "current"
-	}
-	if len(egress.Migrations) > 0 {
-		egressState = brainstore.MigrationRequiredCode
-	}
-	if len(egress.Issues) > 0 {
-		egressState, _ = memoryInventoryIssueState(egress.Issues)
-	}
-	abstractVersions := memoryObservedSchemaVersions(nil, inventory.Issues)
-	if currentAbstracts > 0 {
-		abstractVersions = memoryObservedSchemaVersions(append(abstractVersions, abstractSchemaVersion), nil)
-	}
-	egressCurrentVersions := make([]int, 0, len(egress.Receipts))
-	for _, receipt := range egress.Receipts {
-		if receipt.Receipt.SchemaVersion > 0 {
-			egressCurrentVersions = append(egressCurrentVersions, receipt.Receipt.SchemaVersion)
-		}
-	}
-	egressVersions := memoryObservedSchemaVersions(egressCurrentVersions, append(append([]memoryStateIssue{}, egress.Issues...), egress.Migrations...))
-	health := map[string]any{
-		"state":                    abstractState,
-		"schema_state":             abstractState,
-		"supported_schema_version": abstractSchemaVersion,
-		"artifacts":                inventory.Scanned,
-		"current_artifacts":        currentAbstracts,
-		"entries_observed":         inventory.EntriesObserved,
-		"scanned":                  inventory.Scanned,
-		"scan_ceiling":             abstractInventoryMaxFiles,
-		"scan_truncated":           inventory.Truncated,
-		"scan_degraded":            inventory.Degraded,
-		"issue_count":              inventory.IssueCount,
-		"issues_truncated":         inventory.IssueCount > len(inventory.Issues),
-		"corrupt":                  inventory.IssueCounts[brainstore.StateCorruptCode],
-		"unsafe":                   inventory.IssueCounts[brainstore.StateUnsafeCode],
-		"unsupported":              inventory.IssueCounts[brainstore.UnsupportedVersionCode],
-		"stale":                    0,
-		"hosted_egress": map[string]any{
-			"state":                    egressState,
-			"schema_state":             egressState,
-			"supported_schema_version": abstractEgressSchemaVersion,
-			"receipts_scanned":         len(egress.Receipts),
-			"entries_scanned":          egress.EntriesScanned,
-			"scan_ceiling":             abstractEgressHealthMaxReceipts,
-			"scan_truncated":           egress.Truncated,
-			"scan_degraded":            egress.Degraded,
-			"issue_count":              len(egress.Issues),
-			"migration_required":       len(egress.Migrations),
-		},
-	}
-	if currentAbstracts > 0 {
-		health["schema_version"] = abstractSchemaVersion
-	}
-	if len(abstractVersions) > 0 {
-		health["schema_versions_observed"] = abstractVersions
-		health["schema_version"] = abstractVersions[len(abstractVersions)-1]
-	}
-	if len(egressVersions) > 0 {
-		health["hosted_egress"].(map[string]any)["schema_versions_observed"] = egressVersions
-		health["hosted_egress"].(map[string]any)["schema_version"] = egressVersions[len(egressVersions)-1]
-	}
-	if len(egress.Issues) > 0 {
-		health["hosted_egress"].(map[string]any)["issues"] = memoryHealthIssues(egress.Issues)
-	}
-	if len(egress.Migrations) > 0 {
-		health["hosted_egress"].(map[string]any)["migrations"] = memoryHealthIssues(egress.Migrations)
-	}
-	_, configState, configErr := loadMemoryConfigChecked(brainDir)
-	health["config_state"] = configState
-	if configErr != nil {
-		health["error_code"] = configState
-	}
-	validated := false
-	prerequisiteIssue := memoryStateIssue{Kind: "manifest", File: bmanifest.FileName, Code: "unverifiable"}
-	manifest, manifestErr := bmanifest.Load(brainDir)
-	if manifestErr == nil && manifest.Sources != nil && manifest.Sources.History != nil {
-		fresh, freshErr := loadFreshHistory(brainDir, manifest.Sources.History)
-		prerequisiteIssue = memoryStateIssue{Kind: "history", File: manifest.Sources.History.IndexPath, Code: "unverifiable"}
-		if freshErr == nil {
-			validated = true
-			views := buildConversationSessionViews(fresh, manifest.RepoKey, manifest)
-			for digest, entry := range inventory.ByDigest {
-				if entry.State != sessionAbstractCurrent {
-					continue
-				}
-				view, ok := views[entry.Artifact.SessionRef]
-				if !ok || entry.Artifact.SessionDigest != sessionViewDigest(view) {
-					health["stale"] = health["stale"].(int) + 1
-					currentAbstracts--
-					inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: filepath.Base(abstractRel(digest)), Code: "stale"})
-					continue
-				}
-				if err := validateSessionAbstract(entry.Artifact, view); err != nil {
-					health["corrupt"] = health["corrupt"].(int) + 1
-					currentAbstracts--
-					inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: filepath.Base(abstractRel(digest)), Code: brainstore.StateCorruptCode})
-				}
-			}
-		}
-	}
-	if !validated && currentAbstracts > 0 {
-		health["unverifiable"] = currentAbstracts
-		currentAbstracts = 0
-		inventory.recordIssue(prerequisiteIssue)
-	}
-	health["current_artifacts"] = currentAbstracts
-	health["issue_count"] = inventory.IssueCount
-	health["issues_truncated"] = inventory.IssueCount > len(inventory.Issues)
-	if len(inventory.Issues) > 0 {
-		if health["schema_state"] == "current" && health["corrupt"] == 0 {
-			if !validated {
-				health["state"] = "unverifiable"
-			} else {
-				health["state"] = "stale"
-			}
-		} else {
-			health["state"], _ = memoryInventoryIssueState(inventory.Issues)
-		}
-		health["issues"] = memoryHealthIssues(inventory.Issues)
-	}
-	return health
 }
 
 type memoryHealthIssue struct {
@@ -1625,9 +1316,6 @@ func memorySchemaHealth(manifestHealth memoryManifestHealth, payload map[string]
 		"overlay_reconciler": historyShortTermReconcilerVersion,
 		"fts":                historyFTSSchema,
 		"vector_progress":    memoryVectorSchema,
-		"abstract_config":    memoryConfigSchemaVersion,
-		"abstract_artifact":  abstractSchemaVersion,
-		"abstract_egress":    abstractEgressSchemaVersion,
 		"job":                memoryJobSchemaVersion,
 		"hint":               memoryHintSchemaVersion,
 		"projection_receipt": projectionSchemaVersion,
@@ -1692,17 +1380,6 @@ func memorySchemaHealth(manifestHealth memoryManifestHealth, payload map[string]
 	} {
 		if health, ok := payload[source.key].(map[string]any); ok {
 			copyObservation(source.name, health)
-		}
-	}
-	if install, ok := payload["install"].(map[string]any); ok {
-		if provider, ok := install["provider_egress"].(map[string]any); ok {
-			copyObservation("abstract_config", provider)
-		}
-		if abstracts, ok := install["abstracts"].(map[string]any); ok {
-			copyObservation("abstract_artifact", abstracts)
-			if egress, ok := abstracts["hosted_egress"].(map[string]any); ok {
-				copyObservation("abstract_egress", egress)
-			}
 		}
 	}
 	return map[string]any{
@@ -1774,10 +1451,6 @@ func memoryHealthIssues(issues []memoryStateIssue) []memoryHealthIssue {
 			path = memoryJobsDirRel
 		case "hint":
 			path = filepath.ToSlash(filepath.Join(memoryHintsDirRel, issue.File))
-		case "abstract":
-			if issue.File != abstractsDirRel {
-				path = filepath.ToSlash(filepath.Join(abstractsDirRel, issue.File))
-			}
 		}
 		action := "inspect this derived state file, then retry the operation"
 		switch issue.Code {
@@ -1786,9 +1459,9 @@ func memoryHealthIssues(issues []memoryStateIssue) []memoryHealthIssue {
 		case brainstore.MigrationRequiredCode:
 			action = "run `" + base.SetupCommandPrefix(os.LookupEnv) + " memory migrate`"
 		case brainstore.QueryTooBroadCode:
-			action = fmt.Sprintf("reduce the directory below the %d-file scan ceiling", abstractInventoryMaxFiles)
+			action = "reduce the directory below the scan ceiling"
 		case brainstore.StateUnsafeCode:
-			action = "remove the symlink or non-regular entry; abstract reads fail closed"
+			action = "remove the symlink or non-regular entry; reads fail closed"
 		}
 		out = append(out, memoryHealthIssue{Kind: issue.Kind, Path: path, Code: issue.Code, Version: issue.Version, Action: action})
 	}
@@ -2092,17 +1765,6 @@ func memoryReadOnlyHealth(brainDir string, now time.Time) memoryReadOnlyHealthSn
 		}
 	}
 	if install, ok := payload["install"].(map[string]any); ok {
-		if provider, ok := install["provider_egress"].(map[string]any); ok {
-			appendMapIssue("provider_config", memoryConfigRel, provider)
-			if providerState, _ := provider["provider_state"].(string); providerState == brainstore.ProviderUnavailCode {
-				action, _ := provider["action"].(string)
-				recordIssue(memoryHealthIssue{Kind: "provider", Path: memoryConfigRel, Code: brainstore.ProviderUnavailCode, Action: action})
-			}
-			if blockCode, _ := provider["block_code"].(string); blockCode != "" {
-				action, _ := provider["action"].(string)
-				recordIssue(memoryHealthIssue{Kind: "provider_policy", Path: memoryConfigRel, Code: blockCode, Action: action})
-			}
-		}
 		if directories, ok := install["directories"].(map[string]memoryInstallDirectoryHealth); ok {
 			for _, name := range []string{"brain", "history", "work"} {
 				directory := directories[name]
@@ -2115,26 +1777,6 @@ func memoryReadOnlyHealth(brainDir string, now time.Time) memoryReadOnlyHealthSn
 				}
 				if code != "" {
 					recordIssue(memoryHealthIssue{Kind: "installation_directory_" + name, Path: directory.Path, Code: code, Action: directory.RecommendedAction})
-				}
-			}
-		}
-		if abstracts, ok := install["abstracts"].(map[string]any); ok {
-			if abstractIssues, ok := abstracts["issues"].([]memoryHealthIssue); ok {
-				for _, issue := range abstractIssues {
-					recordIssue(issue)
-				}
-				if total, ok := abstracts["issue_count"].(int); ok && total > len(abstractIssues) {
-					hiddenIssueCount += total - len(abstractIssues)
-				}
-			}
-			if egress, ok := abstracts["hosted_egress"].(map[string]any); ok {
-				if egressIssues, ok := egress["issues"].([]memoryHealthIssue); ok {
-					for _, issue := range egressIssues {
-						recordIssue(issue)
-					}
-					if total, ok := egress["issue_count"].(int); ok && total > len(egressIssues) {
-						hiddenIssueCount += total - len(egressIssues)
-					}
 				}
 			}
 		}

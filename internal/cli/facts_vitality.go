@@ -27,9 +27,10 @@ import (
 // Phase 3 decay — this phase only records and reports; it changes no ranking,
 // gating, quarantine, or fact-schema behavior.
 //
-// Storage is branch-scoped next to the branch's facts.ndjson (vitality is
-// branch-scoped like facts): facts/<branch-dir>/vitality.ndjson (the append
-// log) and facts/<branch-dir>/vitality.json (the compacted rollup). Both are
+// Storage sits at the flat facts/ root beside store.json:
+// facts/vitality.ndjson (the append log) and facts/vitality.json (the
+// compacted rollup); per-branch copies under facts/<branch-dir>/ are legacy
+// orphans the cleanup sweep removes (COR-2317). Both are
 // brain-local and never exported. Events carry only a hash of the task/query
 // text — the raw text is never persisted.
 //

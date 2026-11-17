@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
@@ -238,68 +237,6 @@ func TestJobInventoryScanCompleteFalseWhenDirectoryUnreadable(t *testing.T) {
 	}
 }
 
-// TestAbstractWindowTurnFitsEncodedCeiling locks the provider-input bound. The
-// budget was measured against a turn whose Text was "" (omitempty drops the key
-// entirely) and then filled with RAW bytes, so JSON escaping pushed a single
-// turn past the ceiling: about 2x for quote-heavy text and up to 6x for control
-// characters.
-func TestAbstractWindowTurnFitsEncodedCeiling(t *testing.T) {
-	for name, summary := range map[string]string{
-		"plain":    strings.Repeat("a", 4*abstractWindowMaxBytes),
-		"quotes":   strings.Repeat(`"`, 4*abstractWindowMaxBytes),
-		"controls": strings.Repeat("\x01", 4*abstractWindowMaxBytes),
-	} {
-		t.Run(name, func(t *testing.T) {
-			turn := abstractWindowTurn(historyRecord{ID: "conversation:x", Summary: summary})
-			if got := turnJSONBytes(turn); got > abstractWindowMaxBytes-2 {
-				t.Fatalf("encoded turn = %d bytes, ceiling %d", got, abstractWindowMaxBytes-2)
-			}
-			if !turn.Truncated {
-				t.Fatal("a truncated turn must say so")
-			}
-		})
-	}
-	// A window built from such turns still fits.
-	records := []historyRecord{
-		{ID: "conversation:a", Summary: strings.Repeat(`"`, 4*abstractWindowMaxBytes)},
-		{ID: "conversation:b", Summary: strings.Repeat("\x01", 4*abstractWindowMaxBytes)},
-	}
-	windows, _ := walkAbstractWindows(records, func(_ int, turns []conversationTurn) {
-		total := 2
-		for i, turn := range turns {
-			if i > 0 {
-				total++
-			}
-			total += turnJSONBytes(turn)
-		}
-		if total > abstractWindowMaxBytes {
-			t.Fatalf("emitted window = %d bytes, ceiling %d", total, abstractWindowMaxBytes)
-		}
-	})
-	if windows == 0 {
-		t.Fatal("no windows emitted")
-	}
-}
-
-// TestAbstractEgressIssueAlwaysCarriesACode locks the taxonomy contract. Several
-// call sites pass brainstore.MemoryErrorCode(readErr) on branches reachable with a nil
-// error, and memoryReadOnlyHealth's recordIssue silently DROPS an empty-coded
-// issue without counting it as hidden, so the finding vanished from the reported
-// issues array while the state still read corrupt.
-func TestAbstractEgressIssueAlwaysCarriesACode(t *testing.T) {
-	var inventory abstractEgressInventory
-	inventory.issue("history/work/v1/abstract-egress/x.json", brainstore.MemoryErrorCode(nil))
-	if len(inventory.Issues) != 1 {
-		t.Fatalf("issue not recorded: %+v", inventory.Issues)
-	}
-	if inventory.Issues[0].Code == "" {
-		t.Fatalf("issue recorded without a stable code: %+v", inventory.Issues[0])
-	}
-	if !inventory.Degraded {
-		t.Fatal("recording an issue must mark the inventory degraded")
-	}
-}
-
 // TestWriteLockCheckIsOkWhenPresentUnproven locks that doctor stops crying wolf.
 // The lock leaf is created with O_CREATE and never unlinked on release, so it
 // exists on every healthy brain after the first refresh; warning on its presence
@@ -402,10 +339,10 @@ func TestPartialTranscriptFailureSignalsIncompleteExport(t *testing.T) {
 	}
 }
 
-// TestBriefRawScanSkipsDerivedStores locks the raw walk against DERIVED state:
-// generation and staging directories hold projection copies of the same
+// TestInspectRawScanSkipsDerivedStores locks the raw walk against DERIVED
+// state: generation and staging directories hold projection copies of the same
 // transcripts, so a walk that reads derived state would duplicate every hit.
-func TestBriefRawScanSkipsDerivedStores(t *testing.T) {
+func TestInspectRawScanSkipsDerivedStores(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
 	// Derived stores carry session content under their own filenames.
 	derived := map[string]string{
@@ -428,12 +365,6 @@ func TestBriefRawScanSkipsDerivedStores(t *testing.T) {
 	}
 
 	for name, scan := range map[string]func() ([]brainTextMatch, error){
-		"single scan": func() ([]brainTextMatch, error) {
-			return brainBriefRawHistoryMatchesSingleScan(brainDir, privacyCanary, nil, 50)
-		},
-		"multi scan": func() ([]brainTextMatch, error) {
-			return brainBriefRawHistoryMatchesMultiScan(brainDir, privacyCanary, nil, 50, &brainBriefProfileRawHistory{})
-		},
 		"inspect": func() ([]brainTextMatch, error) {
 			report, err := inspectBrainRawText(brainDir, "all", privacyCanary, 50)
 			return report.Matches, err
@@ -579,12 +510,6 @@ func TestRawScansSkipLeftoverSessionFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	scans := map[string]func() ([]brainTextMatch, error){
-		"single scan": func() ([]brainTextMatch, error) {
-			return brainBriefRawHistoryMatchesSingleScan(brainDir, leftoverCanary, nil, 50)
-		},
-		"multi scan": func() ([]brainTextMatch, error) {
-			return brainBriefRawHistoryMatchesMultiScan(brainDir, leftoverCanary, nil, 50, &brainBriefProfileRawHistory{})
-		},
 		"inspect": func() ([]brainTextMatch, error) {
 			report, err := inspectBrainRawText(brainDir, "all", leftoverCanary, 50)
 			return report.Matches, err

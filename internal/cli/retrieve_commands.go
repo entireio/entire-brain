@@ -21,7 +21,6 @@ func retrieveCommandConfig(opts Options) retrieve.Config {
 			ResolveTarget:           resolveRetrieveTarget,
 			RetrieveUnified:         retrieveUnifiedWithOptions,
 			GetUnifiedBatch:         getUnifiedBatchOptions,
-			AbstractPreviews:        abstractPreviewsForResults,
 			RequirePatternsReadable: requirePatternsReadable,
 			RelatedPatternPointers:  relatedRetrievalPatternPointers,
 			RecordServedFacts:       recordServedRetrievalFacts,

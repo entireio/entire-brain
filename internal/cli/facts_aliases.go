@@ -34,8 +34,6 @@ const (
 	factActionMerge     = factmerge.ActionMerge
 	factActionSupersede = factmerge.ActionSupersede
 
-	defaultFactConfidenceThreshold = factmerge.DefaultConfidenceThreshold
-
 	factKindDecision       = factmerge.KindDecision
 	factKindInvariant      = factmerge.KindInvariant
 	factKindGotcha         = factmerge.KindGotcha
@@ -69,10 +67,6 @@ func dedupFactRecords(records []factRecord) ([]factRecord, int) {
 func sortFactRecords(records []factRecord) { factmerge.Sort(records) }
 
 func indexOfFact(records []factRecord, id string) int { return factmerge.IndexOf(records, id) }
-
-func applyFactActions(active []factRecord, actions []factAction, threshold float64, now time.Time) []factRecord {
-	return factmerge.ApplyActions(active, actions, threshold, now)
-}
 
 func retractFact(facts []factRecord, id string, now time.Time) (found, changed bool) {
 	return factmerge.Retract(facts, id, now)

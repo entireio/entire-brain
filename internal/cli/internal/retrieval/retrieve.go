@@ -84,12 +84,6 @@ type Result struct {
 	NextTurn        int                `json:"next_turn,omitempty"`
 	PacketTruncated bool               `json:"packet_truncated,omitempty"`
 
-	// Abstract status on session outlines (additive; never a generation
-	// call).
-	AbstractStatus string           `json:"abstract_status,omitempty"`
-	AbstractIssue  string           `json:"abstract_issue,omitempty"`
-	Abstract       *SessionAbstract `json:"abstract,omitempty"`
-
 	// Multi-concept session coverage (additive; heading session_coverage).
 	Concepts          []string       `json:"concepts,omitempty"`
 	ConceptMatches    []ConceptMatch `json:"concept_matches,omitempty"`
@@ -120,41 +114,6 @@ type ConversationTurn struct {
 	ToolNames       []string `json:"tool_names,omitempty"`
 	Truncated       bool     `json:"truncated,omitempty"`
 	Caveats         []Caveat `json:"caveats,omitempty"`
-}
-
-// AbstractStatement is one evidence-linked claim; the evidence ids must cite
-// exchanges of the same session.
-type AbstractStatement struct {
-	Text        string   `json:"text"`
-	EvidenceIDs []string `json:"evidence_ids"`
-}
-
-type AbstractCoverageRange struct {
-	StartTurn int `json:"start_turn"`
-	EndTurn   int `json:"end_turn"`
-}
-
-type SessionAbstract struct {
-	SchemaVersion int       `json:"schema_version"`
-	SessionRef    string    `json:"session_ref"`
-	SessionDigest string    `json:"session_digest"`
-	GeneratedAt   time.Time `json:"generated_at"`
-	Generator     struct {
-		Kind            string `json:"kind"` // local | hosted
-		Provider        string `json:"provider"`
-		Model           string `json:"model"`
-		ContractVersion int    `json:"contract_version"`
-	} `json:"generator"`
-	Overview       AbstractStatement   `json:"overview"`
-	Outcomes       []AbstractStatement `json:"outcomes,omitempty"`
-	Decisions      []AbstractStatement `json:"decisions,omitempty"`
-	Unresolved     []AbstractStatement `json:"unresolved,omitempty"`
-	InputTruncated bool                `json:"input_truncated,omitempty"`
-	Coverage       struct {
-		TotalTurns     int                     `json:"total_turns"`
-		IncludedTurns  int                     `json:"included_turns"`
-		IncludedRanges []AbstractCoverageRange `json:"included_ranges,omitempty"`
-	} `json:"coverage"`
 }
 
 // ConceptMatch names the best supporting exchange for one concept inside a
@@ -208,9 +167,6 @@ type Options struct {
 	// joined with the primary query for session-scoped AND coverage). Valid
 	// only with Source == "conversation".
 	Concepts []string
-	// IncludeAbstract adds a bounded top-level preview envelope after ranking.
-	// It never changes rank and never invokes a provider.
-	IncludeAbstract bool
 	// GlobalFacts are facts recorded outside any repository. They are merged
 	// into the fact layer before ranking and go through every filter and the
 	// same scoring as repository facts, so a preference recorded once applies
@@ -279,9 +235,6 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 	source := opts.Source
 	if source == "" {
 		source = brainstore.RetrievalSourceAll
-	}
-	if opts.IncludeAbstract && source != brainstore.RetrievalSourceConversation {
-		return nil, fmt.Errorf(`include_abstract requires source "conversation" (got %q)`, source)
 	}
 	if source == brainstore.RetrievalSourceConversation {
 		if opts.Recency {

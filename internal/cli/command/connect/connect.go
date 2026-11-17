@@ -88,22 +88,64 @@ disconnect'.`,
 }
 
 func runConnect(cmd *cobra.Command, cfg Config, connectOpts connectOptions) error {
-	ctx := cmd.Context()
+	result, err := Establish(cmd.Context(), cfg, cmd.ErrOrStderr(), connectOpts.repoID, connectOpts.apiURL)
+	if err != nil {
+		return err
+	}
+	// The kill switch suppresses every sync this command is about to promise,
+	// so say that instead of "now syncing". The binding still gets recorded:
+	// the environment only subtracts, and unsetting it resumes syncing.
+	if result.NoEgress {
+		cmdutil.RenderHostedBanner(cmd.OutOrStdout(),
+			"Connected: "+result.StorageKey+" — but nothing syncs while "+base.NoEgressToggleName()+" is set",
+			"The binding is recorded and memories stay local. Unset "+base.NoEgressToggleName()+" to start syncing.")
+		return nil
+	}
+	headline := "Connected: " + result.StorageKey + " is now syncing memories"
+	if result.Already {
+		headline = "Already connected: " + result.StorageKey + " — memories are syncing"
+	}
+	cmdutil.RenderHostedBanner(cmd.OutOrStdout(), headline,
+		"Memories sync periodically, at session end, and on git push. Teammates' memories merge into this repo's local brain.")
+	return nil
+}
+
+// EstablishResult reports what Establish did, so callers (the connect command,
+// setup's hosted-choice step) render their own success output.
+type EstablishResult struct {
+	// Bound reports the binding is on disk. It is true even when the first
+	// sync failed: the pre-bind/post-bind distinction is the caller's remedy
+	// text ("fix and re-run" vs "nothing was written").
+	Bound bool
+	// Already reports the run re-affirmed an existing identical, live binding.
+	Already bool
+	// NoEgress reports the binding was recorded but syncing is suppressed by
+	// the kill switch.
+	NoEgress bool
+	// StorageKey names the repo the way every banner and phase line does.
+	StorageKey string
+}
+
+// Establish binds this repository to its hosted brain and runs the first
+// sync: placement resolution (host CLI), the binding write, the best-effort
+// push hook, then one sync. repoID/apiURL bypass placement resolution when
+// non-empty. Hook problems are warnings on stderr, never failures.
+func Establish(ctx context.Context, cfg Config, stderr io.Writer, argRepoID, argAPIURL string) (EstablishResult, error) {
 	opts := cfg.Options
 	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, cfg.Deps.AgentSurfaceTarget(opts, nil))
 	if err != nil {
-		return err
+		return EstablishResult{}, err
 	}
 	if !local {
-		return fmt.Errorf("connect requires a local repository path")
+		return EstablishResult{}, fmt.Errorf("connect requires a local repository path")
 	}
 	storage, err := cfg.Deps.RepoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
-		return err
+		return EstablishResult{}, err
 	}
 
-	repoID := strings.TrimSpace(connectOpts.repoID)
-	apiURL := strings.TrimSpace(connectOpts.apiURL)
+	repoID := strings.TrimSpace(argRepoID)
+	apiURL := strings.TrimSpace(argAPIURL)
 	if repoID == "" || apiURL == "" {
 		resolved, placementErr := resolveHostedPlacement(ctx, opts.Runner, repoDir)
 		if placementErr != nil {
@@ -116,7 +158,7 @@ func runConnect(cmd *cobra.Command, cfg Config, connectOpts connectOptions) erro
 				// The hint sits on its own line: the host CLI's message ends
 				// with a newline of its own, so a "; pass ..." suffix used to
 				// dangle on a line starting with ";".
-				return fmt.Errorf("connect: %w\nOr pass --repo-id and --api-url explicitly", placementErr)
+				return EstablishResult{}, fmt.Errorf("connect: %w\nOr pass --repo-id and --api-url explicitly", placementErr)
 			}
 		}
 		if repoID == "" {
@@ -132,50 +174,42 @@ func runConnect(cmd *cobra.Command, cfg Config, connectOpts connectOptions) erro
 	existing, existingPresent, existingErr := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 	binding, err := bindHostedRepo(storage.BrainDir, repoID, apiURL)
 	if err != nil {
-		return fmt.Errorf("connect: %w", err)
+		return EstablishResult{}, fmt.Errorf("connect: %w", err)
 	}
-	already := existingErr == nil && existingPresent && !existing.OptedOut &&
+	result := EstablishResult{Bound: true, StorageKey: storage.Key}
+	result.Already = existingErr == nil && existingPresent && !existing.OptedOut &&
 		existing.RepoID == binding.RepoID && existing.BaseURL == binding.BaseURL
 	// A connected repo wants the push-beat upload: install our pre-push hook
 	// (chained beside whatever hook owns the slot). Best-effort — a hook
 	// problem must not fail the connect.
 	if sharedHooksDir, hookPath, hookErr := cfg.Deps.InstallPushHook(ctx, opts, repoDir); hookErr != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "connect: push hook not installed (uploads ride the daemon tick): %v\n", hookErr)
+		fmt.Fprintf(stderr, "connect: push hook not installed (uploads ride the daemon tick): %v\n", hookErr)
 	} else if sharedHooksDir {
-		fmt.Fprintf(cmd.ErrOrStderr(), "connect: core.hooksPath (%s) is shared across repos; push hook not managed — uploads ride the daemon tick\n", hookPath)
+		fmt.Fprintf(stderr, "connect: core.hooksPath (%s) is shared across repos; push hook not managed — uploads ride the daemon tick\n", hookPath)
 	}
-	// The kill switch suppresses every sync this command is about to promise,
-	// so say that instead of "now syncing". The binding still gets recorded:
-	// the environment only subtracts, and unsetting it resumes syncing.
+	// The kill switch: the binding still gets recorded (the environment only
+	// subtracts, and unsetting it resumes syncing), but no sync runs.
 	if base.BrainNoEgressMode() {
-		cmdutil.RenderHostedBanner(cmd.OutOrStdout(),
-			"Connected: "+storage.Key+" — but nothing syncs while "+base.NoEgressToggleName()+" is set",
-			"The binding is recorded and memories stay local. Unset "+base.NoEgressToggleName()+" to start syncing.")
-		return nil
+		result.NoEgress = true
+		return result, nil
 	}
 	// Connect doubles as the initial pull so a fresh clone receives team
-	// memories immediately. The sync runs BEFORE the banner so the headline
-	// reports what actually happened: a connect whose first pull failed has
-	// not started syncing, and claiming so hides a dead connection.
-	attempted, pullSucceeded, err := cfg.Deps.HostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage)
+	// memories immediately. The sync runs BEFORE any success output so the
+	// headline reports what actually happened: a connect whose first pull
+	// failed has not started syncing, and claiming so hides a dead connection.
+	attempted, pullSucceeded, err := cfg.Deps.HostedFactsSyncAndPull(ctx, stderr, opts, repoDir, storage)
 	if err != nil {
-		return err
+		return result, err
 	}
 	if !pullSucceeded {
 		verdict := "failed"
 		if !attempted {
 			verdict = "did not run"
 		}
-		return fmt.Errorf("connect: %s is bound, but the first sync %s (details above); memories stay local until a sync succeeds — fix the cause and re-run '%s'",
+		return result, fmt.Errorf("connect: %s is bound, but the first sync %s (details above); memories stay local until a sync succeeds — fix the cause and re-run '%s'",
 			storage.Key, verdict, base.BrainInvocation(os.LookupEnv, "connect"))
 	}
-	headline := "Connected: " + storage.Key + " is now syncing memories"
-	if already {
-		headline = "Already connected: " + storage.Key + " — memories are syncing"
-	}
-	cmdutil.RenderHostedBanner(cmd.OutOrStdout(), headline,
-		"Memories sync periodically, at session end, and on git push. Teammates' memories merge into this repo's local brain.")
-	return nil
+	return result, nil
 }
 
 // normalizeHostedBinding validates the target and strips a quoted /api/v1

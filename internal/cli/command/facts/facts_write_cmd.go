@@ -38,7 +38,7 @@ func NewRemember(cfg Config) *cobra.Command {
 			return RunRemember(cmd.Context(), cmd, cfg, rememberOpts, args[0])
 		},
 	}
-	cmd.Flags().StringVar(&rememberOpts.Path, "path", "", "Taxonomy path(s), comma-separated (e.g. preferences.coding.style). If omitted, the agent classifies the memory")
+	cmd.Flags().StringVar(&rememberOpts.Path, "path", "", "Taxonomy path(s), comma-separated, at most 2. Each is "+factmerge.PathRule+", e.g. preferences.coding.style. If omitted, the agent classifies the memory")
 	cmd.Flags().StringVar(&rememberOpts.Kind, "kind", "", "Memory kind: decision|invariant|gotcha|preference|convention. If omitted, it is inferred")
 	cmd.Flags().StringVar(&rememberOpts.Branch, "branch", "", "Branch to store the memory on (default: current branch)")
 	cmd.Flags().StringVar(&rememberOpts.Session, "session", "", "Session id the memory was authored in (default: $"+RememberSessionEnv+"); agent and hook callers pass it so the memory carries session provenance")
@@ -46,7 +46,7 @@ func NewRemember(cfg Config) *cobra.Command {
 	cmd.Flags().StringVar(&rememberOpts.Model, "model", "", "Model for codex/claude-code/ollama classification")
 	cmd.Flags().StringArrayVar(&rememberOpts.AgentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&rememberOpts.JSON, "json", false, "Emit the created memory as JSON")
-	cmd.Flags().BoolVar(&rememberOpts.Global, "global", false, "Record the memory globally, so every repository recalls it")
+	cmd.Flags().BoolVar(&rememberOpts.Global, "global", false, "Record the memory globally, so every repository on this machine recalls it (global memories are not synced)")
 	return cmd
 }
 
@@ -99,7 +99,7 @@ func globalFactNotice(explicit bool) string {
 	if explicit {
 		return ""
 	}
-	return "not in a repository, so this was remembered globally; it will be recalled from every repo"
+	return "not in a repository, so this was remembered globally; it will be recalled from every repo on this machine"
 }
 
 func RunRemember(ctx context.Context, cmd *cobra.Command, cfg Config, rememberOpts RememberCommandOptions, text string) error {
@@ -258,8 +258,11 @@ func RunRemember(ctx context.Context, cmd *cobra.Command, cfg Config, rememberOp
 	// Large legacy verification must happen after the writer releases its lock.
 	if cleanup, err := factstore.CleanupLegacy(brainDir); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory cleanup deferred: %v\n", err)
-	} else if cleanup.State == "retained" {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory cleanup retained recovery data: %v\n", cleanup.Retained)
+	} else if cleanup.State == "retained" && factstore.CleanupNoticeDue(brainDir, cleanup) {
+		// Gated on change and summarized to one line; the full list lives in
+		// facts/.cleanup-status.json and `memories storage`.
+		fmt.Fprintf(cmd.ErrOrStderr(), "\nwarning: memory cleanup kept recovery data from the pre-flat memory store; run `%s memories storage` for details\n\n",
+			base.SetupBrainCommand(base.SetupCommandPrefix(os.LookupEnv)))
 	}
 	record.Kind = storedKind // report what was actually persisted
 	// After the write, never before: a subscriber must not be told about a fact
@@ -287,9 +290,20 @@ func RunRemember(ctx context.Context, cmd *cobra.Command, cfg Config, rememberOp
 // agent and without --path it errors, mirroring the plan's contract.
 func ResolveRememberPaths(ctx context.Context, cfg Config, rememberOpts RememberCommandOptions, repoDir, text string, taxonomy factstore.Taxonomy) ([]string, error) {
 	if strings.TrimSpace(rememberOpts.Path) != "" {
-		paths := factmerge.NormalizePaths(strings.Split(rememberOpts.Path, ","))
+		entries := strings.Split(rememberOpts.Path, ",")
+		// NormalizePaths drops malformed entries, which is right for agent
+		// output but hides a typo in an explicit --path: the memory would be
+		// stored under fewer paths than asked for. Name the first bad entry
+		// and the rule instead, so the caller can fix it in one try.
+		for _, entry := range entries {
+			entry = strings.TrimSpace(entry)
+			if entry != "" && !factmerge.ValidPath(strings.ToLower(entry)) {
+				return nil, fmt.Errorf("--path %q is not a valid taxonomy path; use %s, e.g. preferences.coding.style", entry, factmerge.PathRule)
+			}
+		}
+		paths := factmerge.NormalizePaths(entries)
 		if len(paths) == 0 {
-			return nil, fmt.Errorf("--path %q is not a valid taxonomy path (category.subcategory.type)", rememberOpts.Path)
+			return nil, fmt.Errorf("--path %q is not a valid taxonomy path; use %s, e.g. preferences.coding.style", rememberOpts.Path, factmerge.PathRule)
 		}
 		// Explicit paths must all sit under a known top-level category, exactly
 		// like agent-classified ones — otherwise --path can mint

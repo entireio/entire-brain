@@ -20,11 +20,11 @@ import (
 
 func TestFactsBackfillStatusCountsDistilledSessions(t *testing.T) {
 	f := newSetupTestFixture(t, "s1", "s2", "s3", "s4")
-	if status := factsBackfillStatusForBrain(f.storage.BrainDir); status.Sessions != 4 || status.Distilled != 0 || status.Pending() != 4 {
+	if status := factsBackfillStatusForBrain(f.storage.BrainDir, nil); status.Sessions != 4 || status.Distilled != 0 || status.Pending() != 4 {
 		t.Fatalf("a fresh brain has nothing distilled, got %+v", status)
 	}
 	f.markDistilled(t, "s1", "s3")
-	status := factsBackfillStatusForBrain(f.storage.BrainDir)
+	status := factsBackfillStatusForBrain(f.storage.BrainDir, nil)
 	if status.Sessions != 4 || status.Distilled != 2 || status.Pending() != 2 {
 		t.Fatalf("expected 2/4 distilled, got %+v", status)
 	}
@@ -38,14 +38,14 @@ func TestFactsBackfillStatusCountsLegacyCacheEntries(t *testing.T) {
 	if err := saveDistillCache(f.storage.BrainDir, cache); err != nil {
 		t.Fatalf("save cache: %v", err)
 	}
-	if status := factsBackfillStatusForBrain(f.storage.BrainDir); status.Distilled != 1 {
+	if status := factsBackfillStatusForBrain(f.storage.BrainDir, nil); status.Distilled != 1 {
 		t.Fatalf("legacy cache entries must count as distilled, got %+v", status)
 	}
 }
 
 func TestFactsBackfillStatusOnAnEmptyBrain(t *testing.T) {
 	t.Parallel()
-	if status := factsBackfillStatusForBrain(t.TempDir()); status.Sessions != 0 || status.Pending() != 0 {
+	if status := factsBackfillStatusForBrain(t.TempDir(), nil); status.Sessions != 0 || status.Pending() != 0 {
 		t.Fatalf("an unbuilt brain must report zeros, not an error, got %+v", status)
 	}
 }

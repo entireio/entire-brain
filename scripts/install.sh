@@ -101,8 +101,29 @@ if ! have entire; then
            source and other platforms: https://github.com/entireio/cli'
 fi
 
+# go_version_older A B: whether Go version A (e.g. 1.27.2) is older than B,
+# comparing major, minor and patch. A missing component counts as 0, and any
+# suffix after a component's digits (1.28rc1) is ignored.
+go_version_older() {
+	gv_a=$1
+	gv_b=$2
+	for _ in 1 2 3; do
+		gv_a_part=${gv_a%%.*}
+		gv_a_part=${gv_a_part%%[!0-9]*}
+		gv_b_part=${gv_b%%.*}
+		gv_b_part=${gv_b_part%%[!0-9]*}
+		[ "${gv_a_part:-0}" -lt "${gv_b_part:-0}" ] && return 0
+		[ "${gv_a_part:-0}" -gt "${gv_b_part:-0}" ] && return 1
+		case $gv_a in *.*) gv_a=${gv_a#*.} ;; *) gv_a='' ;; esac
+		case $gv_b in *.*) gv_b=${gv_b#*.} ;; *) gv_b='' ;; esac
+	done
+	return 1
+}
+
 # The required Go version is read from go.mod rather than pinned here, so this
-# check cannot drift away from what the build actually needs.
+# check cannot drift away from what the build actually needs. It compares the
+# patch version too: go.mod can require one (go 1.27.3), and a Go 1.27.2 with
+# fetching switched off cannot build it.
 go_required=$(sed -n 's/^go \([0-9][0-9.]*\).*/\1/p' "$brain_root/go.mod" 2>/dev/null | head -1)
 [ -n "$go_required" ] || go_required=1.27
 
@@ -116,19 +137,7 @@ else
 	go_have=${go_have#go}
 	case $go_have in
 	[0-9]*.[0-9]*)
-		have_major=${go_have%%.*}
-		have_minor=${go_have#*.}
-		have_minor=${have_minor%%.*}
-		want_major=${go_required%%.*}
-		want_minor=${go_required#*.}
-		want_minor=${want_minor%%.*}
-		too_old=''
-		if [ "$have_major" -lt "$want_major" ]; then
-			too_old=yes
-		elif [ "$have_major" -eq "$want_major" ] && [ "$have_minor" -lt "$want_minor" ]; then
-			too_old=yes
-		fi
-		if [ -n "$too_old" ]; then
+		if go_version_older "$go_have" "$go_required"; then
 			# GOTOOLCHAIN defaults to "auto", which fetches the toolchain named
 			# in go.mod on demand. That makes an older `go` on PATH harmless --
 			# but only while it has not been switched off.

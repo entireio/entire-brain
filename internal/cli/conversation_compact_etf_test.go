@@ -56,13 +56,8 @@ func TestScanConversationTranscriptParsesCompactETF(t *testing.T) {
 }
 
 func TestExtractHistoryJSONFragmentsCompactETF(t *testing.T) {
-	var user, assistant map[string]any
-	if err := json.Unmarshal([]byte(etfUserLine), &user); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal([]byte(etfToolLine), &assistant); err != nil {
-		t.Fatal(err)
-	}
+	user := mustDecodeTranscriptRecord(t, etfUserLine)
+	assistant := mustDecodeTranscriptRecord(t, etfToolLine)
 
 	userFragments := extractHistoryJSONFragments(user)
 	if len(userFragments) != 1 || userFragments[0].Source != "user_prompt" {

@@ -118,11 +118,7 @@ func TestExtractHistoryJSONFragmentsCompactTranscript(t *testing.T) {
 			sources := map[string]int{}
 			var requests []string
 			for line := range strings.SplitSeq(strings.TrimSpace(c.fixture), "\n") {
-				var obj map[string]any
-				if err := json.Unmarshal([]byte(line), &obj); err != nil {
-					t.Fatal(err)
-				}
-				for _, fragment := range extractHistoryJSONFragments(obj) {
+				for _, fragment := range extractHistoryJSONFragments(mustDecodeTranscriptRecord(t, line)) {
 					sources[fragment.Source]++
 					if fragment.Source == "user_prompt" {
 						requests = append(requests, fragment.Text)
@@ -331,36 +327,36 @@ func TestHistoryIndexesDefaultCompactExport(t *testing.T) {
 	}
 }
 
-// transcriptRecordContent decides which content a record's readers see when a
+// decodeTranscriptRecord decides which content a record's readers see when a
 // record does not have exactly one content location. A null or empty
 // "message" falls back to the top level (what the history and conversation
-// readers did before the shared helper), and a non-empty "message" wins over
-// top-level content, so native claude-code records read as they always have.
+// readers did before the shared helper), with or without a "v", and a
+// non-empty "message" wins over top-level content, so native claude-code
+// records read as they always have.
 func TestTranscriptRecordContentPrecedence(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		record string
-		want   []string
+		want   string
 	}{
-		{"nested only", `{"type":"user","message":{"content":[{"type":"text","text":"NESTED"}]}}`, []string{"NESTED"}},
-		{"top level only", `{"v":1,"type":"user","content":[{"text":"TOP"}]}`, []string{"TOP"}},
-		{"message null", `{"type":"user","message":null,"content":[{"type":"text","text":"TOP"}]}`, []string{"TOP"}},
-		{"message empty object", `{"type":"user","message":{},"content":[{"type":"text","text":"TOP"}]}`, []string{"TOP"}},
-		{"both locations", `{"type":"user","message":{"content":[{"type":"text","text":"NESTED"}]},"content":[{"type":"text","text":"TOP"}]}`, []string{"NESTED"}},
-		{"neither location", `{"type":"user","message":{"role":"user"}}`, nil},
+		{"nested only", `{"type":"user","message":{"content":[{"type":"text","text":"NESTED"}]}}`, "NESTED"},
+		{"top level only", `{"v":1,"type":"user","content":[{"text":"TOP"}]}`, "TOP"},
+		{"format line with message null", `{"v":1,"type":"user","message":null,"content":[{"type":"text","text":"TOP"}]}`, "TOP"},
+		{"format line with message empty object", `{"v":1,"type":"user","message":{},"content":[{"type":"text","text":"TOP"}]}`, "TOP"},
+		{"format line with a wrapped turn", `{"v":1,"type":"user","message":{"content":[{"type":"text","text":"NESTED"}]},"content":[{"type":"text","text":"TOP"}]}`, "NESTED"},
+		{"both locations", `{"type":"user","message":{"content":[{"type":"text","text":"NESTED"}]},"content":[{"type":"text","text":"TOP"}]}`, "NESTED"},
+		{"message null", `{"type":"user","message":null,"content":[{"type":"text","text":"TOP"}]}`, "TOP"},
+		{"message empty object", `{"type":"user","message":{},"content":[{"type":"text","text":"TOP"}]}`, "TOP"},
+		{"no v and no message", `{"type":"user","content":[{"type":"text","text":"TOP"}]}`, "TOP"},
+		{"neither location", `{"type":"user","message":{"role":"user"}}`, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var obj map[string]any
-			if err := json.Unmarshal([]byte(tt.record), &obj); err != nil {
-				t.Fatal(err)
-			}
-			var got []string
-			for _, fragment := range extractClaudeMessageFragments(obj, "user") {
-				got = append(got, fragment.Text)
-			}
-			if !slices.Equal(got, tt.want) {
-				t.Fatalf("history fragments = %q, want %q", got, tt.want)
+			t.Parallel()
+			got := strings.TrimSpace(transcriptUserText(mustDecodeTranscriptRecord(t, tt.record)))
+			if got != tt.want {
+				t.Fatalf("user text = %q, want %q", got, tt.want)
 			}
 		})
 	}

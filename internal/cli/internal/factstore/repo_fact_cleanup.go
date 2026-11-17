@@ -244,6 +244,34 @@ func cleanupLegacyPreparedLocked(brainDir string, proofs map[string]cleanupRecei
 	return result
 }
 
+// cleanupReportedPath remembers the digest of the retained set the user was
+// LAST WARNED about. Separate from cleanup-status on purpose: the quick
+// in-lock scan and the out-of-lock verifier retain differently-shaped sets and
+// alternate in the status file, so gating on it re-warned on every pass.
+const cleanupReportedPath = "facts/.cleanup-reported"
+
+// CleanupNoticeDue reports whether a retained cleanup deserves a (one-line)
+// warning: the first time this exact retained set is seen, and again only when
+// it changes. A due notice records its digest, so callers print at most once
+// per change — a set that needs a human decision never shrinks on its own, and
+// an ungated warning reprinted the full list on every write, forever.
+func CleanupNoticeDue(brainDir string, status CleanupStatus) bool {
+	if status.State != "retained" || len(status.Retained) == 0 {
+		return false
+	}
+	retained := append([]string(nil), status.Retained...)
+	sort.Strings(retained)
+	sum := sha256.Sum256([]byte(strings.Join(retained, "\x00")))
+	digest := hex.EncodeToString(sum[:])
+	prev, _, err := brainstore.ReadMemoryStateFile(brainDir, cleanupReportedPath, "legacy cleanup notice", base.DefaultMaxReadBytes)
+	if err == nil && strings.TrimSpace(string(prev)) == digest {
+		return false
+	}
+	// Best-effort: a failed write only means the warning repeats once more.
+	_ = brainstore.WriteBrainRelativeFileAtomic(brainDir, cleanupReportedPath, []byte(digest+"\n"), 0600)
+	return true
+}
+
 func cleanupPark(brainDir string, facts *os.Root, name string, current map[string]factmerge.Record, storeHash string, limit int, byteLimit int64, started time.Time, after string, next *string, proofs map[string]cleanupReceipt) (processed int, scanned, removed int64, err error) {
 	info, err := facts.Lstat(name)
 	if err != nil {
@@ -304,6 +332,13 @@ func cleanupPark(brainDir string, facts *os.Root, name string, current map[strin
 		latestBranch, statErr := park.Lstat(entry.Name())
 		if statErr != nil || !os.SameFile(branchInfo, latestBranch) {
 			problems = append(problems, fmt.Errorf("legacy branch changed during cleanup"))
+			continue
+		}
+		// The facts copy is verified gone; known orphans of removed
+		// subsystems go with it, or the empty-dir sweep below logs
+		// "retained directory" forever (COR-2317).
+		if orphanErr := removeLegacyOrphans(park, entry.Name()); orphanErr != nil {
+			problems = append(problems, fmt.Errorf("retained directory %s: %w", entry.Name(), orphanErr))
 			continue
 		}
 		// Remove only an empty directory; unknown entries can never be swept.
@@ -904,4 +939,41 @@ func readMigrationRecords(path string) ([]factmerge.Record, string, error) {
 		return records, hex.EncodeToString(hash.Sum(nil)), nil
 	}
 	return records, "", nil
+}
+
+// legacyOrphanNames are files abandoned subsystems left behind in legacy
+// branch dirs: the proposal framework (removed with the per-branch stores),
+// per-branch vitality copies (vitality lives at the flat facts/ root now),
+// and vector embeddings (semantic retrieval removed, trail #278/#416).
+// Nothing reads them, but while one sits in a branch dir the empty-dir sweep
+// retains the directory forever — 5.8 MB of noise on one dev machine
+// (COR-2317). Unknown names still retain the directory: this list is the
+// whole license to delete.
+var legacyOrphanNames = []string{"proposals.ndjson", "vitality.ndjson", "vitality.json", "embeddings"}
+
+// removeLegacyOrphans deletes known orphan files inside one legacy branch
+// dir after its facts copy is verified gone. Only names on
+// legacyOrphanNames are touched.
+func removeLegacyOrphans(park *os.Root, branchDir string) error {
+	branch, err := park.OpenRoot(branchDir)
+	if err != nil {
+		return err
+	}
+	defer branch.Close()
+	removedAny := false
+	for _, name := range legacyOrphanNames {
+		if _, statErr := branch.Lstat(name); os.IsNotExist(statErr) {
+			continue
+		} else if statErr != nil {
+			return statErr
+		}
+		if rmErr := branch.RemoveAll(name); rmErr != nil {
+			return rmErr
+		}
+		removedAny = true
+	}
+	if !removedAny {
+		return nil
+	}
+	return brainstore.SyncPinnedDirectory(branch)
 }

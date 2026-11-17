@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"testing"
 )
 
@@ -79,11 +78,7 @@ func TestPrefilterStillSkipsIrrelevantLines(t *testing.T) {
 		`{"type":"session_meta"}`,
 	}
 	for _, line := range lines {
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(line), &obj); err != nil {
-			t.Fatal(err)
-		}
-		if historyLineMayContainIndexedContent(line) && len(extractHistoryJSONFragments(obj)) > 0 {
+		if historyLineMayContainIndexedContent(line) && len(extractHistoryJSONFragments(mustDecodeTranscriptRecord(t, line))) > 0 {
 			t.Errorf("irrelevant line produced fragments: %q", line)
 		}
 	}

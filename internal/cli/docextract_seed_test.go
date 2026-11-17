@@ -510,7 +510,7 @@ func TestExtractedSeedPathsDoNotOverwriteMarkdown(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	scan, err := scanSeedRepository(context.Background(), &fakeCommandRunner{}, repo, "test", seedCommandOptions{maxFiles: 100, maxFileBytes: 1 << 20})
+	scan, err := scanSeedRepository(context.Background(), &fakeCommandRunner{}, repo, "", "", "test", seedCommandOptions{maxFiles: 100, maxFileBytes: 1 << 20})
 	if err != nil {
 		t.Fatal(err)
 	}

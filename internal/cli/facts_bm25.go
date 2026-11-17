@@ -21,12 +21,14 @@ const (
 	bm25K1 = 1.2
 	bm25B  = 0.75
 
-	// Boost scales re-expressed for the BM25 range (one strong rare-term hit
+	// Boost scale re-expressed for the BM25 range (one strong rare-term hit
 	// contributes roughly idf ~= 4-7). The old int scorer weighted a locus
-	// token at 6x a term hit and closed-negative at 3x; these keep those
-	// proportions.
-	bm25LocusBoost          = 8.0
-	bm25ClosedNegativeBoost = 4.0
+	// token at 6x a term hit; this keeps that proportion. The flat
+	// closed-negative bonus that sat beside it was dropped (COR-2311): it
+	// applied to ~17% of the corpus on any match regardless of relevance, no
+	// recorded rationale justified it, and the n=15 parity runs showed
+	// topically-similar closed-negatives displacing the decision fact.
+	bm25LocusBoost = 8.0
 )
 
 // factSearchTokens are the indexable tokens of one fact: its text plus its
@@ -196,9 +198,9 @@ func (c bm25Corpus) bm25Score(i int, terms []string) float64 {
 }
 
 // factBM25Score is the full facts ranking score: BM25 text relevance plus the
-// two previously measured boosts (shared code locus, closed-negative kind).
-// Boosts apply only to facts that already match, so neither creates a match on
-// its own — same contract as the scorer this replaces.
+// measured shared-code-locus boost. The boost applies only to facts that
+// already match, so it never creates a match on its own — same contract as
+// the scorer this replaces.
 func factBM25Score(f factRecord, c bm25Corpus, i int, terms []string, queryLocus []string) float64 {
 	score := c.bm25Score(i, terms)
 	if score <= 0 {
@@ -206,9 +208,6 @@ func factBM25Score(f factRecord, c bm25Corpus, i int, terms []string, queryLocus
 	}
 	if overlap := factstore.LocusOverlapTokens(queryLocus, base.FactLocusOf(f)); overlap > 0 {
 		score += float64(overlap) * bm25LocusBoost
-	}
-	if factstore.KindOrInferred(f) == factKindClosedNegative {
-		score += bm25ClosedNegativeBoost
 	}
 	return score
 }

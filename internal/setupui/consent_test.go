@@ -24,8 +24,8 @@ func TestConsentCompactPromptNamesPoolBudgetAndSpend(t *testing.T) {
 			t.Errorf("missing %q: %q", want, out)
 		}
 	}
-	if !strings.HasSuffix(out, "\x1b[3A\x1b[J") {
-		t.Fatalf("compact prompt should erase exactly three rows: %q", out)
+	if !strings.HasSuffix(out, "\x1b[4A\x1b[J") {
+		t.Fatalf("compact prompt should erase exactly four rows (incl. its leading blank line): %q", out)
 	}
 }
 
@@ -344,5 +344,26 @@ func TestConsentNamesThePoolWhenTheBudgetCapsTheRun(t *testing.T) {
 	}
 	if !strings.Contains(out, "~2 agent calls this run (spend budget)") {
 		t.Fatalf("the capped estimate went unnamed:\n%s", out)
+	}
+}
+
+// Keys pressed while an earlier phase ran (arrow-key fidgeting, bubbletea's
+// terminal-query replies) sit in the stdin buffer and arrive glued to the
+// answer. They are terminal noise, not the answer: "\x1b[B\x1b[Bn" means n.
+func TestConsentIgnoresBufferedTerminalNoise(t *testing.T) {
+	t.Parallel()
+	for input, wantSpend := range map[string]bool{
+		"\x1b[B\x1b[Bn\n":                  false,
+		"\x1b[A y\n":                       true,
+		"\x1b]11;rgb:1e1e/1e1e/1e1e\x07\n": false, // noise alone is a bare Enter: default No
+		"\x1bOPn\n":                        false,
+	} {
+		got, _ := ask(t, spendRequest(), strings.NewReader(input))
+		if got.Spend != wantSpend || !got.Prompted {
+			t.Errorf("input %q: want spend=%v prompted, got %+v", input, wantSpend, got)
+		}
+		if got.Why != ConsentReasonAccepted && got.Why != ConsentReasonDeclined {
+			t.Errorf("input %q must be accepted on the FIRST attempt, got %v", input, got.Why)
+		}
 	}
 }

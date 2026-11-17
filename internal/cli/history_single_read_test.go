@@ -153,8 +153,8 @@ func TestHistoryTranscriptAggregateFingerprintIsStableAndContentBound(t *testing
 	}
 }
 
-func TestHistorySingleReadPreservesIndexAndBriefPacket(t *testing.T) {
-	fixture := newBrainBriefRawHistoryEndToEndFixture(t)
+func TestHistorySingleReadPreservesIndex(t *testing.T) {
+	fixture := newBrainBriefProfileFixture(t)
 	storage, err := repoStoragePaths(context.Background(), fixture.opts.Runner, fixture.opts.Env, fixture.opts.Env.RepoRoot)
 	if err != nil {
 		t.Fatalf("storage: %v", err)
@@ -177,7 +177,6 @@ func TestHistorySingleReadPreservesIndexAndBriefPacket(t *testing.T) {
 	if err := publishHistoryComparisonIndex(storage.BrainDir, wantIndex, wantSource); err != nil {
 		t.Fatalf("publish reference: %v", err)
 	}
-	wantPacket := runBrainBriefRawHistoryEndToEnd(t, fixture, brainBriefRawHistoryMatchesObserved)
 
 	if err := os.Remove(filepath.Join(storage.BrainDir, filepath.FromSlash(historyScanCachePath))); err != nil && !os.IsNotExist(err) {
 		t.Fatalf("remove scan cache: %v", err)
@@ -200,10 +199,6 @@ func TestHistorySingleReadPreservesIndexAndBriefPacket(t *testing.T) {
 	}
 	if err := publishHistoryComparisonIndex(storage.BrainDir, gotIndex, gotSource); err != nil {
 		t.Fatalf("publish single-read: %v", err)
-	}
-	gotPacket := runBrainBriefRawHistoryEndToEnd(t, fixture, brainBriefRawHistoryMatchesObserved)
-	if gotPacket != wantPacket {
-		t.Fatalf("brain brief packet changed after single-read history build\ngot:\n%s\nwant:\n%s", gotPacket, wantPacket)
 	}
 }
 

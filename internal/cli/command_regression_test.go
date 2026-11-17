@@ -179,12 +179,8 @@ func TestFactsImportRemainsRunnableFromRoot(t *testing.T) {
 func TestHiddenDeveloperCommandsRemainRunnable(t *testing.T) {
 	t.Parallel()
 	opts, _, brainDir := commandRegressionFixture(t)
-	for _, args := range [][]string{{"bench", "--help"}, {"facts", "eval-gen", "--help"}, {"facts", "eval-compare", "--help"}} {
-		out, err := execute(t, NewRootCommand(opts), args...)
-		if err != nil || !strings.Contains(out, "Usage:") {
-			t.Fatalf("%v: %v\n%s", args, err, out)
-		}
-	}
+	// The bench/eval harness variants of this check live in
+	// harness_commands_tagged_test.go (COR-2322).
 	// Reclassify writes only to the isolated fixture, never the checkout's brain.
 	text := "facts preserve durable identities"
 	paths := []string{"constraints.invariants.general"}
@@ -217,11 +213,6 @@ func TestHiddenDeveloperCommandsRemainRunnable(t *testing.T) {
 		t.Fatalf("reclassify did not persist the inferred kind: facts=%+v err=%v", stored, err)
 	}
 
-	missing := filepath.Join(t.TempDir(), "missing-tasks.json")
-	out, err = execute(t, NewRootCommand(opts), "facts", "eval", "--tasks", missing)
-	if err == nil || !strings.Contains(err.Error(), missing) || isUnknownCommandOrFlag(err.Error()) {
-		t.Fatalf("eval should reach original task-file read: %v\n%s", err, out)
-	}
 	_, _, _, semanticOpts := buildSemanticMaintenanceFixture(t)
 	out, err = execute(t, NewRootCommand(semanticOpts), "inspect", "graph-schema", "--json")
 	if err != nil || !json.Valid([]byte(out)) {
