@@ -149,6 +149,12 @@ func TestCodexSessionRootFromCWD(t *testing.T) {
 		{"windows drive root", lines(codexFileChangeIn(t, `C:\`, codexChange{Path: `C:\main.go`, Kind: "update"})), []string{"main.go"}, "C:"},
 		{"a lowercase drive cwd matches uppercase drive paths", lines(codexFileChangeIn(t, `c:\src\repo`, codexChange{Path: `C:\src\repo\main.go`, Kind: "update"})), []string{"main.go"}, "C:/src/repo"},
 		{"an uppercase drive cwd matches lowercase drive paths", lines(codexFileChangeIn(t, `C:\src\repo`, codexChange{Path: "c:/src/repo/main.go", Kind: "update"})), []string{"main.go"}, "C:/src/repo"},
+		{"a windows cwd spelled in another case matches the paths", lines(codexFileChangeIn(t, `C:\Src\Repo`, codexChange{Path: `C:\src\repo\main.go`, Kind: "update"})), []string{"main.go"}, "C:/Src/Repo"},
+		{"windows cwds differing only in case are one candidate", lines(
+			codexFileChangeIn(t, `C:\src\repo`, codexChange{Path: `C:\src\repo\a.go`, Kind: "update"}),
+			codexFileChangeIn(t, `C:\Src\Repo`, codexChange{Path: `C:\src\repo\b.go`, Kind: "update"}),
+		), []string{"a.go", "b.go"}, "C:/src/repo"},
+		{"a rooted cwd spelled in another case doesn't match", lines(codexFileChangeIn(t, "/Work/Repo", codexChange{Path: "/work/repo/main.go", Kind: "update"})), []string{"main.go"}, ""},
 		{"a FileChange with no result follows the session's cwd", lines(
 			codexFileChangeIn(t, "/work/repo", codexChange{Path: "/work/repo/main.go", Kind: "update"}),
 			`{"v":1,"agent":"codex","type":"assistant","ts":"t","id":"f2","content":[{"id":"f2","input":{"changes":[{"path":"/tmp/job/main.go","kind":"update"}]},"name":"FileChange","type":"tool_use"}]}`,

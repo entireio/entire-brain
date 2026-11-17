@@ -487,15 +487,17 @@ func (d *distinctStrings) add(s string) {
 // dirsFrom is every distinct directory in dirs (clean absolute slash paths
 // from cleanAbsPath) and each of their parents, up to and including the
 // filesystem root: "/" for a rooted path, the drive ("C:") for a drive path.
+// Directories that differ only in case under a drive are one directory (see
+// rootKey), spelled as first seen, so they don't tie with each other.
 func dirsFrom(dirs []string) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, d := range dirs {
 		for {
-			if seen[d] {
+			if seen[rootKey(d)] {
 				break
 			}
-			seen[d] = true
+			seen[rootKey(d)] = true
 			out = append(out, d)
 			parent := path.Dir(d)
 			if parent == d || parent == "." {
@@ -519,8 +521,8 @@ func cleanAbsPath(p string) (string, bool) {
 		return "", false
 	}
 	s = path.Clean(s)
-	if s[0] >= 'a' && s[0] <= 'z' && len(s) >= 2 && s[1] == ':' {
-		s = string(s[0]-'a'+'A') + s[1:]
+	if isDrivePath(s) {
+		s = strings.ToUpper(s[:1]) + s[1:]
 	}
 	return s, true
 }
@@ -533,16 +535,38 @@ func hasDotDotSegment(p string) bool {
 // pathUnderRoot is p relative to root when p is strictly inside it. Both are
 // clean slash paths, so a root that is only a string prefix (/work/repo2 for
 // /work/repo) is not a parent. The filesystem root "/" is the parent of every
-// other rooted path.
+// other rooted path. Under a drive root the directories match in any case,
+// because Windows ignores it and a cwd can be spelled C:/Src/Repo where the
+// paths say C:/src/repo; the part of p under root keeps its case, to match
+// the checkpoint's files. A rooted path compares exactly, because it may be
+// on a filesystem that is case-sensitive.
 func pathUnderRoot(p, root string) (string, bool) {
 	prefix := root + "/"
 	if root == "/" {
 		prefix = root
 	}
-	if strings.HasPrefix(p, prefix) && len(p) > len(prefix) {
+	if len(p) <= len(prefix) {
+		return "", false
+	}
+	if head := p[:len(prefix)]; head == prefix || (isDrivePath(root) && strings.EqualFold(head, prefix)) {
 		return p[len(prefix):], true
 	}
 	return "", false
+}
+
+// isDrivePath reports whether a clean slash path starts with a drive letter
+// ("C:" or "C:/work").
+func isDrivePath(p string) bool {
+	return len(p) >= 2 && p[1] == ':' && ((p[0] >= 'a' && p[0] <= 'z') || (p[0] >= 'A' && p[0] <= 'Z'))
+}
+
+// rootKey is the spelling of root that roots naming the same directory share:
+// root itself, or lower case under a drive, as pathUnderRoot compares it.
+func rootKey(root string) string {
+	if isDrivePath(root) {
+		return strings.ToLower(root)
+	}
+	return root
 }
 
 // slashPath is p trimmed and with backslashes as slashes, so a Windows
@@ -558,7 +582,7 @@ func isAbsSlashPath(p string) bool {
 	if strings.HasPrefix(p, "/") {
 		return true
 	}
-	return len(p) >= 3 && p[1] == ':' && p[2] == '/' && ((p[0] >= 'a' && p[0] <= 'z') || (p[0] >= 'A' && p[0] <= 'Z'))
+	return isDrivePath(p) && len(p) >= 3 && p[2] == '/'
 }
 
 func patchFiles(patch string, ln int) []corpusFileRef {
