@@ -1,0 +1,159 @@
+{
+  "cli_version": "0.11.5-nightly.202610100625.1f44a6f96.0.20261024214757-e7c0393725dd",
+  "checkpoint_id": "01M7NQ1CBCTEC8RHKFEB6M38TE",
+  "session_id": "93ae8948-c612-4072-8e70-2750e80df9ce",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-17T21:36:45.489208Z",
+  "branch": "win/full-support",
+  "checkpoints_count": 14,
+  "save_step_count": 1,
+  "files_touched": [
+    "docs/limits.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5",
+  "turn_id": "9481713b62dc",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "redaction": {
+    "replacements": 328,
+    "layers": {
+      "betterleaks": 5,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 10,
+      "credentialed_uri": 0,
+      "entropy": 348,
+      "key_context": 0,
+      "provider_token": 10,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-goal-2026-11-11T16:53:43.390247Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "goal"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "6aa3970c31e6",
+      "timestamp": "2026-11-11T16:53:43.390247Z",
+      "native": {
+        "command": "/goal"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/goal",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_013DJ4ZV2WnnC6aiHwSWtKFh",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "trail-findings"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "d3b3b857121c",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 3133,
+        "end": 3134,
+        "entry_ids": [
+          "f3406b51-bccf-40d0-acad-3cff623bbe4d"
+        ],
+        "tool_use_id": "toolu_013DJ4ZV2WnnC6aiHwSWtKFh"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_013DJ4ZV2WnnC6aiHwSWtKFh"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: trail-findings",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01V712WwdQ9n7DJUKUHWkqeD",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "plugin-authoring"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "d3b3b857121c",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 52187,
+        "end": 52188,
+        "entry_ids": [
+          "9a7a3cb4-3d6f-4528-a900-e7d3c9346ef8"
+        ],
+        "tool_use_id": "toolu_01V712WwdQ9n7DJUKUHWkqeD"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01V712WwdQ9n7DJUKUHWkqeD"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: plugin-authoring",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01DkUd7D6nfcCEG56eccDnK2",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "response"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "d3b3b857121c",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 86994,
+        "end": 86995,
+        "entry_ids": [
+          "bc1ba8e2-7c1e-438f-9911-0a2d657861cc"
+        ],
+        "tool_use_id": "toolu_01DkUd7D6nfcCEG56eccDnK2"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01DkUd7D6nfcCEG56eccDnK2"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: response",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 15
+  }
+}
