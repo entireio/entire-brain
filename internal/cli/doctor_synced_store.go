@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"path/filepath"
+	"path"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
@@ -74,23 +74,42 @@ func isUNCPath(path string) bool {
 	return (path[0] == '\\' || path[0] == '/') && path[0] == path[1]
 }
 
-// pathIsUnder reports whether path sits at or below root, comparing case
+// pathIsUnder reports whether candidate sits at or below root, comparing case
 // insensitively because the Windows filesystem does and OneDrive's exported
 // variable does not necessarily match the casing of the resolved store path.
 //
-// It compares cleaned paths component-wise rather than with strings.HasPrefix,
-// so a sibling directory whose name merely starts with the root's name (for
-// example OneDrive-Archive beside OneDrive) is not reported.
-func pathIsUnder(path, root string) bool {
-	normalize := func(p string) string {
-		return strings.ToLower(filepath.Clean(strings.ReplaceAll(p, "\\", "/")))
-	}
-	p, r := normalize(path), normalize(root)
+// It compares whole components rather than raw prefixes, so a sibling directory
+// whose name merely starts with the root's name (OneDrive-Archive beside
+// OneDrive) is not reported.
+//
+// THIS FUNCTION MUST NOT USE path/filepath. That is not a style preference: it
+// is the bug this file shipped with. The first version normalised separators to
+// "/" and then called filepath.Clean, which on Windows -- and ONLY on Windows --
+// turns them straight back into "\". The component check that followed looked
+// for a prefix ending in "/", so on the one platform the whole OneDrive branch
+// exists for, it could never match and doctor could never warn. Every test
+// passed on darwin, where filepath.Clean leaves "/" alone, which is precisely
+// how it reached a Windows machine.
+//
+// Normalising with package path instead makes the comparison identical on every
+// OS, which is also what lets the tests below be real cross-OS tests rather than
+// darwin-shaped ones. TestSyncedStoreComparisonIsOSIndependent pins the rule.
+func pathIsUnder(candidate, root string) bool {
+	c, r := normalizePathForCompare(candidate), normalizePathForCompare(root)
 	if r == "" || r == "." {
 		return false
 	}
-	if p == r {
+	if c == r {
 		return true
 	}
-	return strings.HasPrefix(p, strings.TrimSuffix(r, "/")+"/")
+	return strings.HasPrefix(c, strings.TrimSuffix(r, "/")+"/")
+}
+
+// normalizePathForCompare folds a path to a lower-case, slash-separated,
+// cleaned form using package path, never package filepath. See pathIsUnder.
+func normalizePathForCompare(p string) string {
+	if p == "" {
+		return ""
+	}
+	return strings.ToLower(path.Clean(strings.ReplaceAll(p, "\\", "/")))
 }

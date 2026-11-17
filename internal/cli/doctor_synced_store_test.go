@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"go/parser"
+	"go/token"
 	"strings"
 	"testing"
 )
@@ -116,5 +118,73 @@ func TestSyncedStoreDirDetailHandlesAnEmptyDataDir(t *testing.T) {
 
 	if detail := syncedStoreDirDetail(windowsDoctorGOOS, "", env(map[string]string{"OneDrive": `C:\x`})); detail != "" {
 		t.Fatalf("empty data dir should produce no warning, got: %s", detail)
+	}
+}
+
+// Every case above is written with Windows separators, and every one of them
+// passed on darwin while the subject could not warn on Windows at all. That is
+// not a gap in the cases -- it is the comparison itself having been
+// OS-dependent. These two tests pin the property that makes the cases above
+// mean what they say.
+
+func TestSyncedStoreComparisonIsOSIndependent(t *testing.T) {
+	t.Parallel()
+
+	// Mixed separators, because a path can reach doctor from an environment
+	// variable in either form, and the two must compare equal on every OS.
+	cases := []struct {
+		name      string
+		candidate string
+		root      string
+		want      bool
+	}{
+		{"both backslash", `C:\Users\sam\OneDrive\brain`, `C:\Users\sam\OneDrive`, true},
+		{"both slash", "C:/Users/sam/OneDrive/brain", "C:/Users/sam/OneDrive", true},
+		{"slash candidate, backslash root", "C:/Users/sam/OneDrive/brain", `C:\Users\sam\OneDrive`, true},
+		{"backslash candidate, slash root", `C:\Users\sam\OneDrive\brain`, "C:/Users/sam/OneDrive", true},
+		{"trailing separator on the root", `C:\Users\sam\OneDrive\brain`, `C:\Users\sam\OneDrive\`, true},
+		{"exactly the root", `C:\Users\sam\OneDrive`, `C:\Users\sam\OneDrive`, true},
+		{"sibling sharing a prefix", `C:\Users\sam\OneDrive-Archive\brain`, `C:\Users\sam\OneDrive`, false},
+		{"unrelated path", `D:\brain`, `C:\Users\sam\OneDrive`, false},
+		{"empty root", `C:\Users\sam\OneDrive\brain`, "", false},
+		{"empty candidate", "", `C:\Users\sam\OneDrive`, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := pathIsUnder(tc.candidate, tc.root); got != tc.want {
+				t.Fatalf("pathIsUnder(%q, %q) = %v, want %v", tc.candidate, tc.root, got, tc.want)
+			}
+		})
+	}
+
+	// The mechanism, stated directly. filepath.Clean would reintroduce "\" here
+	// on Windows and leave it alone on darwin, which is exactly how the original
+	// defect passed CI on three platforms and failed on the fourth.
+	for _, in := range []string{`C:\Users\sam\OneDrive`, "C:/Users/sam/OneDrive", `C:\Users\sam\OneDrive\`} {
+		if got := normalizePathForCompare(in); strings.Contains(got, `\`) {
+			t.Fatalf("normalizePathForCompare(%q) = %q, want a slash-separated form on every OS", in, got)
+		}
+	}
+}
+
+// The comment on pathIsUnder says this file must not use path/filepath. A
+// comment does not survive the next edit; this does. It is the cheapest
+// available guard against re-introducing an OS-dependent comparison in a file
+// whose whole purpose is a Windows-only code path that darwin CI cannot reach.
+func TestSyncedStoreSourceAvoidsFilepath(t *testing.T) {
+	t.Parallel()
+
+	const file = "doctor_synced_store.go"
+	parsed, err := parser.ParseFile(token.NewFileSet(), file, nil, parser.ImportsOnly)
+	if err != nil {
+		t.Fatalf("parse %s: %v", file, err)
+	}
+	for _, spec := range parsed.Imports {
+		if spec.Path.Value == `"path/filepath"` {
+			t.Fatalf("%s imports path/filepath; its separator handling is OS-dependent, "+
+				"which made the OneDrive warning unreachable on Windows. Use package path.", file)
+		}
 	}
 }
