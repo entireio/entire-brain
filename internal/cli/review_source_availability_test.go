@@ -38,9 +38,7 @@ func TestFactAvailabilityRejectsEmptyCorruptAndSymlinkStores(t *testing.T) {
 				if err := os.Remove(path); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.Symlink(other, path); err != nil {
-					t.Fatal(err)
-				}
+				symlinkForTest(t, other, path)
 			case "directory":
 				if err := os.Remove(path); err != nil {
 					t.Fatal(err)

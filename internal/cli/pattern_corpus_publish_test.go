@@ -312,6 +312,7 @@ func TestPatternCorpusForwardPublicationMarkerPreservesRecoveryAndBuildState(t *
 }
 
 func TestPatternCorpusPublishDirectorySwapCannotTouchExternalTarget(t *testing.T) {
+	skipIfSymlinksUnrepresentable(t)
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
 		id: "s1", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: claudeReviewTranscript,

@@ -407,9 +407,7 @@ func TestHistoryFTSDirectSecurityAndAuthoritativeFailures(t *testing.T) {
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(outside, path); err != nil {
-			t.Fatal(err)
-		}
+		symlinkForTest(t, outside, path)
 		if _, used, err := rankHistoryViaFreshFTS(brainDir, source, "decisions", "embedding", 25); err == nil || used {
 			t.Fatalf("symlink truth: used=%v err=%v", used, err)
 		}
@@ -425,9 +423,7 @@ func TestHistoryFTSDirectSecurityAndAuthoritativeFailures(t *testing.T) {
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(outside, path); err != nil {
-			t.Fatal(err)
-		}
+		symlinkForTest(t, outside, path)
 		loads := 0
 		loader := func(string, *historySourceManifest) (historyIndex, error) {
 			loads++

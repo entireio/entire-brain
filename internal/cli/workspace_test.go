@@ -494,9 +494,7 @@ func TestWorkspaceRejectsSymlinkedWorkspacePath(t *testing.T) {
 		t.Fatalf("mkdir workspaces: %v", err)
 	}
 	target := t.TempDir()
-	if err := os.Symlink(target, filepath.Join(workspacesRoot, "payments-platform")); err != nil {
-		t.Fatalf("symlink workspace: %v", err)
-	}
+	symlinkForTest(t, target, filepath.Join(workspacesRoot, "payments-platform"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}, Now: time.Now})
 	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("workspace create err = %v", err)
@@ -516,9 +514,7 @@ func TestWorkspaceCreateIgnoresSymlinkedLegacyTree(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(external, base.WorkspacesDirName, "payments-platform"), 0o700); err != nil {
 		t.Fatalf("seed external legacy tree: %v", err)
 	}
-	if err := os.Symlink(external, brainRoot); err != nil {
-		t.Fatalf("symlink brain root: %v", err)
-	}
+	symlinkForTest(t, external, brainRoot)
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}, Now: time.Now})
 	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err != nil {
 		t.Fatalf("workspace create: %v", err)
