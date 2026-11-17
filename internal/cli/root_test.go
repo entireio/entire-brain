@@ -6,6 +6,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -293,6 +294,18 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	t.Setenv(base.XDGStateHome, filepath.Join(xdg, "state"))
 	t.Setenv(base.XDGCacheHome, filepath.Join(xdg, "cache"))
 
+	// The data dir is the one root whose rule is not XDG everywhere: on Windows
+	// the host CLI ignores XDG and reads %LOCALAPPDATA%, and the brain follows it
+	// so a standalone run and a dispatched run agree. Pin it inside this test's
+	// temp dir and expect the Windows answer there, rather than asserting an XDG
+	// path the product deliberately does not produce on that platform.
+	localAppData := filepath.Join(xdg, "localappdata")
+	t.Setenv(base.EnvLocalAppData, localAppData)
+	wantDataRoot := filepath.Join(xdg, "data", "entire")
+	if runtime.GOOS == "windows" {
+		wantDataRoot = filepath.Join(localAppData, "entire")
+	}
+
 	// This test is about the PATHS doctor resolves, not about its exit code:
 	// see doctorReportText. A runner with no `entire` on PATH makes doctor
 	// report a host-environment error, which is none of this test's business.
@@ -308,7 +321,7 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	for _, want := range []string{
 		"ENTIRE_PLUGIN_DATA_DIR=<unset>",
 		"plugin config dir: ok (" + filepath.Join(xdg, "config", "entire"),
-		"plugin data dir: ok (" + filepath.Join(xdg, "data", "entire", "plugins", "data", base.PluginDataName),
+		"plugin data dir: ok (" + filepath.Join(wantDataRoot, "plugins", "data", base.PluginDataName),
 		"plugin state dir: ok (" + filepath.Join(xdg, "state", "entire"),
 		"plugin cache dir: ok (" + filepath.Join(xdg, "cache", "entire"),
 	} {
@@ -316,7 +329,7 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)
 		}
 	}
-	for _, path := range []string{filepath.Join(xdg, "config", "entire"), filepath.Join(xdg, "data", "entire"), filepath.Join(xdg, "state", "entire"), filepath.Join(xdg, "cache", "entire")} {
+	for _, path := range []string{filepath.Join(xdg, "config", "entire"), wantDataRoot, filepath.Join(xdg, "state", "entire"), filepath.Join(xdg, "cache", "entire")} {
 		if _, err := os.Lstat(path); !os.IsNotExist(err) {
 			t.Fatalf("doctor must not create %s: %v", path, err)
 		}

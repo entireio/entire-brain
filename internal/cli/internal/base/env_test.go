@@ -176,3 +176,36 @@ func TestResolvePluginDataRootIgnoresXDGOnWindowsOnly(t *testing.T) {
 		}
 	}
 }
+
+// The guard that was missing, and the reason the store-path change escaped its
+// own test sandbox on Windows.
+//
+// Every other test here resolves the rule for whichever OS it happens to be
+// compiled for, so a darwin or linux run never evaluates the Windows branch at
+// all. A test that loops over the target OS does, and it fails on ANY machine
+// the moment the Windows branch starts reading a variable the sandbox does not
+// control. That is exactly what happened: LOCALAPPDATA was introduced here and
+// not added to clitest.PinXDGRoots, so `go test ./...` on Windows resolved the
+// developer's real %LOCALAPPDATA%\entire and created a store in it.
+func TestResolvePluginDataRootHonoursASandboxedEnvironmentOnEveryOS(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)        // unix home
+	t.Setenv("USERPROFILE", root) // windows home
+	t.Setenv(EnvLocalAppData, filepath.Join(root, "AppData", "Local"))
+	// Clear the XDG pin so each OS falls through to its own home-directory rule,
+	// which is the path a real user with no XDG configuration takes.
+	for _, key := range []string{XDGConfigHome, XDGDataHome, XDGStateHome, XDGCacheHome} {
+		t.Setenv(key, "")
+	}
+
+	for _, goos := range []string{windowsGOOS, "linux", "darwin"} {
+		got, err := resolvePluginDataRoot("", goos)
+		if err != nil {
+			t.Fatalf("goos %s: %v", goos, err)
+		}
+		if !PathInside(root, got) {
+			t.Errorf("goos %s: data root resolved to %q, outside the sandboxed home %q; "+
+				"every variable this branch reads must be redirectable", goos, got, root)
+		}
+	}
+}
