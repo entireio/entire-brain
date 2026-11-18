@@ -9,8 +9,8 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 - `refresh --no-transcript-sweep` for scheduled runs that nobody watches. It
   skips the transcript-cache sweep and the legacy memory cleanup, which a plain
-  `refresh` reports only on stderr. The watch daemon already skips both on its
-  own ticks; an external scheduler had no way to ask for the same (#568).
+  `refresh` reports only on stderr. The watch daemon's ticks already skip the
+  transcript sweep; an external scheduler had no way to ask for the same (#568).
 
 ### Changed
 

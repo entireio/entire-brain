@@ -104,30 +104,36 @@ func TestMemoriesSyncBranchFailsBeforeUploadWhenNotALocalBranch(t *testing.T) {
 			want: "is not a valid branch name",
 		},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
-			localFact := hostedSyncTestFact("local fact A", now)
-			fake := &hostedFake{}
-			f, _ := newHostedSyncCmdFixture(t, fake)
-			f.writeFacts(t, "main", []factRecord{localFact})
-			tc.script(f)
+		t.Run(tc.name, func(t *testing.T) { assertSyncBranchRefused(t, tc.branch, tc.script, tc.want) })
+	}
+}
 
-			out, err := execute(t, NewRootCommand(f.opts), "memories", "sync", "--branch", tc.branch)
-			if err == nil {
-				t.Fatalf("--branch %q must fail the sync:\n%s", tc.branch, out)
-			}
-			if !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("error must say %q, got %v", tc.want, err)
-			}
-			if fake.has(localFact.ID) {
-				t.Fatal("nothing may be uploaded when the branch cannot be resolved")
-			}
-			for _, call := range f.runner.calls {
-				if call.name == "entire" {
-					t.Fatalf("no token mint or other Entire call may run before the branch resolves: %v", call.args)
-				}
-			}
-		})
+// assertSyncBranchRefused runs `memories sync --branch <branch>` on a repo
+// holding one local memory and checks the sync fails with want, uploads
+// nothing and makes no Entire call (so no token mint) first.
+func assertSyncBranchRefused(t *testing.T, branch string, script func(verifyFixture), want string) {
+	t.Helper()
+	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	localFact := hostedSyncTestFact("local fact A", now)
+	fake := &hostedFake{}
+	f, _ := newHostedSyncCmdFixture(t, fake)
+	f.writeFacts(t, "main", []factRecord{localFact})
+	script(f)
+
+	out, err := execute(t, NewRootCommand(f.opts), "memories", "sync", "--branch", branch)
+	if err == nil {
+		t.Fatalf("--branch %q must fail the sync:\n%s", branch, out)
+	}
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("error must say %q, got %v", want, err)
+	}
+	if fake.has(localFact.ID) {
+		t.Fatal("nothing may be uploaded when the branch cannot be resolved")
+	}
+	for _, call := range f.runner.calls {
+		if call.name == "entire" {
+			t.Fatalf("no token mint or other Entire call may run before the branch resolves: %v", call.args)
+		}
 	}
 }
 
