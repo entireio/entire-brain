@@ -271,17 +271,21 @@ func resolveSyncBranch(ctx context.Context, runner CommandRunner, repoDir, raw s
 // judging reachability from the wrong commit adopts the wrong teammate
 // memories into the store.
 //
-// It runs before the no-egress gate, so it reads only the ref (show-ref),
-// never an object: peeling the tip with rev-parse could lazy-fetch a missing
-// promisor object in a partial clone.
+// It runs before the no-egress gate, so it must not reach the network.
+// `show-ref --verify` still checks that the tip object exists, and in a
+// partial clone that check lazy-fetches a missing tip from the promisor
+// remote. The lookup therefore runs under the local-only Git policy
+// (runCheckpointGitLocal, GIT_NO_LAZY_FETCH=1): a branch whose tip commit is
+// not in the local object store fails here instead of being fetched.
 func resolveSyncBranchTip(ctx context.Context, runner CommandRunner, repoDir, branch string) (string, error) {
 	ref := "refs/heads/" + branch
 	if _, err := base.GitScalar(ctx, runner, repoDir, "check-ref-format", ref); err != nil {
 		return "", fmt.Errorf("memories sync: --branch %q is not a valid branch name", branch)
 	}
-	tip, err := base.GitScalar(ctx, runner, repoDir, "show-ref", "--verify", "--hash", ref)
+	stdout, _, err := runCheckpointGitLocal(ctx, runner, repoDir, "show-ref", "--verify", "--hash", ref)
+	tip := strings.TrimSpace(string(stdout))
 	if err != nil || tip == "" {
-		return "", fmt.Errorf("memories sync: --branch %q has no local branch (%s); fetch or create it first (sync does not fall back to the checkout's HEAD)", branch, ref)
+		return "", fmt.Errorf("memories sync: --branch %q has no local branch with its tip commit in this clone (%s); fetch or create it first (sync does not fall back to the checkout's HEAD)", branch, ref)
 	}
 	return tip, nil
 }

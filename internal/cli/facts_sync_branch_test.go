@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -72,10 +74,22 @@ func TestMemoriesSyncBranchJudgesReachabilityFromThatBranch(t *testing.T) {
 	if !strings.Contains(out, "synced feature via") {
 		t.Fatalf("output must name the synced branch, got %q", out)
 	}
+	lookedUp := false
 	for _, call := range f.runner.calls[before:] {
 		if call.name == "git" && len(call.args) == 4 && call.args[0] == "merge-base" && call.args[3] != syncBranchTestTip {
 			t.Fatalf("--branch sync must judge reachability from the branch tip only: %v", call.args)
 		}
+		if call.name == "git" && len(call.args) > 0 && call.args[0] == "show-ref" {
+			lookedUp = true
+			// The lookup runs before the no-egress gate: it must carry the
+			// local-only policy, or a partial clone lazy-fetches the tip.
+			if call.env[gitNoLazyFetchEnv] != "1" {
+				t.Fatalf("branch lookup must run with %s=1, got env %v", gitNoLazyFetchEnv, call.env)
+			}
+		}
+	}
+	if !lookedUp {
+		t.Fatal("--branch sync must look the branch up with show-ref")
 	}
 }
 
@@ -187,5 +201,66 @@ func TestSyncBranchTipAndReachabilityOnRealGit(t *testing.T) {
 		if _, err := resolveSyncBranchTip(ctx, runner, repo, bad); err == nil {
 			t.Fatalf("--branch %q must not resolve", bad)
 		}
+	}
+}
+
+// A partial clone can hold a branch whose tip commit was never downloaded.
+// Resolving that branch runs before the no-egress gate, so it must fail
+// without asking the promisor remote for the commit.
+func TestSyncBranchTipNeverLazyFetchesInAPartialClone(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	root := t.TempDir()
+	git := func(dir string, env []string, args ...string) (string, error) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), env...)
+		out, err := cmd.CombinedOutput()
+		return strings.TrimSpace(string(out)), err
+	}
+	must := func(dir string, args ...string) string {
+		t.Helper()
+		out, err := git(dir, nil, args...)
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return out
+	}
+	server := filepath.Join(root, "server")
+	must(root, "init", "-q", "-b", "main", server)
+	must(server, "config", "uploadpack.allowfilter", "true")
+	must(server, "config", "uploadpack.allowanysha1inwant", "true")
+	must(server, "commit", "-q", "--allow-empty", "-m", "base")
+	must(server, "checkout", "-q", "-b", "other")
+	must(server, "commit", "-q", "--allow-empty", "-m", "only on the server")
+	remoteOnly := must(server, "rev-parse", "HEAD")
+	must(server, "checkout", "-q", "main")
+
+	client := filepath.Join(root, "client")
+	must(root, "clone", "-q", "--filter=blob:none", "--single-branch", "--branch", "main", "file://"+server, client)
+	// A local branch whose tip object is absent: written as a loose ref,
+	// because update-ref refuses (or lazy-fetches) a missing object.
+	if err := os.WriteFile(filepath.Join(client, ".git", "refs", "heads", "away"), []byte(remoteOnly+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := git(client, nil, "rev-parse", "--verify", "--quiet", "refs/heads/away"); err != nil || out != remoteOnly {
+		t.Skipf("this git does not read a loose ref file (%v, %q); cannot stage the partial-clone case", err, out)
+	}
+	objectIsLocal := func() bool {
+		_, err := git(client, []string{gitNoLazyFetchEnv + "=1"}, "cat-file", "-e", remoteOnly)
+		return err == nil
+	}
+	if objectIsLocal() {
+		t.Fatal("setup: the branch tip must start missing from the partial clone")
+	}
+
+	_, err := resolveSyncBranchTip(context.Background(), ExecRunner{}, client, "away")
+	if objectIsLocal() {
+		t.Fatal("resolving --branch must not lazy-fetch the tip from the promisor remote")
+	}
+	if err == nil || !strings.Contains(err.Error(), "has no local branch with its tip commit") {
+		t.Fatalf("a branch whose tip is not local must fail the lookup, got %v", err)
 	}
 }
