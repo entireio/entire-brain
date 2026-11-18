@@ -249,6 +249,9 @@ func TestInitAgentsMergesPreToolUseHookPreservingOtherSettings(t *testing.T) {
     ],
     "PreToolUse": [
       {"matcher": "Bash", "hooks": [{"type": "command", "command": "rtk hook claude"}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "Agent", "hooks": [{"type": "command", "command": "sh -c 'if ! command -v entire >/dev/null 2>&1; then exit 0; fi; exec entire hooks claude-code post-task'"}]}
     ]
   }
 }`
@@ -268,10 +271,13 @@ func TestInitAgentsMergesPreToolUseHookPreservingOtherSettings(t *testing.T) {
 		t.Fatalf("expected a change at %s, got changed=%v path=%s", settingsPath, changed, path)
 	}
 	merged := readFileString(t, settingsPath)
-	for _, keep := range []string{`"opus"`, "Bash(gh pr merge:*)", "rtk hook claude", "session-end"} {
+	for _, keep := range []string{`"opus"`, "Bash(gh pr merge:*)", "rtk hook claude", "session-end", ">/dev/null 2>&1"} {
 		if !strings.Contains(merged, keep) {
 			t.Fatalf("the merge destroyed %q from the reader's settings:\n%s", keep, merged)
 		}
+	}
+	if strings.Contains(merged, `\u00`) {
+		t.Fatalf("the merge HTML-escaped the reader's shell commands:\n%s", merged)
 	}
 	if !strings.Contains(merged, "hook pre-edit --claude-hook") {
 		t.Fatalf("no pre-edit hook was merged:\n%s", merged)
