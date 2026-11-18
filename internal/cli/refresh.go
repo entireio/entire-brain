@@ -98,9 +98,9 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&refreshOpts.forceAllBranches, "force-all-branches", false, "Allow all local branches instead of the bounded recent-branch default")
 	// An external scheduler running refresh unattended needs the same guard the
 	// watch daemon's tick sets on its refresh: nobody reads its stderr either.
-	// (The daemon still removes legacy memory copies in its Maintain step; a
-	// scheduler that wants that runs a plain refresh now and then.)
-	cmd.Flags().BoolVar(&refreshOpts.skipTranscriptSweep, "no-transcript-sweep", false, "Unattended run: skip the transcript-cache sweep, as watch ticks do, and the legacy memory cleanup")
+	// It also skips the end-of-run memory maintenance pass, as the tick does;
+	// refresh's own memory writes still fold and clean legacy copies.
+	cmd.Flags().BoolVar(&refreshOpts.skipTranscriptSweep, "no-transcript-sweep", false, "Unattended run: skip the transcript-cache sweep, as watch ticks do")
 	for _, name := range []string{"agent", "checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "agent-command", "seed-model", "seed-effort", "semantic", "semantic-worktree", "history-index", "graph-binary", "all-branches", "force-all-branches"} {
 		_ = cmd.Flags().MarkHidden(name)
 	}

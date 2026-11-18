@@ -466,12 +466,11 @@ history/doc indexes, asks `entire-graph` for a semantic snapshot, and stores the
 derived brain under Entire's local plugin data directory.
 
 A scheduled refresh that nobody watches (cron, a CI job, a supervisor process)
-should pass `--no-transcript-sweep`. A plain `refresh` cleans up as it goes: it
-deletes cached transcripts the checkpoint refs no longer list and removes
-verified legacy memory copies, and says so only on stderr. With the flag it
-skips both cleanups; a later plain `refresh` reclaims the space. The watch
-daemon's ticks skip the transcript sweep the same way, but the daemon still
-removes legacy memory copies in its own maintenance step. A worker that also syncs memories for a branch it
+should pass `--no-transcript-sweep`. A plain `refresh` deletes cached
+transcripts the checkpoint refs no longer list, and says so only on stderr.
+With the flag it keeps them, as the watch daemon's own ticks do; a later plain
+`refresh` reclaims the space. Legacy memory copies are still removed once
+verified redundant, as on every memory write. A worker that also syncs memories for a branch it
 has not checked out runs `memories sync --branch NAME`: the pull then judges
 teammate memories against that local branch's history instead of the
 checkout's HEAD, and a branch with no local ref fails before anything is sent.

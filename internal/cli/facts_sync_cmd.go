@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
@@ -114,6 +115,11 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 	}
 
 	branch := strings.TrimSpace(syncOpts.branch)
+	if branch == "" && cmd.Flags().Changed("branch") {
+		// `--branch "$BRANCH"` with an unset variable must not quietly become
+		// a sync of whatever the checkout is on.
+		return errors.New("memories sync: --branch is empty; name a local branch, or leave the flag out to use the checkout's HEAD")
+	}
 	// visibleFrom is the revision the pull judges anchor reachability against.
 	// Without --branch it stays HEAD, read when the pull runs. An explicit
 	// branch is resolved to its commit here, once, before any token mint or
@@ -258,12 +264,16 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
 // refs/heads entry is an error, never a silent fallback to the checkout, since
 // judging reachability from the wrong commit adopts the wrong teammate
 // memories into the store.
+//
+// It runs before the no-egress gate, so it reads only the ref (show-ref),
+// never an object: peeling the tip with rev-parse could lazy-fetch a missing
+// promisor object in a partial clone.
 func resolveSyncBranchTip(ctx context.Context, runner CommandRunner, repoDir, branch string) (string, error) {
 	ref := "refs/heads/" + branch
 	if _, err := base.GitScalar(ctx, runner, repoDir, "check-ref-format", ref); err != nil {
 		return "", fmt.Errorf("memories sync: --branch %q is not a valid branch name", branch)
 	}
-	tip, err := base.GitScalar(ctx, runner, repoDir, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	tip, err := base.GitScalar(ctx, runner, repoDir, "show-ref", "--verify", "--hash", ref)
 	if err != nil || tip == "" {
 		return "", fmt.Errorf("memories sync: --branch %q has no local branch (%s); fetch or create it first (sync does not fall back to the checkout's HEAD)", branch, ref)
 	}

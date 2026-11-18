@@ -25,7 +25,7 @@ const syncBranchTestTip = "f00df00df00df00df00df00df00df00df00df00d"
 func scriptSyncBranch(f verifyFixture, branch, tip, anchor string) {
 	ref := "refs/heads/" + branch
 	f.runner.responses[fakeCommandKey("git", "check-ref-format", ref)] = fakeCommandResponse{}
-	f.runner.responses[fakeCommandKey("git", "rev-parse", "--verify", "--quiet", ref+"^{commit}")] = fakeCommandResponse{stdout: tip + "\n"}
+	f.runner.responses[fakeCommandKey("git", "show-ref", "--verify", "--hash", ref)] = fakeCommandResponse{stdout: tip + "\n"}
 	f.runner.responses[fakeCommandKey("git", "merge-base", "--is-ancestor", anchor, tip)] = fakeCommandResponse{}
 }
 
@@ -91,7 +91,7 @@ func TestMemoriesSyncBranchFailsBeforeUploadWhenNotALocalBranch(t *testing.T) {
 			branch: "gone",
 			script: func(f verifyFixture) {
 				f.runner.responses[fakeCommandKey("git", "check-ref-format", "refs/heads/gone")] = fakeCommandResponse{}
-				// rev-parse stays unscripted: the ref does not exist.
+				// show-ref stays unscripted: the ref does not exist.
 			},
 			want: "has no local branch",
 		},
@@ -102,6 +102,12 @@ func TestMemoriesSyncBranchFailsBeforeUploadWhenNotALocalBranch(t *testing.T) {
 				// check-ref-format stays unscripted: git rejects the name.
 			},
 			want: "is not a valid branch name",
+		},
+		{
+			name:   "explicitly empty branch",
+			branch: "  ",
+			script: func(verifyFixture) {},
+			want:   "--branch is empty",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) { assertSyncBranchRefused(t, tc.branch, tc.script, tc.want) })
