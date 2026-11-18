@@ -49,7 +49,8 @@ type refreshCommandOptions struct {
 	// unattended orchestration (the watch daemon's tick, the session-end
 	// hook): nobody is watching those paths' stderr to learn
 	// that files were deleted. User-invoked `entire brain refresh` and `entire
-	// brain path --ensure` leave this false and still sweep.
+	// brain path --ensure` leave this false and still sweep, unless the caller
+	// is an external supervisor that says so with --no-transcript-sweep.
 	skipTranscriptSweep bool
 }
 
@@ -95,6 +96,9 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&refreshOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
 	cmd.Flags().BoolVar(&refreshOpts.forceAllBranches, "force-all-branches", false, "Allow all local branches instead of the bounded recent-branch default")
+	// An external scheduler running refresh unattended needs the same guard the
+	// watch daemon's tick sets for itself: nobody reads its stderr either.
+	cmd.Flags().BoolVar(&refreshOpts.skipTranscriptSweep, "no-transcript-sweep", false, "Unattended run: keep stale transcript cache files and legacy memory copies instead of sweeping them, as the watch daemon does")
 	for _, name := range []string{"agent", "checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "agent-command", "seed-model", "seed-effort", "semantic", "semantic-worktree", "history-index", "graph-binary", "all-branches", "force-all-branches"} {
 		_ = cmd.Flags().MarkHidden(name)
 	}

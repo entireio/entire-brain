@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
@@ -29,6 +30,9 @@ const (
 
 // factsSyncOptions bundles the flag state for `facts sync`.
 type factsSyncOptions struct {
+	// branch, when set, is the local branch whose history decides which
+	// teammate memories the pull adopts (resolveSyncBranchTip). Empty means
+	// the checkout's HEAD.
 	branch  string
 	backend string
 	// explicit hosted target (flag wins over its ENTIRE_* env variable):
@@ -57,6 +61,13 @@ flag > env > connected binding (--api-url/ENTIRE_API_URL,
 --repo-id/ENTIRE_REPO_ID, --token/ENTIRE_API_TOKEN; on a connected repo the
 binding supplies the target and the token is minted automatically).
 
+The pull adopts a teammate's memory when one of its anchor commits is
+reachable from the checkout's HEAD. --branch NAME judges reachability from
+that local branch instead, so a scheduled worker can sync a branch that is not
+checked out. The branch is resolved to its commit before anything is sent,
+and a branch with no local ref fails the sync rather than falling back to
+HEAD. The push half always uploads the repository's whole local store.
+
 ENTIRE_BRAIN_NO_EGRESS (or its deprecated alias ENTIRE_BRAIN_LOCAL_ONLY)
 suppresses all hosted sync regardless of defaults and flags.`,
 		Args: cobra.NoArgs,
@@ -64,7 +75,7 @@ suppresses all hosted sync regardless of defaults and flags.`,
 			return runFactsSync(cmd, opts, syncOpts)
 		},
 	}
-	cmd.Flags().StringVar(&syncOpts.branch, "branch", "", "Branch to sync (default: current branch)")
+	cmd.Flags().StringVar(&syncOpts.branch, "branch", "", "Local branch whose history decides which teammate memories are adopted (default: the checkout's HEAD)")
 	cmd.Flags().StringVar(&syncOpts.backend, "memories-backend", "", `Memory-set backend; only "http" (the hosted per-fact wire) is supported`)
 	cmd.Flags().StringVar(&syncOpts.repoID, "repo-id", "", "Target repo id (overrides ENTIRE_REPO_ID)")
 	cmd.Flags().StringVar(&syncOpts.apiURL, "api-url", "", "Entire API base URL, https:// (overrides ENTIRE_API_URL)")
@@ -103,6 +114,19 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 	}
 
 	branch := strings.TrimSpace(syncOpts.branch)
+	// visibleFrom is the revision the pull judges anchor reachability against.
+	// Without --branch it stays HEAD, read when the pull runs. An explicit
+	// branch is resolved to its commit here, once, before any token mint or
+	// network call: a checkout that moves mid-sync cannot change the answer,
+	// and a missing branch fails before anything is uploaded.
+	visibleFrom := "HEAD"
+	if branch != "" {
+		tip, err := resolveSyncBranchTip(ctx, opts.Runner, repoDir, branch)
+		if err != nil {
+			return err
+		}
+		visibleFrom = tip
+	}
 	if branch == "" {
 		if current, gitErr := base.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
 			branch = strings.TrimSpace(current)
@@ -139,14 +163,14 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 			fmt.Fprintf(cmd.OutOrStdout(), "memories sync: skipped: %s is set; unset it to sync with Brainstore (memories stay local meanwhile)\n", base.NoEgressToggleName())
 			return nil
 		}
-		return runHostedFactsSync(cmd, opts, syncOpts, repoDir, storage, branch)
+		return runHostedFactsSync(cmd, opts, syncOpts, repoDir, storage, branch, visibleFrom)
 	}
 
 	// Explicit http: the master kill switch still wins over the opt-in.
 	if base.BrainNoEgressMode() {
 		return fmt.Errorf("no_egress: hosted memory sync is disabled while %s is set; unset it to sync", base.NoEgressToggleName())
 	}
-	return runHostedFactsSync(cmd, opts, syncOpts, repoDir, storage, branch)
+	return runHostedFactsSync(cmd, opts, syncOpts, repoDir, storage, branch, visibleFrom)
 }
 
 // runHostedFactsSync is the manual flavor of hostedFactsSyncAndPull: the same
@@ -154,7 +178,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 // rebuild the store), but the user explicitly asked for this
 // sync, so failures surface in the exit code and output instead of degrading
 // to a stderr note (COR-2202 precedent).
-func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions, repoDir string, storage repoStorage, branch string) error {
+func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions, repoDir string, storage repoStorage, branch, visibleFrom string) error {
 	ctx := cmd.Context()
 	errW := cmd.ErrOrStderr()
 	target, err := resolveManualHostedTarget(ctx, opts, storage.BrainDir, repoDir, "memories sync", syncOpts.repoID, syncOpts.apiURL, syncOpts.token)
@@ -170,7 +194,7 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
 	}
 	// The pull runs even after a failed push: the team's memories still land,
 	// and the error below reports exactly which half failed.
-	kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, target.repoID, target.baseURL, target.token)
+	kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, target.repoID, target.baseURL, target.token, visibleFrom)
 	if pushErr == nil && pullErr == nil {
 		// Both halves completed: record the sync marker, same rule as the
 		// background sync (the blind-spot note keys off its absence).
@@ -226,6 +250,24 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
 		fmt.Fprintf(out, "not synced: %d global memory(ies); %s\n", globalLocal, globalFactsStayLocalNote())
 	}
 	return nil
+}
+
+// resolveSyncBranchTip resolves an explicit `memories sync --branch` value to
+// the commit its local ref names. Only a local branch counts: a name git would
+// reject as a branch (revision syntax such as main~1 included) or one with no
+// refs/heads entry is an error, never a silent fallback to the checkout, since
+// judging reachability from the wrong commit adopts the wrong teammate
+// memories into the store.
+func resolveSyncBranchTip(ctx context.Context, runner CommandRunner, repoDir, branch string) (string, error) {
+	ref := "refs/heads/" + branch
+	if _, err := base.GitScalar(ctx, runner, repoDir, "check-ref-format", ref); err != nil {
+		return "", fmt.Errorf("memories sync: --branch %q is not a valid branch name", branch)
+	}
+	tip, err := base.GitScalar(ctx, runner, repoDir, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	if err != nil || tip == "" {
+		return "", fmt.Errorf("memories sync: --branch %q has no local branch (%s); fetch or create it first (sync does not fall back to the checkout's HEAD)", branch, ref)
+	}
+	return tip, nil
 }
 
 // resolveFactsBackendName folds the --memories-backend flag and the env

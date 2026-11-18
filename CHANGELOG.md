@@ -5,6 +5,13 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `refresh --no-transcript-sweep` for scheduled runs that nobody watches. It
+  skips the transcript-cache sweep and the legacy memory cleanup, which a plain
+  `refresh` reports only on stderr. The watch daemon already skips both on its
+  own ticks; an external scheduler had no way to ask for the same (#568).
+
 ### Changed
 
 - Dead-code sweep (COR-2317). Removed: the retired semantic-relevance
@@ -137,6 +144,13 @@ All notable changes to `entire-brain` are recorded here. The format follows
   paths. The error names the rejected path and the rule: `category.subcategory.type`,
   lowercase letters, digits and `_`, no hyphens. `remember --help` and the agent
   guide written by `setup` now state the rule too.
+
+- `memories sync --branch NAME` now syncs that branch. Before, the flag only
+  changed the branch named in the output: the pull still judged teammate
+  memories against the checkout's HEAD, so a worker syncing a branch it had
+  not checked out adopted the wrong set. The branch is resolved to its commit
+  before the token mint or any upload, and a name with no local branch fails
+  instead of falling back to HEAD. A plain `memories sync` is unchanged (#568).
 
 ## [0.5.1] - 2026-11-04
 
