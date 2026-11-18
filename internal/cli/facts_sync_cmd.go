@@ -114,32 +114,9 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 		return err
 	}
 
-	branch := strings.TrimSpace(syncOpts.branch)
-	if branch == "" && cmd.Flags().Changed("branch") {
-		// `--branch "$BRANCH"` with an unset variable must not quietly become
-		// a sync of whatever the checkout is on.
-		return errors.New("memories sync: --branch is empty; name a local branch, or leave the flag out to use the checkout's HEAD")
-	}
-	// visibleFrom is the revision the pull judges anchor reachability against.
-	// Without --branch it stays HEAD, read when the pull runs. An explicit
-	// branch is resolved to its commit here, once, before any token mint or
-	// network call: a checkout that moves mid-sync cannot change the answer,
-	// and a missing branch fails before anything is uploaded.
-	visibleFrom := "HEAD"
-	if branch != "" {
-		tip, err := resolveSyncBranchTip(ctx, opts.Runner, repoDir, branch)
-		if err != nil {
-			return err
-		}
-		visibleFrom = tip
-	}
-	if branch == "" {
-		if current, gitErr := base.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
-			branch = strings.TrimSpace(current)
-		}
-	}
-	if branch == "" {
-		branch = distillDefaultBranch
+	branch, visibleFrom, err := resolveSyncBranch(ctx, opts.Runner, repoDir, syncOpts.branch, cmd.Flags().Changed("branch"))
+	if err != nil {
+		return err
 	}
 
 	if backend == "" {
@@ -256,6 +233,35 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
 		fmt.Fprintf(out, "not synced: %d global memory(ies); %s\n", globalLocal, globalFactsStayLocalNote())
 	}
 	return nil
+}
+
+// resolveSyncBranch returns the branch name the sync reports and visibleFrom,
+// the revision the pull judges anchor reachability against. Without --branch
+// visibleFrom stays HEAD, read when the pull runs, and the label is the
+// checked-out branch. An explicit branch is resolved to its commit here, once,
+// before any token mint or network call: a checkout that moves mid-sync cannot
+// change the answer, and a missing branch fails before anything is uploaded.
+func resolveSyncBranch(ctx context.Context, runner CommandRunner, repoDir, raw string, explicit bool) (branch, visibleFrom string, err error) {
+	branch = strings.TrimSpace(raw)
+	if branch != "" {
+		tip, err := resolveSyncBranchTip(ctx, runner, repoDir, branch)
+		if err != nil {
+			return "", "", err
+		}
+		return branch, tip, nil
+	}
+	if explicit {
+		// `--branch "$BRANCH"` with an unset variable must not quietly become
+		// a sync of whatever the checkout is on.
+		return "", "", errors.New("memories sync: --branch is empty; name a local branch, or leave the flag out to use the checkout's HEAD")
+	}
+	if current, gitErr := base.GitScalar(ctx, runner, repoDir, "branch", "--show-current"); gitErr == nil {
+		branch = strings.TrimSpace(current)
+	}
+	if branch == "" {
+		branch = distillDefaultBranch
+	}
+	return branch, "HEAD", nil
 }
 
 // resolveSyncBranchTip resolves an explicit `memories sync --branch` value to
