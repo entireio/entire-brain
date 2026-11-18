@@ -74,15 +74,25 @@ func TestMemoriesSyncBranchJudgesReachabilityFromThatBranch(t *testing.T) {
 	if !strings.Contains(out, "synced feature via") {
 		t.Fatalf("output must name the synced branch, got %q", out)
 	}
+	assertBranchSyncGitCalls(t, f.runner.calls[before:], syncBranchTestTip)
+}
+
+// assertBranchSyncGitCalls checks the git calls of one `memories sync
+// --branch` run: reachability is judged from the branch tip only, and the
+// branch lookup carries the local-only policy, because it runs before the
+// no-egress gate and a partial clone would otherwise lazy-fetch the tip.
+func assertBranchSyncGitCalls(t *testing.T, calls []fakeCommandCall, tip string) {
+	t.Helper()
 	lookedUp := false
-	for _, call := range f.runner.calls[before:] {
-		if call.name == "git" && len(call.args) == 4 && call.args[0] == "merge-base" && call.args[3] != syncBranchTestTip {
-			t.Fatalf("--branch sync must judge reachability from the branch tip only: %v", call.args)
+	for _, call := range calls {
+		if call.name != "git" || len(call.args) == 0 {
+			continue
 		}
-		if call.name == "git" && len(call.args) > 0 && call.args[0] == "show-ref" {
+		switch {
+		case call.args[0] == "merge-base" && len(call.args) == 4 && call.args[3] != tip:
+			t.Fatalf("--branch sync must judge reachability from the branch tip only: %v", call.args)
+		case call.args[0] == "show-ref":
 			lookedUp = true
-			// The lookup runs before the no-egress gate: it must carry the
-			// local-only policy, or a partial clone lazy-fetches the tip.
 			if call.env[gitNoLazyFetchEnv] != "1" {
 				t.Fatalf("branch lookup must run with %s=1, got env %v", gitNoLazyFetchEnv, call.env)
 			}
