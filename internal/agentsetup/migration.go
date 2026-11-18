@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -114,6 +115,7 @@ func Context(explicit, host string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	ceilings := gitCeilingDirectories()
 	for {
 		_, err := os.Lstat(filepath.Join(p, ".git"))
 		if err == nil {
@@ -123,11 +125,60 @@ func Context(explicit, host string) (string, error) {
 			return "", err
 		}
 		parent := filepath.Dir(p)
-		if parent == p {
+		if parent == p || isGitCeiling(parent, ceilings) {
 			return "", nil
 		}
 		p = parent
 	}
+}
+
+// gitCeilingDirectories reads GIT_CEILING_DIRECTORIES the way git does: a
+// list of absolute directories discovery must not step up into. Git itself
+// honours it, so a walk that finds repositories "without invoking Git" has to
+// as well, or it answers with a repository git would refuse to see -- the
+// enclosing home-folder repository the variable is usually set to fence off.
+// Empty and relative entries are ignored, as git ignores them.
+func gitCeilingDirectories() []string {
+	var ceilings []string
+	for _, entry := range filepath.SplitList(os.Getenv("GIT_CEILING_DIRECTORIES")) {
+		if entry == "" || !filepath.IsAbs(entry) {
+			continue
+		}
+		ceilings = append(ceilings, comparablePath(entry))
+	}
+	return ceilings
+}
+
+// isGitCeiling reports whether dir is one of the ceilings. The walk climbs one
+// directory at a time from the start, so it reaches the nearest ceiling above
+// it before anything higher; stopping there is git's "do not chdir up into"
+// rule. The starting directory is examined even when it is itself a ceiling,
+// which is also what git does.
+func isGitCeiling(dir string, ceilings []string) bool {
+	if len(ceilings) == 0 {
+		return false
+	}
+	d := comparablePath(dir)
+	for _, c := range ceilings {
+		if d == c {
+			return true
+		}
+	}
+	return false
+}
+
+// comparablePath is lexical on purpose: cleaned, and case-folded on Windows,
+// where NTFS paths are case-insensitive. It never touches the filesystem,
+// because a ceiling entry is caller-controlled and resolving one can reach a
+// UNC path and perform network I/O. The cost is that an entry spelled
+// differently from the walk (an 8.3 short name against the long one) does not
+// match, which leaves the walk exactly as unfenced as it was before.
+func comparablePath(p string) string {
+	p = filepath.Clean(p)
+	if runtime.GOOS == "windows" {
+		p = strings.ToLower(p)
+	}
+	return p
 }
 
 // safeKey permits only Brain's normalized repository-key components.
