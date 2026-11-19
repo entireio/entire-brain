@@ -201,8 +201,7 @@ func TestContextHonoursGitCeilingDirectories(t *testing.T) {
 	gitPresent := false
 	if _, err := exec.LookPath("git"); err == nil {
 		gitPresent = true
-		cmd := exec.Command("git", "init", "-q", outer)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := exec.Command("git", "init", "-q", outer).CombinedOutput(); err != nil {
 			t.Fatalf("git init: %v: %s", err, out)
 		}
 	} else if err := os.Mkdir(filepath.Join(outer, ".git"), 0o755); err != nil {
@@ -246,6 +245,7 @@ func TestContextHonoursGitCeilingDirectories(t *testing.T) {
 		})
 	}
 }
+
 func TestCoordinationLegacyMarkerValidation(t *testing.T) {
 	for _, product := range []string{"graph", "brain"} {
 		repo := t.TempDir()
