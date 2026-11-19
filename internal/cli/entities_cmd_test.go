@@ -715,3 +715,130 @@ func TestEntityCommandsWithoutIdentityProbe(t *testing.T) {
 		})
 	}
 }
+
+// TestEntitiesHistoryWarnsAboutCappedCommitsEvenWithNoMatch locks the half of
+// the truncation problem that `show` cannot reach. `show` describes one
+// document; `history` answers from the derived reverse index, which is BUILT
+// from those documents — so an entity a capped commit never recorded is simply
+// absent, and the reply "no indexed entity matches X" is a silent wrong answer
+// shaped exactly like a true one.
+//
+// The no-match case is the one that matters and is asserted first: a reader who
+// gets matches can at least see the answer is partial, while a reader who gets
+// nothing has no signal at all unless we supply one.
+func TestEntitiesHistoryWarnsAboutCappedCommitsEvenWithNoMatch(t *testing.T) {
+	fixture := newEntityIndexFixture(t)
+	fixture.writeSessionManifest(t)
+	fixture.run(t, "entities", "backfill", "--json")
+
+	// Put the cache into the state a capped commit leaves WITHOUT indexing a
+	// 14,839-entity commit: keep MetaTip exactly as backfill left it so
+	// loadEntityIndexView serves this cache instead of rebuilding over it and
+	// clearing the field. Same technique as the cache-cap test above.
+	cache, ok := entities.LoadIndexCache(fixture.storage.BrainDir)
+	if !ok {
+		t.Fatal("backfill built no cache to mark")
+	}
+	cache.CappedCommits = []string{entityFixtureCommitB}
+	if err := saveEntityIndexCache(fixture.storage.BrainDir, cache); err != nil {
+		t.Fatalf("save cache: %v", err)
+	}
+
+	// The dangerous path: a query that finds nothing must still disclose that
+	// the index is known to be missing entities.
+	stdout, stderr := fixture.run(t, "entities", "history", "NoSuchEntityAnywhere", "--json")
+	var missing entities.HistoryResult
+	if err := json.Unmarshal([]byte(stdout), &missing); err != nil {
+		t.Fatalf("decode: %v\n%s", err, stdout)
+	}
+	if len(missing.Matches) != 0 {
+		t.Fatalf("the fixture query matched something, so this is not the no-match path: %+v", missing.Matches)
+	}
+	if missing.CappedCommits != 1 {
+		t.Errorf("JSON CappedCommits = %d, want 1: %+v", missing.CappedCommits, missing)
+	}
+	if !hasWarningContaining(missing.Warnings, "capped delta") {
+		t.Errorf("a no-match answer did not disclose the cap: %+v", missing.Warnings)
+	}
+	if !strings.Contains(stderr, "capped delta") {
+		t.Errorf("the human path did not disclose the cap on stderr: %s", stderr)
+	}
+
+	// And the warning must say the absence is not proof, because that is the
+	// inference the reader would otherwise draw.
+	if !hasWarningContaining(missing.Warnings, "NOT proof") {
+		t.Errorf("the warning does not say an absence is not proof: %+v", missing.Warnings)
+	}
+}
+
+func hasWarningContaining(warnings []string, want string) bool {
+	for _, warning := range warnings {
+		if strings.Contains(warning, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// THE WIRING, not the warning. Deleting `cache.CappedCommits =
+// snapshot.CappedCommits()` left every other test in this file and in the
+// entities package passing, because they write the field into the cache
+// directly or test the message in isolation. The field would then be empty in
+// every real index and the disclosure would never fire — built, tested, inert.
+//
+// So this drives the REAL path: a commit whose graph diff names more entities
+// than maxDeltaEntities, so the indexer genuinely caps the stored delta, the
+// snapshot reports it, the cache records it, and history discloses it. The cap
+// is a const in another package and cannot be lowered from here, which is why
+// the fixture pays for 2,001 changes rather than mocking the flag.
+func TestBackfillRecordsCappedCommitsSoHistoryCanDiscloseThem(t *testing.T) {
+	fixture := newEntityIndexFixture(t)
+	fixture.writeSessionManifest(t)
+
+	// Over-cap commit B: one file, 2,001 added functions.
+	var changes strings.Builder
+	for i := 0; i < 2001; i++ {
+		if i > 0 {
+			changes.WriteString(",")
+		}
+		name := "Generated" + strconv.Itoa(i)
+		changes.WriteString(`{"type":"added","kind":"function","name":"` + name +
+			`","new_signature":"func ` + name + `()","after_start_line":` + strconv.Itoa(i+1) + `}`)
+	}
+	fixture.runner.responses[fakeCommandKey("entire", "graph", "diff", "--repo", fixture.repoDir,
+		"--base", entityFixtureCommitA, "--head", entityFixtureCommitB, "--json")] = fakeCommandResponse{
+		stdout: `{"base":"` + entityFixtureCommitA + `","head":"` + entityFixtureCommitB +
+			`","files":[{"path":"internal/generated/big.go","status":"M","changes":[` + changes.String() + `]}]}`,
+	}
+
+	fixture.run(t, "entities", "backfill", "--json")
+
+	// The cache must have learned it from the snapshot, with nobody writing
+	// the field by hand.
+	cache, ok := entities.LoadIndexCache(fixture.storage.BrainDir)
+	if !ok {
+		t.Fatal("backfill built no cache")
+	}
+	if len(cache.CappedCommits) == 0 {
+		t.Fatal("backfill indexed an over-cap commit but recorded no capped commits, so history can never disclose the gap")
+	}
+	found := false
+	for _, sha := range cache.CappedCommits {
+		if sha == entityFixtureCommitB {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("capped commits = %v, want the over-cap commit %s", cache.CappedCommits, entityFixtureCommitB)
+	}
+
+	// And it reaches the reader.
+	stdout, _ := fixture.run(t, "entities", "history", "NoSuchEntityAnywhere", "--json")
+	var result entities.HistoryResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("decode: %v\n%s", err, stdout)
+	}
+	if result.CappedCommits == 0 || !hasWarningContaining(result.Warnings, "capped delta") {
+		t.Errorf("history did not disclose the cap it recorded: capped=%d warnings=%v", result.CappedCommits, result.Warnings)
+	}
+}

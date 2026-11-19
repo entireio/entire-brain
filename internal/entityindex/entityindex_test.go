@@ -1415,3 +1415,57 @@ func sortBy[T any](values []T, key func(T) string) {
 		}
 	}
 }
+
+// TestCappedCommitsFlagsIncompleteDocumentsWithoutFlaggingCompleteOnes locks
+// the signal that makes a `history` "no match" honest. The reverse index is
+// built from delta documents, so an entity the per-commit cap cut is simply
+// absent and the answer is shaped exactly like a true negative. Measured on
+// this repository, one commit stored 2,000 of 14,839 changed entities.
+//
+// The discrimination that matters is the last two cases: a document sitting
+// exactly on the cap is capped if it is a legacy unmarked write, and complete
+// if a newer writer recorded EntityCount. Collapsing them would either hide a
+// real gap or cry wolf on every large commit.
+func TestCappedCommitsFlagsIncompleteDocumentsWithoutFlaggingCompleteOnes(t *testing.T) {
+	t.Parallel()
+
+	doc := func(t *testing.T, d Delta) string {
+		t.Helper()
+		raw, err := json.Marshal(d)
+		if err != nil {
+			t.Fatalf("marshal delta: %v", err)
+		}
+		return string(raw)
+	}
+	atCap := make([]EntityDelta, legacyUnmarkedDeltaCap)
+
+	snapshot := &Snapshot{forward: map[string]string{
+		"cc11": doc(t, Delta{Truncated: true, EntityCount: 14839, Entities: make([]EntityDelta, 2000)}),
+		"aa22": doc(t, Delta{Entities: atCap}),                                      // legacy, unmarked, exactly at the cap
+		"bb33": doc(t, Delta{Entities: make([]EntityDelta, 3)}),                     // small and complete
+		"dd44": doc(t, Delta{EntityCount: legacyUnmarkedDeltaCap, Entities: atCap}), // NEW writer, complete at the cap
+		"ee55": "{not json",                                                         // unknown shape is not evidence of a cap
+	}}
+
+	got := snapshot.CappedCommits()
+	want := []string{"aa22", "cc11"}
+	if len(got) != len(want) {
+		t.Fatalf("CappedCommits() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("CappedCommits() = %v, want %v (sorted by sha)", got, want)
+		}
+	}
+}
+
+// TestCappedCommitsOnANilSnapshotIsEmpty pins the nil guard the other
+// Snapshot accessors all carry, so a caller holding no snapshot gets no
+// warning rather than a panic.
+func TestCappedCommitsOnANilSnapshotIsEmpty(t *testing.T) {
+	t.Parallel()
+	var snapshot *Snapshot
+	if got := snapshot.CappedCommits(); len(got) != 0 {
+		t.Fatalf("nil Snapshot.CappedCommits() = %v, want empty", got)
+	}
+}
