@@ -123,10 +123,14 @@ func diffCommit(ctx context.Context, runner Runner, repoDir, graphBinary, base, 
 			if _, ok := fields["files"]; !ok {
 				return Delta{}, fmt.Errorf("migration graph diff is missing files")
 			}
-			for _, warning := range envelope.Warnings {
-				if !isUnsupportedMetadataWarning(warning) {
-					return Delta{}, fmt.Errorf("migration graph diff has warnings; refusing potentially incomplete history: %s", warning)
-				}
+			// Not "any warning": only a warning that could have cost THIS
+			// delta an entity. See warnings.go -- the provider reports one
+			// warning per unparseable file in the whole-repository snapshot it
+			// builds at each end of the range, so a single oversized tracked
+			// file refused every commit on this repository and made migration
+			// impossible for a reason that cannot change an entity record.
+			if blocking := blockingWarnings(stdout, envelope.Warnings); len(blocking) > 0 {
+				return Delta{}, fmt.Errorf("migration graph diff reported a failure that could cost this delta entities; refusing potentially incomplete history: %s", blocking[0])
 			}
 			// Entity mapping has the same tolerant rules in migration and
 			// backfill. File-only/unkeyable changes are skipped by ParseDiff;
