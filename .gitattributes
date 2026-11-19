@@ -8,6 +8,16 @@
 # repository contains a CR today, so this changes checkout only, never content.
 *.go text eol=lf
 
+# Shell scripts, by what runs them rather than by extension. A CRLF checkout
+# leaves a CR at the end of every line and `sh` reads it as part of the last
+# word, so the script dies before it does anything: a CRLF copy of
+# mise-tasks/lint/gofmt fails at line 3 with ": command not found" and one of
+# scripts/install-local.sh at line 2 with "set: -: invalid option", both exit 2.
+# The six mise tasks carry shebangs but no extension, so an extension rule
+# alone would leave `mise run lint:gofmt` broken on a default Windows clone.
+*.sh text eol=lf
+mise-tasks/** text eol=lf
+
 # Embedded template assets are compiled into the binary via go:embed, so their
 # bytes must be identical on every platform. Force LF so a Windows checkout does
 # not turn them into CRLF (which leaked a stray "\r" into the distill prompt).
