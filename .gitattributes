@@ -1,3 +1,13 @@
+# Go source. gofmt's output always uses LF, so it reports a CRLF file as
+# unformatted on content nobody touched. With core.autocrlf=true -- the Git for
+# Windows default -- a stock Windows clone checks out every .go file with CRLF,
+# and `gofmt -l -s .` then lists all 1089 of them. That is the gofmt step of
+# `mise run test:prepush`, so the pre-push gate CONTRIBUTING.md asks for cannot
+# pass on a default Windows clone at all. Measured on Windows 11 with Git for
+# Windows 2.56.0. Pinning LF costs nothing here: no committed file in this
+# repository contains a CR today, so this changes checkout only, never content.
+*.go text eol=lf
+
 # Embedded template assets are compiled into the binary via go:embed, so their
 # bytes must be identical on every platform. Force LF so a Windows checkout does
 # not turn them into CRLF (which leaked a stray "\r" into the distill prompt).
