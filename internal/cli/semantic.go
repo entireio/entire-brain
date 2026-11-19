@@ -3,6 +3,7 @@ package cli
 import (
 	"archive/tar"
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -853,6 +854,16 @@ func loadBrainIgnore(repoDir string) (brainIgnore, error) {
 		}
 		return brainIgnore{repoDir: repoDir}, fmt.Errorf("read .brainignore: %w", err)
 	}
+	// A .brainignore written on Windows usually begins with a UTF-8 byte-order
+	// mark: PowerShell's `Set-Content -Encoding utf8` emits one. U+FEFF is not
+	// whitespace to unicode.IsSpace, so strings.TrimSpace below leaves it in
+	// place and the mark becomes part of the first pattern -- which then
+	// matches nothing. The repository asked for a path to be kept out of the
+	// index and out of an agent's context, and it was indexed anyway, with no
+	// error and no warning. Strip exactly one mark, at byte zero, which is
+	// also all git accepts in an exclude file; a second mark, or one on a
+	// later line, stays pattern text.
+	data = bytes.TrimPrefix(data, []byte{0xef, 0xbb, 0xbf})
 	ignore := brainIgnore{repoDir: repoDir}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
