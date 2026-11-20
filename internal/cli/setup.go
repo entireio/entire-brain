@@ -2841,6 +2841,8 @@ func refreshSetupPushHook(ctx context.Context, opts Options, repoDir, brainCmd s
 		return []string{"push hook: core.hooksPath is shared across repos (" + path + "); not managed - uploads ride the daemon tick"}
 	case pushHookAbsent:
 		return []string{"push hook not installed (run `" + base.SetupBrainCommand(brainCmd) + " connect` to upload memories on push)"}
+	case pushHookDormant:
+		return []string{"push hook no longer runs: another hook installer moved it to " + path + " (run `" + base.SetupBrainCommand(brainCmd) + " connect` to put it back)"}
 	case pushHookUnchanged:
 		return []string{"push hook already current (" + path + ")"}
 	case pushHookChainedIn:
