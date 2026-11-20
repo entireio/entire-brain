@@ -132,7 +132,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 			// landing through it.
 			fmt.Fprintf(errW, "hosted sync: publish failed (local brain unaffected): %v; pull-only\n", pushErr)
 		}
-		kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token)
+		kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token, "HEAD")
 		if errors.Is(pullErr, factsync.ErrNoAccess) {
 			// The pull is the half every caller is granted on a healthy
 			// binding, so its denial means the binding itself is stale: the
@@ -359,17 +359,19 @@ var errHostedFeedChanged = errors.New("hosted feed changed during preparation")
 
 // pullHostedFacts fetches the repo delta feed since the stored cursor into
 // the repo-level cache, filters the WHOLE cache by local visibility
-// (keepHostedFact), and rebuilds the branch store from the result. Returns
-// (kept, total cached) for the caller's summary line.
+// (keepHostedFact, judging anchor reachability from visibleFrom: "HEAD", or
+// the commit `memories sync --branch` resolved), and rebuilds the branch
+// store from the result. Returns (kept, total cached) for the caller's
+// summary line.
 //
 // Fetch and filter without the writer lock. Revalidate the cache at commit
 // and merge into the latest local store, preserving concurrent user writes.
-func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token string) (kept, total int, manifestErr, err error) {
+func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token, visibleFrom string) (kept, total int, manifestErr, err error) {
 	for attempt := 1; ; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return 0, 0, nil, err
 		}
-		kept, total, manifestErr, err = pullHostedFactsAttempt(ctx, opts, repoDir, storage, srv, repoID, baseURL, token)
+		kept, total, manifestErr, err = pullHostedFactsAttempt(ctx, opts, repoDir, storage, srv, repoID, baseURL, token, visibleFrom)
 		if !errors.Is(err, errHostedFeedChanged) {
 			return
 		}
@@ -386,7 +388,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 	}
 }
 
-func pullHostedFactsAttempt(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token string) (kept, total int, manifestErr, err error) {
+func pullHostedFactsAttempt(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token, visibleFrom string) (kept, total int, manifestErr, err error) {
 	feedDir, err := hostedFeedDirForKey(opts.Env, storage.Key)
 	if err != nil {
 		return 0, 0, nil, err
@@ -453,7 +455,7 @@ func pullHostedFactsAttempt(ctx context.Context, opts Options, repoDir string, s
 		}
 
 		member := jwtSubClaim(token)
-		reachable := newCommitReachability(ctx, opts.Runner, repoDir)
+		reachable := newCommitReachability(ctx, opts.Runner, repoDir, visibleFrom)
 		var keptRecords []factRecord
 		var retirements []factRecord
 		for _, item := range items {
@@ -467,7 +469,8 @@ func pullHostedFactsAttempt(ctx context.Context, opts Options, repoDir string, s
 				continue
 			}
 			// A retirement bypasses the keep filter: the filter judges
-			// reachability from the CURRENT branch head, but a lifecycle
+			// reachability from visibleFrom (the checkout's HEAD unless
+			// --branch named another branch), but a lifecycle
 			// transition for a record this store already holds must apply
 			// wherever the retiring commit lives — otherwise recall keeps
 			// serving a statement the team retracted. Applied below to
@@ -542,7 +545,7 @@ func pullHostedFactsAttempt(ctx context.Context, opts Options, repoDir string, s
 				}
 			}
 			// Pull never evicts a stored record. The keep filter judges
-			// reachability from the CURRENT branch head, and the flat store holds
+			// reachability from one branch's head (visibleFrom), and the flat store holds
 			// every branch's pulls — a teammate fact pulled on another branch must
 			// stay recallable when syncing here. A stored fact leaves the store
 			// when the feed retires it (the lifecycle moves above, which apply
