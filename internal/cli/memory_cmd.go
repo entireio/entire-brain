@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
@@ -137,12 +138,57 @@ var memoryWorkerLaunchAfter = func(repoDir string, delay time.Duration, prepassF
 	return launchDetachedSelf(repoDir, args...)
 }
 
+// underGoTest reports whether this process is a `go test` binary.
+//
+// It asks two independent questions because either can be wrong on its own: the
+// binary name is absent when a harness renames or copies the executable, and
+// the flag is absent in a `go test -c` binary run directly. Both are cheap and
+// a false positive only costs a skipped background worker.
+func underGoTest() bool {
+	if exe, err := os.Executable(); err == nil && isGoTestBinaryName(exe) {
+		return true
+	}
+	// The testing package registers test.* on the default FlagSet during init.
+	// Production builds never import it, so this is nil there. Checked through
+	// flag rather than testing.Testing() precisely so the testing package stays
+	// out of the shipped binary, where it would register its flags for real.
+	return flag.Lookup("test.v") != nil
+}
+
+// isGoTestBinaryName reports whether exe is named the way `go test` names the
+// binary it builds: <package>.test, or <package>.test.exe on Windows.
+func isGoTestBinaryName(exe string) bool {
+	name := strings.ToLower(filepath.Base(exe))
+	name = strings.TrimSuffix(name, ".exe")
+	return strings.HasSuffix(name, ".test")
+}
+
 // launchDetachedSelf re-execs this plugin binary detached with the
 // worker-origin environment, the one spawn shape every detached verb shares.
+//
+// It REFUSES to run under `go test`, and that refusal is load bearing rather
+// than tidiness. os.Executable() there is the package's own test binary, which
+// does not understand "memory worker --once": it treats them as positional
+// arguments and re-runs THE WHOLE PACKAGE, which reaches this function again.
+// On a Windows machine where the enclosing directory happened to be a git
+// repository, that built a chain of 34 test binaries, each the child of the
+// last, one more every 15-75 seconds. The chain outlived the run, timed the
+// package out at ten minutes (it passes in 376s without it), held the test
+// binary open against deletion, and -- because every link re-ran the full
+// suite in the wrong repository -- wrote agent setup files into the user's
+// home directory.
+//
+// Tests that need the launch observed inject memoryWorkerLaunch or
+// memoryWorkerLaunchAfter. This path is the one nothing injects, so it fails
+// closed. Callers already treat a launch error as best effort.
 func launchDetachedSelf(repoDir string, args ...string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
+	}
+	if underGoTest() {
+		return fmt.Errorf("refusing to re-exec %s under go test: a test binary "+
+			"re-runs its package instead of running %q, which recurses", filepath.Base(exe), strings.Join(args, " "))
 	}
 	command := exec.Command(exe, args...)
 	command.Dir = repoDir

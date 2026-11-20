@@ -389,9 +389,7 @@ func TestWorktreeFingerprintSkipsSymlinksInsideUntrackedDirectory(t *testing.T) 
 	if err := os.WriteFile(secret, []byte("one"), 0o600); err != nil {
 		t.Fatalf("write secret: %v", err)
 	}
-	if err := os.Symlink(secret, filepath.Join(repoDir, "notes", "secret.txt")); err != nil {
-		t.Fatalf("symlink secret: %v", err)
-	}
+	symlinkForTest(t, secret, filepath.Join(repoDir, "notes", "secret.txt"))
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
 		fakeCommandKey("git", "status", "--porcelain"):                {stdout: "?? notes/\n"},
 		fakeCommandKey("git", "diff", "--binary", "HEAD"):             {},
@@ -1505,9 +1503,7 @@ func TestSemanticChangesDefaultDoesNotAcquireIndexLock(t *testing.T) {
 	if err := os.Remove(filepath.Join(lockDir, semanticIndexLockName)); err != nil {
 		t.Fatalf("remove index lock file: %v", err)
 	}
-	if err := os.Symlink(t.TempDir(), filepath.Join(lockDir, semanticIndexLockName)); err != nil {
-		t.Fatalf("replace index lock with symlink: %v", err)
-	}
+	symlinkForTest(t, t.TempDir(), filepath.Join(lockDir, semanticIndexLockName))
 	changesCmd := &cobra.Command{Use: "changes"}
 	if err := runSemanticChanges(changesCmd.Context(), changesCmd, opts, semanticChangesOptions{limit: 10, json: true}); err != nil {
 		t.Fatalf("read-only changes should not inspect or acquire the index lock: %v", err)
@@ -1807,9 +1803,7 @@ func TestSemanticContextContentSkipsSymlinkedRepoPath(t *testing.T) {
 	if err := os.WriteFile(secret, []byte("secret"), 0o600); err != nil {
 		t.Fatalf("write secret: %v", err)
 	}
-	if err := os.Symlink(secret, filepath.Join(repoDir, "link.go")); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
+	symlinkForTest(t, secret, filepath.Join(repoDir, "link.go"))
 	content := semanticContextContent(repoDir, []semanticRecord{{FilePath: "link.go", StartLine: 1, EndLine: 1}})
 	if len(content) != 0 {
 		t.Fatalf("symlinked content was included: %+v", content)
@@ -1992,9 +1986,7 @@ func TestSemanticIndexRejectsSymlinkedLockDirectory(t *testing.T) {
 	if err := os.MkdirAll(brainDir, 0o700); err != nil {
 		t.Fatalf("mkdir brain: %v", err)
 	}
-	if err := os.Symlink(external, filepath.Join(brainDir, semanticLockDir)); err != nil {
-		t.Fatalf("symlink lock dir: %v", err)
-	}
+	symlinkForTest(t, external, filepath.Join(brainDir, semanticLockDir))
 	err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("index err = %v", err)
@@ -2013,9 +2005,7 @@ func TestSemanticIndexRejectsSymlinkedBrainRoot(t *testing.T) {
 		t.Fatalf("mkdir brain parent: %v", err)
 	}
 	external := t.TempDir()
-	if err := os.Symlink(external, brainDir); err != nil {
-		t.Fatalf("symlink brain root: %v", err)
-	}
+	symlinkForTest(t, external, brainDir)
 	err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("index err = %v", err)
@@ -2034,9 +2024,7 @@ func TestSemanticIndexRejectsSymlinkedBrainParent(t *testing.T) {
 		t.Fatalf("mkdir brain parent: %v", err)
 	}
 	external := t.TempDir()
-	if err := os.Symlink(external, filepath.Join(parent, "example")); err != nil {
-		t.Fatalf("symlink brain parent: %v", err)
-	}
+	symlinkForTest(t, external, filepath.Join(parent, "example"))
 	err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("index err = %v", err)
@@ -2055,9 +2043,7 @@ func TestSemanticIndexRejectsSymlinkedSnapshotDestination(t *testing.T) {
 	if err := os.MkdirAll(snapshotsParent, 0o700); err != nil {
 		t.Fatalf("mkdir semantic dir: %v", err)
 	}
-	if err := os.Symlink(t.TempDir(), filepath.Join(snapshotsParent, semanticSnapshotsDir)); err != nil {
-		t.Fatalf("symlink snapshots dir: %v", err)
-	}
+	symlinkForTest(t, t.TempDir(), filepath.Join(snapshotsParent, semanticSnapshotsDir))
 
 	err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
@@ -2295,9 +2281,7 @@ func TestBundleExportRejectsSymlinkedAuditLog(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(auditPath), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, auditPath); err != nil {
-		t.Fatalf("symlink audit: %v", err)
-	}
+	symlinkForTest(t, target, auditPath)
 	err := runSemanticBundleExport(cmd.Context(), cmd, opts, filepath.Join(t.TempDir(), "brain.tar"), false)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("export err = %v", err)
@@ -2331,9 +2315,7 @@ func TestBundleExportRejectsSymlinkAncestorIntoBrainDir(t *testing.T) {
 	}
 	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	link := filepath.Join(t.TempDir(), "link-to-brain")
-	if err := os.Symlink(brainDir, link); err != nil {
-		t.Fatalf("symlink to brain: %v", err)
-	}
+	symlinkForTest(t, brainDir, link)
 	err := runSemanticBundleExport(cmd.Context(), cmd, opts, filepath.Join(link, "new", "bundle.tar"), false)
 	if err == nil || !strings.Contains(err.Error(), "outside the active brain directory") {
 		t.Fatalf("export err = %v", err)
@@ -2357,9 +2339,7 @@ func TestBundleExportRejectsSymlinkOutputIntoBrainDir(t *testing.T) {
 		t.Fatalf("write target: %v", err)
 	}
 	output := filepath.Join(t.TempDir(), "link.tar")
-	if err := os.Symlink(target, output); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
+	symlinkForTest(t, target, output)
 	err := runSemanticBundleExport(cmd.Context(), cmd, opts, output, false)
 	if err == nil || !strings.Contains(err.Error(), "outside the active brain directory") {
 		t.Fatalf("export err = %v", err)
@@ -2466,9 +2446,7 @@ func TestBundleImportRejectsSymlinkedAuditLog(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(auditPath), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, auditPath); err != nil {
-		t.Fatalf("symlink audit: %v", err)
-	}
+	symlinkForTest(t, target, auditPath)
 	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("import err = %v", err)
@@ -2524,9 +2502,7 @@ func TestBundleExportRejectsSymlinkOutput(t *testing.T) {
 		t.Fatalf("write target: %v", err)
 	}
 	output := filepath.Join(t.TempDir(), "brain.tar")
-	if err := os.Symlink(target, output); err != nil {
-		t.Fatalf("symlink output: %v", err)
-	}
+	symlinkForTest(t, target, output)
 	err := runSemanticBundleExport(cmd.Context(), cmd, opts, output, false)
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("export err = %v", err)

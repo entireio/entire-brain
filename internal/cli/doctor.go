@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -351,6 +352,19 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut, verbose bool, failOn s
 		health := inspectAbsoluteInstallDirectory(check.path)
 		report.DirectoryHealth = append(report.DirectoryHealth, health)
 		report.Dirs = append(report.Dirs, doctorDirectoryFinding(check.label, health))
+	}
+	// Synced or networked storage under the data dir breaks SQLite's WAL, and
+	// nothing else in the report would notice: the directory is present and
+	// writable, so every check above passes while the index quietly rots.
+	// Environment-scoped, like the repo-root findings below — it describes the
+	// machine, not this brain's health, so it must never fail a gate.
+	if detail := syncedStoreDirDetail(runtime.GOOS, dirs.Data, os.Getenv); detail != "" {
+		report.Checks = append(report.Checks, doctorCheckResult{
+			Name:   "store location",
+			State:  "warn",
+			Scope:  doctorScopeEnvironment,
+			Detail: detail,
+		})
 	}
 	repoRoot, repoRootSource := doctorRepoRoot(cmd.Context(), opts)
 	report.RepoRoot = repoRoot

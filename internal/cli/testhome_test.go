@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -34,10 +35,18 @@ import (
 func redirectHomeDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	// Both variables, unconditionally: the redirect must not depend on which
-	// platform the test was compiled for.
+	// All three variables, unconditionally: the redirect must not depend on
+	// which platform the test was compiled for.
 	t.Setenv("HOME", dir)        // unix, darwin, and the default everywhere else
 	t.Setenv("USERPROFILE", dir) // windows
+	// LOCALAPPDATA is not read by os.UserHomeDir, so the check below cannot
+	// catch it -- but the Windows data-root rule reads it BEFORE falling back to
+	// %USERPROFILE%\AppData\Local, so a test that redirects the home and leaves
+	// this pointing at the real profile still resolves the real store. Mirroring
+	// the real layout under the redirected home keeps the fallback and the
+	// variable in agreement, so both paths land in the sandbox.
+	// TestDefaultStoreFallbackStaysInsideTheSandbox is what actually asserts it.
+	t.Setenv(base.EnvLocalAppData, filepath.Join(dir, "AppData", "Local"))
 	got, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatalf("redirect home dir: os.UserHomeDir: %v", err)
@@ -95,6 +104,16 @@ func TestDefaultStoreFallbackStaysInsideTheSandbox(t *testing.T) {
 			t.Errorf("%s = %q, want the redirected home %q; os.UserHomeDir reads this "+
 				"variable on at least one supported platform", key, got, home)
 		}
+	}
+
+	// LOCALAPPDATA is checked separately because it is not a home variable: it
+	// must point INSIDE the redirected home, not at it. The Windows data-root
+	// rule prefers it over the %USERPROFILE%\AppData\Local fallback, so leaving
+	// it at the machine's real value is an escape that no POSIX shard can see.
+	if got := os.Getenv(base.EnvLocalAppData); !base.PathInside(home, got) {
+		t.Errorf("%s = %q, want a path inside the redirected home %q; the Windows "+
+			"data-root rule reads this before falling back to the home directory",
+			base.EnvLocalAppData, got, home)
 	}
 
 	// An empty EntireEnv is the "host supplied no plugin dirs" path, and with

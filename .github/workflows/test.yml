@@ -76,10 +76,13 @@ jobs:
     runs-on: depot-ubuntu-24.04-4
     strategy:
       matrix:
+        # windows/arm64 is built here because release.yml and nightly.yml both
+        # SHIP it (their target lists include windows/arm64). It was excluded
+        # from this matrix in the initial commit, with no recorded reason, which
+        # left the one target that is published but never compiled on a pull
+        # request — a break on it would first surface in a release.
         goos: [darwin, linux, windows]
         goarch: [amd64, arm64]
-        exclude:
-          - { goos: windows, goarch: arm64 }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af

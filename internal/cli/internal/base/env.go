@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -91,15 +92,15 @@ func ResolvePluginDirs(env EntireEnv) (PluginDirs, error) {
 	if err != nil {
 		return PluginDirs{}, fmt.Errorf("resolve plugin config dir: %w", err)
 	}
-	dataDir, err := ResolveXDGDir(env.PluginDataDir, EnvPluginDataDir, XDGDataHome, filepath.Join(".local", "share", XDGRootDir))
+	dataDir, err := resolvePluginDataRoot(env.PluginDataDir, runtime.GOOS)
 	if err != nil {
 		return PluginDirs{}, fmt.Errorf("resolve plugin data dir: %w", err)
 	}
 	if env.PluginDataDir == "" {
 		// No host-supplied data dir (standalone/dev run). Mirror the host's
-		// plugin-data layout — <xdg_data>/entire/plugins/data/brain — so the brain
+		// plugin-data layout — <data_root>/entire/plugins/data/brain — so the brain
 		// resolves to the same store the installed plugin uses rather than a shadow
-		// XDG store. Only the data dir is namespaced; the host leaves config/state/
+		// store. Only the data dir is namespaced; the host leaves config/state/
 		// cache unset, so their XDG fallbacks already match.
 		dataDir = filepath.Join(dataDir, "plugins", "data", PluginDataName)
 	}
@@ -137,6 +138,65 @@ func ResolveXDGDir(pluginDir, pluginEnv, xdgEnv, homeFallback string) (string, e
 		return "", fmt.Errorf("resolve home dir: %w", err)
 	}
 	return filepath.Join(home, homeFallback), nil
+}
+
+// windowsGOOS is the runtime.GOOS value the data-root rule below branches on.
+// It is a named constant so the Windows branch can be exercised from a darwin
+// or linux machine by passing it explicitly.
+const windowsGOOS = "windows"
+
+// EnvLocalAppData is the Windows per-user application data root. The host CLI
+// reads it to place the managed plugin tree; the brain reads it only to agree
+// with the host (see resolvePluginDataRoot).
+const EnvLocalAppData = "LOCALAPPDATA"
+
+// resolvePluginDataRoot resolves the directory that holds the host's plugin
+// tree, which the caller then namespaces with plugins/data/<PluginDataName>.
+//
+// An explicit ENTIRE_PLUGIN_DATA_DIR always wins, on every OS: that is the
+// dispatched path, and the host sets it on every plugin invocation.
+//
+// The fallback is where the two implementations disagreed. The host
+// (entireio/cli, pluginParentDir) does NOT use XDG on Windows — it reads
+// %LOCALAPPDATA%, falls back to %USERPROFILE%\AppData\Local, and ignores
+// XDG_DATA_HOME entirely. Resolving the brain's fallback through the XDG rule
+// therefore landed a standalone run on %USERPROFILE%\.local\share\entire while
+// the installed plugin's store sat under %LOCALAPPDATA%\entire: a different,
+// empty store, read with no error and no warning. PluginDataName's comment
+// above already promises we mirror the host here; on Windows we did not.
+//
+// Unix is deliberately untouched. There the host and the brain both resolve
+// XDG_DATA_HOME and then ~/.local/share, so the two already agree exactly, and
+// only the data root is affected either way — config, state and cache are left
+// unset by the host and their XDG fallbacks match on every OS.
+func resolvePluginDataRoot(pluginDir, goos string) (string, error) {
+	if pluginDir != "" || goos != windowsGOOS {
+		return ResolveXDGDir(pluginDir, EnvPluginDataDir, XDGDataHome, filepath.Join(".local", "share", XDGRootDir))
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// Report the miss rather than silently resolving somewhere else: a wrong
+		// store reads as an empty brain, which is worse than a failure.
+		home = ""
+	}
+	return windowsPluginDataRoot(os.Getenv(EnvLocalAppData), home)
+}
+
+// windowsPluginDataRoot is the pure half of the Windows rule, taking the two
+// inputs as arguments so it is testable from any machine.
+//
+// A relative %LOCALAPPDATA% is discarded rather than joined: the host requires
+// an absolute one (requireAbsPluginParent) and would not have placed the store
+// under a relative path, so honouring it here would invent a third location
+// rather than agree with anybody.
+func windowsPluginDataRoot(localAppData, home string) (string, error) {
+	if localAppData != "" && filepath.IsAbs(localAppData) {
+		return filepath.Join(localAppData, XDGRootDir), nil
+	}
+	if home == "" {
+		return "", fmt.Errorf("resolve plugin data root: %s is unset or relative and the home directory is unknown", EnvLocalAppData)
+	}
+	return filepath.Join(home, "AppData", "Local", XDGRootDir), nil
 }
 
 // RejectBrainRootPathSymlinks refuses a brain root behind a symlink and any

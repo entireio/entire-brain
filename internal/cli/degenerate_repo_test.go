@@ -56,9 +56,17 @@ func TestDegenerateRepositoriesAreNamedRatherThanLeakingGitText(t *testing.T) {
 			want: "bare repository has no working tree",
 		},
 		{
-			name:  "not a repository",
-			build: func(t *testing.T) string { return t.TempDir() },
-			want:  "not a git repository",
+			name: "not a repository",
+			build: func(t *testing.T) string {
+				// A temp dir is only outside a repository if no ancestor is
+				// one. On a machine whose home folder is a git repository the
+				// temp dir is inside it, git answers from that repository, and
+				// the condition this case names never arises. Fence the walk.
+				dir := t.TempDir()
+				t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(dir))
+				return dir
+			},
+			want: "not a git repository",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
