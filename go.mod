@@ -1,6 +1,6 @@
 module github.com/entireio/entire-brain
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/charmbracelet/bubbles v1.0.0
@@ -8,16 +8,16 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/charmbracelet/x/term v0.2.2
-	github.com/entireio/cli v0.13.1
+	github.com/entireio/cli v0.13.3
 	github.com/go-git/go-billy/v6 v6.0.0-beta.1
 	github.com/go-git/go-git/v6 v6.0.0-beta.1.0.20261105090440-f07160f87eaa
 	github.com/mattn/go-isatty v0.0.24
 	github.com/mattn/go-runewidth v0.0.31
 	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.10
-	golang.org/x/mod v0.42.0
-	golang.org/x/sys v0.49.0
+	github.com/spf13/pflag v1.1.0
+	golang.org/x/mod v0.43.0
+	golang.org/x/sys v0.50.0
 	modernc.org/sqlite v1.60.1
 )
 
@@ -50,7 +50,7 @@ require (
 	github.com/xo/terminfo v1.0.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	modernc.org/libc v1.77.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect

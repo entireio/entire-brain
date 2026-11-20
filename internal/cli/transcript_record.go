@@ -136,14 +136,20 @@ func etfTexts(line *transcript.Line) []string {
 
 // toolUse is one tool call a transcript record makes, in the shape every
 // dialect shares: the tool's name, lowercased and trimmed; the call ID; the
-// input as generic JSON; and, for a format line, the inlined result's output
-// and status.
+// input as generic JSON; and, for a format line, the inlined result's output,
+// status, exit code, whether the user declined the call, and the call's
+// working directory. The last three are set only where the cli writes them
+// (a current Codex rollout, from cli 0.13.3); a transcript written before
+// that leaves them unset, which says nothing about the call.
 type toolUse struct {
-	name   string
-	id     string
-	input  any
-	output string
-	status string
+	name     string
+	id       string
+	input    any
+	output   string
+	status   string
+	exitCode *int
+	declined bool
+	cwd      string
 }
 
 // etfToolUses returns the tool calls of a format line's tool_use blocks.
@@ -154,9 +160,9 @@ func etfToolUses(line *transcript.Line) []toolUse {
 			continue
 		}
 		use := toolUse{name: normalizeToolName(block.Name), id: block.ID, input: etfJSONValue(block.Input)}
-		if block.Result != nil {
-			use.output = block.Result.Output
-			use.status = block.Result.Status
+		if r := block.Result; r != nil {
+			use.output, use.status = r.Output, r.Status
+			use.exitCode, use.declined, use.cwd = r.ExitCode, r.Declined, r.CWD
 		}
 		out = append(out, use)
 	}

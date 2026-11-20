@@ -13,10 +13,12 @@ import (
 
 // A current Codex rollout reaches the brain through the cli's item path
 // (entireio/cli#2897): a command is a tool_use named "Bash" that carries the
-// command's own output and marks a failure only as status "error", and an edit
-// is a tool_use named "FileChange" with absolute paths. These are the lines
-// the cli's converter writes for a failing go test and an edit of main.go in
-// the checkout at root.
+// command's own output, and an edit is a tool_use named "FileChange" with
+// absolute paths. Before cli 0.13.3 a command marks a failure only as status
+// "error", with no exit code, and a FileChange carries no cwd. These are the
+// lines cli 0.13.1 writes for a failing go test and an edit of main.go in the
+// checkout at root; pattern_corpus_codex_result_fields_test.go covers the
+// fields cli 0.13.3 adds.
 func codexItemPathTranscript(t *testing.T, root string) string {
 	t.Helper()
 	path, err := json.Marshal(root + "/main.go")
@@ -55,9 +57,10 @@ func describeFileRefs(files []corpusFileRef) string {
 	return string(b)
 }
 
-// A Bash block's status "error" is the item path's only failure signal: the
-// command is stored as failed with no exit code. Its output is the command's
-// own, so exit text in it is not read, and status "success" is not a failure.
+// Before cli 0.13.3 a Bash block's status "error" is the item path's only
+// failure signal: the command is stored as failed with no exit code. Its
+// output is the command's own, so exit text in it is not read, and status
+// "success" is not a failure.
 func TestCorpusEpisodeOpsCodexItemPathCommands(t *testing.T) {
 	bash := func(output, status string) string {
 		out, err := json.Marshal(output)
@@ -105,6 +108,10 @@ func TestCorpusEpisodeOpsCodexItemPathFileChange(t *testing.T) {
 		{"empty path skipped", codexFileChange(t, codexChange{Path: "", Kind: "update"}, codexChange{Path: root + "/main.go", Kind: "update"}), root, `["edit main.go"]`},
 		{"move with an empty path keeps the add", codexFileChange(t, codexChange{Path: "", Kind: "update", MovePath: root + "/b/new.go"}), root, `["add b/new.go"]`},
 		{"windows path", codexFileChange(t, codexChange{Path: `C:\work\repo\pkg\a.go`, Kind: "update"}), "C:/work/repo", `["edit pkg/a.go"]`},
+		{"windows path with a lowercase drive", codexFileChange(t, codexChange{Path: `c:\work\repo\pkg\a.go`, Kind: "update"}), "C:/work/repo", `["edit pkg/a.go"]`},
+		{"windows path under a root spelled in another case", codexFileChange(t, codexChange{Path: `C:\work\repo\pkg\a.go`, Kind: "update"}), "C:/Work/Repo", `["edit pkg/a.go"]`},
+		{"windows root prefix in another case is not a parent", codexFileChange(t, codexChange{Path: `C:\work\repo2\a.go`, Kind: "update"}), "C:/Work/Repo", `["edit C:\\work\\repo2\\a.go"]`},
+		{"rooted path under a root spelled in another case kept", codexFileChange(t, codexChange{Path: root + "/main.go", Kind: "update"}), "/Work/Repo", `["edit /work/repo/main.go"]`},
 		{"dot segments cleaned", codexFileChange(t, codexChange{Path: root + "/./pkg//a.go", Kind: "update"}), root, `["edit pkg/a.go"]`},
 		{".. inside the root kept", codexFileChange(t, codexChange{Path: root + "/link/../main.go", Kind: "update"}), root, `["edit /work/repo/link/../main.go"]`},
 		{".. leaving the root kept", codexFileChange(t, codexChange{Path: root + "/../outside/x.go", Kind: "update"}), root, `["edit /work/repo/../outside/x.go"]`},
@@ -164,6 +171,7 @@ func TestCodexSessionRoot(t *testing.T) {
 		), []string{"main.go", "b.go", "c.go"}, "/w/r"},
 		{"move path votes", lines(codexFileChange(t, codexChange{Path: "/w/r/old.go", Kind: "update", MovePath: "/w/r/pkg/new.go"})), []string{"pkg/new.go"}, "/w/r"},
 		{"windows paths", lines(codexFileChange(t, codexChange{Path: `C:\src\repo\pkg\a.go`, Kind: "update"})), []string{"pkg/a.go"}, "C:/src/repo"},
+		{"windows paths with both drive spellings", lines(codexFileChange(t, codexChange{Path: `c:\src\repo\a.go`, Kind: "update"}, codexChange{Path: `C:\src\repo\b.go`, Kind: "update"})), []string{"a.go", "b.go"}, "C:/src/repo"},
 		{"touched spelled with ./", lines(codexFileChange(t, codexChange{Path: "/w/r/main.go", Kind: "update"})), []string{"./main.go"}, "/w/r"},
 		{"no files touched", lines(codexFileChange(t, codexChange{Path: "/w/r/main.go", Kind: "update"})), nil, ""},
 		{"no touched file matches", lines(codexFileChange(t, codexChange{Path: "/w/r/main.go", Kind: "update"})), []string{"other.go"}, ""},
