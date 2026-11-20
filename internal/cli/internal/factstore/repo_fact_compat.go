@@ -15,6 +15,7 @@ package factstore
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -80,6 +81,14 @@ func loadCombined(brainDir string) (combinedRecords, error) {
 }
 
 func loadCombinedWithEvidence(brainDir string, collectEvidence bool) (combinedRecords, error) {
+	return loadCombinedWithEvidenceContext(context.Background(), brainDir, collectEvidence)
+}
+
+func loadCombinedWithEvidenceContext(ctx context.Context, brainDir string, collectEvidence bool) (combinedRecords, error) {
+	if err := ctx.Err(); err != nil {
+		return combinedRecords{}, err
+	}
+
 	combined := combinedRecords{byID: map[string]factmerge.Record{}}
 	version, data, present, err := readStoreFile(brainDir)
 	if err != nil {
@@ -91,11 +100,14 @@ func loadCombinedWithEvidence(brainDir string, collectEvidence bool) (combinedRe
 	switch {
 	case !present:
 	case version == repoFactsVersion:
-		records, err := decodeV3(data)
+		records, err := decodeV3Context(ctx, data)
 		if err != nil {
 			return combined, err
 		}
 		for _, rec := range records {
+			if err := ctx.Err(); err != nil {
+				return combined, err
+			}
 			combined.fold(rec)
 		}
 	case version == 2:
@@ -122,6 +134,9 @@ func loadCombinedWithEvidence(brainDir string, collectEvidence bool) (combinedRe
 	// holds — including a present-but-empty file, which is an explicit purge.
 	fileIDs := map[string]map[string]struct{}{}
 	for _, dir := range combined.legacyDirs {
+		if err := ctx.Err(); err != nil {
+			return combined, err
+		}
 		rel := filepath.Join(DirName, dir, FileName)
 		path := filepath.Join(brainDir, filepath.FromSlash(rel))
 		info, statErr := os.Lstat(path)
@@ -145,6 +160,9 @@ func loadCombinedWithEvidence(brainDir string, collectEvidence bool) (combinedRe
 				}
 				evidence := migrationCleanupEvidence{digest: digest}
 				for _, rec := range records {
+					if err := ctx.Err(); err != nil {
+						return combined, err
+					}
 					rec.Provenance = nil // The fold unions anchors; retain only small payload evidence.
 					evidence.records = append(evidence.records, rec)
 				}
@@ -159,6 +177,9 @@ func loadCombinedWithEvidence(brainDir string, collectEvidence bool) (combinedRe
 		combined.legacyFiles++
 		seenInFile := make(map[string]struct{}, len(records))
 		for _, rec := range records {
+			if err := ctx.Err(); err != nil {
+				return combined, err
+			}
 			if id := strings.TrimSpace(rec.ID); id != "" {
 				if _, repeated := seenInFile[id]; repeated {
 					if combined.collidedIDs == nil {
@@ -181,6 +202,9 @@ func loadCombinedWithEvidence(brainDir string, collectEvidence bool) (combinedRe
 	for dir, records := range v1ByDir {
 		live, hasFile := fileIDs[dir]
 		for _, rec := range records {
+			if err := ctx.Err(); err != nil {
+				return combined, err
+			}
 			if hasFile {
 				if _, ok := live[rec.ID]; !ok {
 					continue

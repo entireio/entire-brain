@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"strings"
@@ -137,34 +138,54 @@ func factQueryTerms(query string) []string {
 	return terms
 }
 
-// bm25Corpus holds the per-call corpus statistics BM25 needs. Recomputed per
-// query over the candidate set — ponytail: O(corpus) per query, measured at
-// well under a millisecond for 1,209 facts; an inverted index is the upgrade
-// path if fact counts grow by orders of magnitude.
+// bm25Corpus keeps document lengths and frequencies of the query terms only.
+// Tokenization and corpus-wide length normalization are unchanged, but a worker
+// need not retain every document's tokens or a vocabulary-wide frequency map.
+// Sparse per-document counts also avoid a corpus-size × query-size allocation
+// for long queries whose terms mostly do not appear in the corpus.
 type bm25Corpus struct {
-	docTokens [][]string
-	df        map[string]int
-	avgLen    float64
+	docLengths []int
+	termFreq   []map[int]int
+	df         []int
+	avgLen     float64
 }
 
-func newBM25Corpus(facts []factRecord) bm25Corpus {
+func newBM25CorpusContext(ctx context.Context, facts []factRecord, terms []string) bm25Corpus {
 	c := bm25Corpus{
-		docTokens: make([][]string, len(facts)),
-		df:        make(map[string]int, len(facts)*8),
+		docLengths: make([]int, len(facts)),
+		termFreq:   make([]map[int]int, len(facts)),
+		df:         make([]int, len(terms)),
+	}
+	if len(terms) == 0 {
+		return c
+	}
+	termIndex := make(map[string]int, len(terms))
+	for i, term := range terms {
+		termIndex[term] = i
 	}
 	total := 0
 	for i, f := range facts {
+		if ctx.Err() != nil {
+			return c
+		}
 		tokens := factSearchTokens(f)
-		c.docTokens[i] = tokens
+		c.docLengths[i] = len(tokens)
 		total += len(tokens)
-		seen := make(map[string]struct{}, len(tokens))
-		for _, t := range tokens {
-			if _, ok := seen[t]; ok {
+		var counts map[int]int
+		for _, token := range tokens {
+			index, matches := termIndex[token]
+			if !matches {
 				continue
 			}
-			seen[t] = struct{}{}
-			c.df[t]++
+			if counts == nil {
+				counts = make(map[int]int)
+			}
+			if counts[index] == 0 {
+				c.df[index]++
+			}
+			counts[index]++
 		}
+		c.termFreq[i] = counts
 	}
 	if len(facts) > 0 {
 		c.avgLen = float64(total) / float64(len(facts))
@@ -172,26 +193,21 @@ func newBM25Corpus(facts []factRecord) bm25Corpus {
 	return c
 }
 
-// bm25Score is the Okapi BM25 text relevance of candidate i for the query
-// terms, over this corpus.
-func (c bm25Corpus) bm25Score(i int, terms []string) float64 {
-	tokens := c.docTokens[i]
-	if len(tokens) == 0 || len(terms) == 0 {
+// bm25Score preserves query-term order when summing floating-point scores.
+func (c bm25Corpus) bm25Score(i int) float64 {
+	length := c.docLengths[i]
+	if length == 0 || len(c.df) == 0 {
 		return 0
 	}
-	tf := make(map[string]int, len(tokens))
-	for _, t := range tokens {
-		tf[t]++
-	}
-	n := float64(len(c.docTokens))
+	n := float64(len(c.docLengths))
 	score := 0.0
-	for _, term := range terms {
-		f := float64(tf[term])
+	for term := range c.df {
+		f := float64(c.termFreq[i][term])
 		if f == 0 {
 			continue
 		}
 		idf := math.Log((n-float64(c.df[term])+0.5)/(float64(c.df[term])+0.5) + 1)
-		norm := 1 - bm25B + bm25B*float64(len(tokens))/c.avgLen
+		norm := 1 - bm25B + bm25B*float64(length)/c.avgLen
 		score += idf * f * (bm25K1 + 1) / (f + bm25K1*norm)
 	}
 	return score
@@ -201,8 +217,8 @@ func (c bm25Corpus) bm25Score(i int, terms []string) float64 {
 // measured shared-code-locus boost. The boost applies only to facts that
 // already match, so it never creates a match on its own — same contract as
 // the scorer this replaces.
-func factBM25Score(f factRecord, c bm25Corpus, i int, terms []string, queryLocus []string) float64 {
-	score := c.bm25Score(i, terms)
+func factBM25Score(f factRecord, c bm25Corpus, i int, queryLocus []string) float64 {
+	score := c.bm25Score(i)
 	if score <= 0 {
 		return 0
 	}

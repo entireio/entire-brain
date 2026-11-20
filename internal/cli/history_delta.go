@@ -531,13 +531,17 @@ func loadFreshHistoryOverlay(brainDir string, source *historySourceManifest) fre
 // the long-term tier, then overlays short-term records without forcing a full
 // index.json load on the common BM25-only path.
 func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceManifest, kind, query string, limit int, predicates ...func(historyRecord) bool) ([]scoredHistoryRecord, string, int, error) {
+	return rankFreshHistoryLexicalFromSourceContext(context.Background(), brainDir, source, kind, query, limit, predicates...)
+}
+
+func rankFreshHistoryLexicalFromSourceContext(ctx context.Context, brainDir string, source *historySourceManifest, kind, query string, limit int, predicates ...func(historyRecord) bool) ([]scoredHistoryRecord, string, int, error) {
 	var pred func(historyRecord) bool
 	if len(predicates) > 0 {
 		pred = predicates[0]
 	}
 	fresh := loadFreshHistoryOverlay(brainDir, source)
 	if len(fresh.replaced) == 0 && len(fresh.overlay) == 0 && pred == nil {
-		return rankHistoryLexicalFromSource(brainDir, source, kind, query, limit)
+		return rankHistoryLexicalFromSourceWithLoaderContext(ctx, brainDir, source, kind, query, limit, historystore.LoadIndex)
 	}
 	// Filter before the payload reader deduplicates or limits candidates. This
 	// preserves the direct path even when the full JSON truth is unavailable.
@@ -558,7 +562,10 @@ func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceMan
 		}
 		return true
 	}
-	lex, used, directErr := rankHistoryViaFreshFTSCutoffDetailed(brainDir, source, kind, query, limit, historyFTSRelevanceCutoff, eligible)
+	lex, used, directErr := rankHistoryViaFreshFTSCutoffDetailedContext(ctx, brainDir, source, kind, query, limit, historyFTSRelevanceCutoff, eligible)
+	if err := ctx.Err(); err != nil {
+		return nil, "", 0, err
+	}
 	derivedCorrupt := errors.Is(directErr, errHistoryFTSPayloadCorrupt)
 	if directErr != nil && !derivedCorrupt {
 		return nil, "", 0, directErr
@@ -567,7 +574,7 @@ func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceMan
 		for _, hit := range lex {
 			fresh.index.Records = append(fresh.index.Records, hit.Record)
 		}
-		ranked := rankFreshHistory(fresh, kind, query, limit, pred, func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, bool) { return lex, true })
+		ranked := rankFreshHistoryContext(ctx, fresh, kind, query, limit, pred, func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, bool) { return lex, true })
 		return ranked, historyIndexAccessFTSPayload, source.Records + len(fresh.overlay), nil
 	}
 	index, err := historystore.LoadIndex(brainDir, source)
@@ -575,12 +582,12 @@ func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceMan
 		return nil, "", 0, err
 	}
 	fresh.index = index
-	repaired := !derivedCorrupt || rebuildHistoryFTSFromTruth(brainDir, index) == nil
-	ranked := rankFreshHistory(fresh, kind, query, limit, pred, func(index historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+	repaired := !derivedCorrupt || rebuildHistoryFTSFromTruthContext(ctx, brainDir, index) == nil
+	ranked := rankFreshHistoryContext(ctx, fresh, kind, query, limit, pred, func(index historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
 		if !repaired {
 			return nil, false
 		}
-		ranked, complete, ok := rankHistoryViaFTSFiltered(brainDir, index, kind, query, limit, historyFTSRelevanceCutoff, eligible)
+		ranked, complete, ok := rankHistoryViaFTSFilteredContext(ctx, brainDir, index, kind, query, limit, historyFTSRelevanceCutoff, eligible)
 		return ranked, ok && complete
 	})
 	return ranked, historyIndexAccessJSON, len(index.Records) + len(fresh.overlay), nil
@@ -791,6 +798,17 @@ func rankFreshHistory(
 	pred func(historyRecord) bool,
 	longTermRank func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, bool),
 ) []scoredHistoryRecord {
+	return rankFreshHistoryContext(context.Background(), fresh, kind, query, limit, pred, longTermRank)
+}
+
+func rankFreshHistoryContext(ctx context.Context,
+	fresh freshHistory,
+	kind, query string,
+	limit int,
+	pred func(historyRecord) bool,
+	longTermRank func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, bool),
+) []scoredHistoryRecord {
+
 	winners := fresh.duplicateRecordWinners()
 	superseded := func(r historyRecord) bool {
 		w, ok := winners[recordReplacementKey(r)]
@@ -803,12 +821,15 @@ func rankFreshHistory(
 		}
 	}
 	lex, ok := longTermRank(fresh.index, eligible)
+	if ctx.Err() != nil {
+		return nil
+	}
 	if !ok {
 		fallback := fresh.index
 		if eligible != nil {
 			fallback = historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: historystore.FilterRecords(fresh.index.Records, eligible)}
 		}
-		lex = rankHistoryRecordsScored(fallback, kind, query, limit, 0)
+		lex = rankHistoryRecordsScoredContext(ctx, fallback, kind, query, limit, 0)
 	}
 	if len(fresh.overlay) == 0 && len(fresh.replaced) == 0 {
 		return lex
@@ -833,7 +854,7 @@ func rankFreshHistory(
 		seenOverlay[key] = true
 		overlayRecords = append(overlayRecords, r)
 	}
-	overlayRanked := rankHistoryRecordsScored(historyIndex{Records: overlayRecords}, kind, query, limit, 0)
+	overlayRanked := rankHistoryRecordsScoredContext(ctx, historyIndex{Records: overlayRecords}, kind, query, limit, 0)
 	if len(overlayRanked) == 0 {
 		return kept
 	}
@@ -853,6 +874,17 @@ func rankFreshHistoryExhaustive(
 	pred func(historyRecord) bool,
 	longTermRank func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, historyExhaustiveRankState, bool, int),
 ) ([]scoredHistoryRecord, historyExhaustiveRankState) {
+	return rankFreshHistoryExhaustiveContext(context.Background(), fresh, kind, query, ceiling, pred, longTermRank)
+}
+
+func rankFreshHistoryExhaustiveContext(ctx context.Context,
+	fresh freshHistory,
+	kind, query string,
+	ceiling int,
+	pred func(historyRecord) bool,
+	longTermRank func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, historyExhaustiveRankState, bool, int),
+) ([]scoredHistoryRecord, historyExhaustiveRankState) {
+
 	if ceiling <= 0 {
 		return nil, historyExhaustiveRankComplete
 	}
@@ -869,6 +901,9 @@ func rankFreshHistoryExhaustive(
 	}
 
 	lex, state, ok, rawScanned := longTermRank(fresh.index, eligibleLongTerm)
+	if ctx.Err() != nil {
+		return nil, historyExhaustiveRankComplete
+	}
 	if state != historyExhaustiveRankComplete {
 		return nil, state
 	}
@@ -883,7 +918,7 @@ func rankFreshHistoryExhaustive(
 		}
 		rawScanned += fallbackScanned
 		fallback := historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: historystore.FilterRecords(fresh.index.Records, eligibleLongTerm)}
-		lex = rankHistoryRecordsScoredExhaustive(fallback, kind, query, ceiling+1)
+		lex = rankHistoryRecordsScoredExhaustiveContext(ctx, fallback, kind, query, ceiling+1)
 		if len(lex) > ceiling {
 			return nil, historyExhaustiveRankCandidateOverflow
 		}
@@ -910,7 +945,7 @@ func rankFreshHistoryExhaustive(
 		seenOverlay[key] = true
 		overlayRecords = append(overlayRecords, r)
 	}
-	overlayRanked := rankHistoryRecordsScoredExhaustive(historyIndex{Records: overlayRecords}, kind, query, ceiling+1)
+	overlayRanked := rankHistoryRecordsScoredExhaustiveContext(ctx, historyIndex{Records: overlayRecords}, kind, query, ceiling+1)
 	if len(overlayRanked) > ceiling {
 		return nil, historyExhaustiveRankCandidateOverflow
 	}
@@ -936,6 +971,10 @@ func exhaustiveHistoryRecordIdentity(r historyRecord) historyRecordReplacementKe
 // valid for session-scoped AND coverage because equal text can be independent
 // evidence in two sessions.
 func rankHistoryRecordsScoredExhaustive(index historyIndex, kind, query string, limit int) []scoredHistoryRecord {
+	return rankHistoryRecordsScoredExhaustiveContext(context.Background(), index, kind, query, limit)
+}
+
+func rankHistoryRecordsScoredExhaustiveContext(ctx context.Context, index historyIndex, kind, query string, limit int) []scoredHistoryRecord {
 	if limit <= 0 {
 		return nil
 	}
@@ -943,6 +982,9 @@ func rankHistoryRecordsScoredExhaustive(index historyIndex, kind, query string, 
 	scored := make([]scoredHistoryRecord, 0, min(len(index.Records), limit))
 	seen := map[historyRecordReplacementKey]struct{}{}
 	for i, record := range index.Records {
+		if ctx.Err() != nil {
+			return nil
+		}
 		if len(allowed) > 0 {
 			if _, ok := allowed[record.Kind]; !ok {
 				continue
