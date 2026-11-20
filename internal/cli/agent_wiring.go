@@ -240,11 +240,17 @@ func installPreEditHook(repoDir string) (string, bool, error) {
 	hooks["PreToolUse"] = entries
 	settings["hooks"] = hooks
 
-	encoded, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
+	// Encode without HTML escaping: hook commands are shell (`>/dev/null 2>&1`),
+	// and MarshalIndent would rewrite the reader's `>` and `&` as >/&,
+	// churning every entry in a file this merge promised to preserve.
+	var encodedBuf bytes.Buffer
+	enc := json.NewEncoder(&encodedBuf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(settings); err != nil {
 		return path, false, err
 	}
-	encoded = append(encoded, '\n')
+	encoded := encodedBuf.Bytes()
 	if err := root.MkdirAll(claudeSettingsDir, 0o755); err != nil {
 		return path, false, err
 	}
