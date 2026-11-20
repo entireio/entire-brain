@@ -254,7 +254,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 
 	manifest, _ := bmanifest.Load(brainDir)
-	needSeed := outputExplicit || refreshOpts.seed.force
+	needSeed := outputExplicit || refreshOpts.seed.force || seedPrunePending(brainDir)
 	// A failed freshness probe is a seed-stage failure, not permission to rebuild.
 	var seedProbeErr error
 	if !needSeed {
