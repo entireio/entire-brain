@@ -40,7 +40,7 @@ func TestHistoryAuditDeclaredDocLossFailsExpansion(t *testing.T) {
 func TestHistoryAuditScannerPreservesClassifier(t *testing.T) {
 	for _, s := range []struct{ role, text, kind string }{{"user", "How many buckets?", "request"}, {"assistant", "I prefer Redis.", "decision"}, {"assistant", "The bug is a null pointer.", "learning"}} {
 		raw, _ := json.Marshal(map[string]any{"type": s.role, "message": map[string]any{"role": s.role, "content": s.text}})
-		got, err := scanHistoryFileReader(context.Background(), strings.NewReader(string(raw)), "sessions/main/test.jsonl", ".jsonl")
+		got, _, err := scanHistoryFileReader(context.Background(), strings.NewReader(string(raw)), "sessions/main/test.jsonl", ".jsonl")
 		found := false
 		for _, r := range got {
 			found = found || r.Kind == s.kind

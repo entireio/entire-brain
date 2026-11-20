@@ -126,8 +126,24 @@ type shortTermIndex struct {
 // extractor stays readable, but its entries can lack what this extractor
 // reads (compact transcripts before revision 12 had no code facts), so it is
 // not complete coverage until a delta re-parses them.
+//
+// A transcript with lines too long to read is indexed without them, so it is
+// not fully represented either. Consolidation indexes it the same way, and the
+// long-term build then reports it among its warnings.
 func (o shortTermIndex) complete() bool {
-	return !o.Truncated && len(o.FailedFiles) == 0 && len(o.ScanWarnings) == 0 && o.ExtractorVersion == historyScanCacheVersion
+	return !o.Truncated && len(o.FailedFiles) == 0 && len(o.ScanWarnings) == 0 && o.ExtractorVersion == historyScanCacheVersion && o.skippedLineFiles() == 0
+}
+
+// skippedLineFiles counts the overlay's transcripts indexed without lines too
+// long to read.
+func (o shortTermIndex) skippedLineFiles() int {
+	n := 0
+	for _, entry := range o.Files {
+		if entry.SkippedLines > 0 {
+			n++
+		}
+	}
+	return n
 }
 
 // shortTermIncompleteness names exactly why an overlay is not complete
@@ -142,6 +158,9 @@ func shortTermIncompleteness(overlay shortTermIndex) string {
 	}
 	if n := len(overlay.ScanWarnings); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d collection warnings", n))
+	}
+	if n := overlay.skippedLineFiles(); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d transcripts indexed without lines of %d bytes or more", n, historyMaxLineBytes))
 	}
 	if overlay.ExtractorVersion != historyScanCacheVersion {
 		parts = append(parts, "built by "+extractorRevisionLabel(overlay.ExtractorVersion)+", re-parsed by the next `refresh delta`")
@@ -172,6 +191,10 @@ type shortTermFile struct {
 	SortTime            time.Time       `json:"sort_time"`
 	Records             []historyRecord `json:"records"`
 	IncompleteExchanges int             `json:"incomplete_exchanges,omitempty"`
+	// SkippedLines counts lines too long to read, which the records leave
+	// out. It travels with the entry when a later delta reuses it, so the
+	// overlay keeps saying it is partial.
+	SkippedLines int `json:"skipped_lines,omitempty"`
 }
 
 // loadHistoryShortTermState loads the overlay with a typed state:
@@ -407,7 +430,7 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 			stats.Reused++
 			continue
 		}
-		records, incomplete, _, ok := scanSessionFileReaderRecords(ctx, bytes.NewReader(content), file.Path, file.Rel)
+		records, incomplete, skipped, _, ok := scanSessionFileReaderRecords(ctx, bytes.NewReader(content), file.Path, file.Rel)
 		if !ok {
 			// Unscannable now: record the identity durably so no surface can
 			// claim complete coverage; the next delta or full build
@@ -420,7 +443,7 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 		records = annotateConversationIdentity(records, rel, repoKey, sessionByPath)
 		overlay.Files[rel] = shortTermFile{
 			Size: file.Size, ModUnixNano: file.ModUnixNano, ContentDigest: contentDigest, SortTime: file.SortTime,
-			Records: records, IncompleteExchanges: incomplete,
+			Records: records, IncompleteExchanges: incomplete, SkippedLines: skipped,
 		}
 		stats.Scanned++
 	}

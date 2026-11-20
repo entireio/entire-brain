@@ -934,14 +934,31 @@ func TestConversationExpansionDistinguishesFailureStates(t *testing.T) {
 		t.Fatalf("expected stale caveat: %+v", result.Caveats)
 	}
 
-	// A line transcript with an in-range line over the scanner bound:
-	// unreadable caveat, not stale.
+	// A line transcript with an in-range line over the scanner bound: the line
+	// is skipped, not fatal, so the source is readable; the expansion says it
+	// is not the full content.
 	huge := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("a", historyMaxLineBytes+1024) + `"}]}}` + "\n"
 	lineRecord := write("sessions/main/20260808T000000Z_line.jsonl", huge)
 	result = conversationGetResult(brainDir, lineRecord)
-	if !hasCaveatKind(result, retrieval.CaveatConversationSourceUnreadable) {
-		t.Fatalf("expected unreadable caveat: %+v", result.Caveats)
+	if hasCaveatKind(result, retrieval.CaveatConversationSourceUnreadable) || hasCaveatKind(result, retrieval.CaveatConversationSourceStale) || !result.Truncated {
+		t.Fatalf("an oversized in-range line must expand as truncated: truncated=%v caveats=%+v", result.Truncated, result.Caveats)
 	}
+
+	// A transcript the store refuses to open (a symlinked leaf): unreadable
+	// caveat, not stale.
+	linkBody := "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"why\"}}\n"
+	targetRecord := write("sessions/main/20260808T000000Z_target.jsonl", linkBody)
+	linkRecord := targetRecord
+	linkRecord.Path = "sessions/main/20260808T000000Z_link.jsonl"
+	t.Run("symlinked leaf is unreadable", func(t *testing.T) {
+		if err := os.Symlink(filepath.Join(brainDir, filepath.FromSlash(targetRecord.Path)), filepath.Join(brainDir, filepath.FromSlash(linkRecord.Path))); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		result := conversationGetResult(brainDir, linkRecord)
+		if !hasCaveatKind(result, retrieval.CaveatConversationSourceUnreadable) || hasCaveatKind(result, retrieval.CaveatConversationSourceStale) {
+			t.Fatalf("expected unreadable caveat: %+v", result.Caveats)
+		}
+	})
 }
 
 func hasCaveatKind(result unifiedResult, kind string) bool {

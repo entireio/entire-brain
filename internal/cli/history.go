@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -81,12 +80,18 @@ const (
 	// v13: a record whose "message" is null or an empty object falls back to
 	// its top-level content. Pre-release revision 12 builds read nothing from
 	// such records, and their caches would otherwise stay current.
+	// v14: a line over historyMaxLineBytes is skipped instead of failing the
+	// whole transcript (issue 641). Revision 13 cached nothing for such a
+	// transcript, but its index still reads as current (the transcripts
+	// fingerprint covers a file whose parse failed), so without the bump a
+	// refresh would keep the dropped sessions missing until some other
+	// transcript changed.
 	// The value is also persisted as the history source's ExtractionVersion
 	// so refresh rebuilds an otherwise-unchanged index built by an older
 	// extractor, and as the short-term overlay's extractor_version so a delta
 	// re-parses entries an older extractor built.
-	historyScanCacheVersion = 13
-	// Extraction revisions 11 to 13 change parser behavior, not the record
+	historyScanCacheVersion = 14
+	// Extraction revisions 11 to 14 change parser behavior, not the record
 	// schema. Keep the wire version readable by supported stable clients. Old
 	// clients drop extractor_version when rewriting, forcing the new parser to
 	// rescan.
@@ -184,6 +189,9 @@ type historyScanCacheEntry struct {
 	// IncompleteExchanges preserves the per-file diagnostic (exchanges opened
 	// with no visible assistant narrative) across cache reuse.
 	IncompleteExchanges int `json:"incomplete_exchanges,omitempty"`
+	// SkippedLines preserves the count of lines too long to read, so a reuse
+	// still warns that the session is partial.
+	SkippedLines int `json:"skipped_lines,omitempty"`
 }
 
 func newHistoryIndexCommand(opts Options) *cobra.Command {
@@ -1103,7 +1111,7 @@ func buildBrainHistoryIndexSnapshotFromStore(ctx context.Context, outputDir stri
 		rel := file.Rel
 
 		var records []historyRecord
-		var incomplete int
+		var incomplete, skipped int
 		content, contentDigest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
 		if errors.Is(readErr, errHistoryTranscriptTooLarge) {
 			// One file too large to read says nothing about the other 322.
@@ -1141,8 +1149,14 @@ func buildBrainHistoryIndexSnapshotFromStore(ctx context.Context, outputDir stri
 			// overwrite transcript truth.
 			records = cached.Records
 			incomplete = cached.IncompleteExchanges
+			skipped = cached.SkippedLines
+			if skipped > 0 {
+				// A reused scan is as partial as the scan that produced it;
+				// every build says so, not only the first.
+				index.Warnings = append(index.Warnings, historySkippedLinesWarning(rel, skipped))
+			}
 		} else {
-			scanned, scannedIncomplete, warnings, ok := scanSessionFileReaderRecords(ctx, bytes.NewReader(content), file.Path, file.Rel)
+			scanned, scannedIncomplete, scannedSkipped, warnings, ok := scanSessionFileReaderRecords(ctx, bytes.NewReader(content), file.Path, file.Rel)
 			index.Warnings = append(index.Warnings, warnings...)
 			if !ok {
 				if progress != nil {
@@ -1152,6 +1166,7 @@ func buildBrainHistoryIndexSnapshotFromStore(ctx context.Context, outputDir stri
 			}
 			records = scanned
 			incomplete = scannedIncomplete
+			skipped = scannedSkipped
 		}
 		// Only files that scanned cleanly (or were reused) are cached; a file
 		// that errored is left out so the next refresh retries it. Branch and
@@ -1167,6 +1182,7 @@ func buildBrainHistoryIndexSnapshotFromStore(ctx context.Context, outputDir stri
 			ModUnixNano:         file.ModUnixNano,
 			Records:             records,
 			IncompleteExchanges: incomplete,
+			SkippedLines:        skipped,
 		}
 		records = annotateHistoryRecordBranches(records, rel, branchByPath)
 		records = annotateConversationIdentity(records, rel, repoKey, sessionByPath)
@@ -1472,7 +1488,7 @@ func scanSessionInventoryFileRecords(ctx context.Context, inventory *historySess
 		}
 		return nil, 0, []string{err.Error()}, false, nil
 	}
-	records, incomplete, warnings, ok = scanSessionFileReaderRecords(ctx, bytes.NewReader(data), file.Path, file.Rel)
+	records, incomplete, _, warnings, ok = scanSessionFileReaderRecords(ctx, bytes.NewReader(data), file.Path, file.Rel)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, 0, nil, false, ctxErr
 	}
@@ -1480,26 +1496,33 @@ func scanSessionInventoryFileRecords(ctx context.Context, inventory *historySess
 }
 
 func scanSessionFileDescriptorRecords(ctx context.Context, f *os.File, path, rel string) (records []historyRecord, incomplete int, warnings []string, ok bool) {
-	return scanSessionFileReaderRecords(ctx, f, path, rel)
+	records, incomplete, _, warnings, ok = scanSessionFileReaderRecords(ctx, f, path, rel)
+	return records, incomplete, warnings, ok
 }
 
-func scanSessionFileReaderRecords(ctx context.Context, f io.ReadSeeker, path, rel string) (records []historyRecord, incomplete int, warnings []string, ok bool) {
+// scanSessionFileReaderRecords also reports skipped, the number of lines too
+// long to read. They cost only themselves: the rest of the session is indexed
+// and a warning names the transcript, so the partial session stays
+// attributable.
+func scanSessionFileReaderRecords(ctx context.Context, f io.ReadSeeker, path, rel string) (records []historyRecord, incomplete, skipped int, warnings []string, ok bool) {
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return nil, 0, []string{fmt.Sprintf("history records skipped for %s: %v", rel, err)}, false
+		return nil, 0, 0, []string{fmt.Sprintf("history records skipped for %s: %v", rel, err)}, false
 	}
-	scanned, scanErr := scanHistoryFileReader(ctx, f, rel, filepath.Ext(path))
+	scanned, skipped, scanErr := scanHistoryFileReader(ctx, f, rel, filepath.Ext(path))
 	if scanErr != nil {
-		// Name the transcript. A whole session drops out of the projection
-		// here — one line over historyMaxLineBytes is enough — and the bare
-		// error ("bufio.Scanner: token too long") named no file, so the only
+		// Name the transcript: a whole session drops out of the projection
+		// here, and a bare scanner error would name no file, so the only
 		// evidence a reader had was a session count that silently disagreed
 		// with the manifest. The conversation branch below already attributes
 		// its failures; this one is the same class of loss, and larger.
-		return nil, 0, []string{fmt.Sprintf("history records skipped for %s: %v", rel, scanErr)}, false
+		return nil, 0, 0, []string{fmt.Sprintf("history records skipped for %s: %v", rel, scanErr)}, false
 	}
 	records = scanned
+	if skipped > 0 {
+		warnings = append(warnings, historySkippedLinesWarning(rel, skipped))
+	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return nil, 0, []string{fmt.Sprintf("history records skipped for %s: %v", rel, err)}, false
+		return nil, 0, 0, []string{fmt.Sprintf("history records skipped for %s: %v", rel, err)}, false
 	}
 	conversationScan, convErr := scanConversationTranscriptFileContext(ctx, f, path)
 	if convErr != nil {
@@ -1508,7 +1531,7 @@ func scanSessionFileReaderRecords(ctx context.Context, f io.ReadSeeker, path, re
 		records = append(records, conversationExchangeRecords(rel, conversationScan)...)
 		incomplete = conversationScan.Incomplete
 	}
-	return records, incomplete, warnings, true
+	return records, incomplete, skipped, warnings, true
 }
 
 // historySessionByTranscriptPath maps each exported transcript path to its
@@ -1810,7 +1833,7 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 	}
 	rel, _ := filepath.Rel(outputDir, path)
 	rel = filepath.ToSlash(rel)
-	records, scanErr := scanHistoryFileReader(context.Background(), f, rel, filepath.Ext(path))
+	records, _, scanErr := scanHistoryFileReader(context.Background(), f, rel, filepath.Ext(path))
 	after, statErr := os.Lstat(path)
 	if statErr != nil || after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() || !os.SameFile(info, after) || after.Size() != info.Size() || !after.ModTime().Equal(info.ModTime()) {
 		return nil, fmt.Errorf("history transcript changed or became unsafe while reading: %s", path)
@@ -1818,29 +1841,34 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 	return records, scanErr
 }
 
-func scanHistoryFileReader(ctx context.Context, f io.ReadSeeker, rel, ext string) ([]historyRecord, error) {
+// scanHistoryFileReader also reports how many lines it skipped for being too
+// long to read (see historyLineScanner); the rest of the transcript is still
+// indexed, with every line keeping its number.
+func scanHistoryFileReader(ctx context.Context, f io.ReadSeeker, rel, ext string) ([]historyRecord, int, error) {
 	// Document-form transcripts (e.g. opencode: one pretty-printed JSON
 	// document) have no individually parseable lines, so the line scanner
 	// below indexes nothing from them. Probe the first line the same way
 	// distill does and route them through the shared document parser instead.
 	if records, isDocument, err := scanDocumentHistoryFileContext(ctx, f, rel); err != nil {
-		return nil, err
+		return nil, 0, err
 	} else if isDocument {
-		return records, nil
+		return records, 0, nil
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil { // rewind the probe read
-		return nil, err
+		return nil, 0, err
 	}
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), historyMaxLineBytes)
+	scanner := newHistoryLineScanner(f)
 	var records []historyRecord
 	lineNumber := 0
 	allowRawText := ext == ".md" || ext == ".txt"
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		lineNumber++
+		if scanner.Oversized() {
+			continue
+		}
 		text := strings.TrimSpace(scanner.Text())
 		if text == "" {
 			continue
@@ -1882,12 +1910,11 @@ func scanHistoryFileReader(ctx context.Context, f io.ReadSeeker, rel, ext string
 			}
 		}
 	}
-	return records, scanner.Err()
+	return records, scanner.Skipped(), scanner.Err()
 }
 
 func scanHistoryLines(ctx context.Context, rel, ext string, reader io.Reader) ([]historyRecord, error) {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 64*1024), historyMaxLineBytes)
+	scanner := newHistoryLineScanner(reader)
 	var records []historyRecord
 	lineNumber := 0
 	allowRawText := ext == ".md" || ext == ".txt"
@@ -1896,6 +1923,9 @@ func scanHistoryLines(ctx context.Context, rel, ext string, reader io.Reader) ([
 			return nil, err
 		}
 		lineNumber++
+		if scanner.Oversized() {
+			continue
+		}
 		text := strings.TrimSpace(scanner.Text())
 		if text == "" {
 			continue

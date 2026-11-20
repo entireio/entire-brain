@@ -83,11 +83,11 @@ func TestEmptyRecordedFingerprintIsCurrentOnlyAgainstAnAbsentSource(t *testing.T
 	}
 }
 
-// A transcript carrying one line over historyMaxLineBytes drops out of the
-// projection entirely -- records and exchanges both. The only evidence used to
-// be a bare "bufio.Scanner: token too long" naming no file, so the session
-// count silently disagreed with the manifest and no reader could tell which
-// session had gone missing.
+// A line over historyMaxLineBytes is skipped, and here it is the transcript's
+// only line, so the session contributes nothing. That loss must stay
+// attributable: the evidence used to be a bare "bufio.Scanner: token too long"
+// naming no file, so the session count silently disagreed with the manifest
+// and no reader could tell which session had gone missing.
 func TestOversizedTranscriptLineWarningNamesTheTranscript(t *testing.T) {
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	brainDir := t.TempDir()
@@ -119,6 +119,6 @@ func TestOversizedTranscriptLineWarningNamesTheTranscript(t *testing.T) {
 	}
 	joined := strings.Join(source.Warnings, "\n")
 	if !strings.Contains(joined, rel) {
-		t.Fatalf("a dropped session must be attributable; warnings = %q", joined)
+		t.Fatalf("a partial session must be attributable; warnings = %q", joined)
 	}
 }

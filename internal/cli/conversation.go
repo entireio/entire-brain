@@ -119,7 +119,8 @@ type conversationExchange struct {
 type conversationScanResult struct {
 	Exchanges []conversationExchange
 	// Incomplete counts exchanges opened by a substantive request that produced
-	// no visible assistant narrative; they are skipped, not indexed.
+	// no visible assistant narrative, or by a user turn too long to read;
+	// they are skipped, not indexed.
 	Incomplete int
 	// SourceDigest is "sha256:<hex>" over the transcript bytes at scan time.
 	SourceDigest string
@@ -207,11 +208,19 @@ func scanLineConversation(r io.Reader) (conversationScanResult, error) {
 
 func scanLineConversationContext(ctx context.Context, r io.Reader) (conversationScanResult, error) {
 	hasher := sha256.New()
-	scanner := bufio.NewScanner(io.TeeReader(contextCheckingReader{ctx: ctx, r: r}, hasher))
-	scanner.Buffer(make([]byte, 0, 64*1024), historyMaxLineBytes)
+	// A line too long to read is skipped, not fatal (see historyLineScanner).
+	// Its bytes still pass through the hasher, so the digest covers the file.
+	scanner := newHistoryLineScanner(io.TeeReader(contextCheckingReader{ctx: ctx, r: r}, hasher))
 
 	var result conversationScanResult
 	var open *conversationExchange
+	// openType is the record type of the open exchange's request line, and
+	// openPaired is set once both codex copies of that turn were seen. unread
+	// is the last user turn too long to read, until something answers it or a
+	// request follows. They exist to recognize codex's two copies of one turn
+	// (see codexTurnCopy), and only those.
+	openType, openPaired := "", false
+	var unread unreadConversationTurn
 	lineNumber := 0
 	closeOpen := func(endLine int) {
 		if open == nil {
@@ -231,6 +240,41 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 			return conversationScanResult{}, err
 		}
 		lineNumber++
+		if scanner.Oversized() {
+			if head := readTranscriptLineHead(scanner.Head()); head.userTurn() {
+				turn := unreadConversationTurn{counted: true, request: turnRequest{recordType: head.recordType, text: head.requestStart(), whole: head.whole}}
+				// An unread codex copy of the still-unanswered open request
+				// is that request, not a new turn. The exchange still spans
+				// a line nobody read, as its expansion will say.
+				if open != nil && !openPaired && strings.TrimSpace(open.Response) == "" && len(open.ToolNames) == 0 && codexTurnCopy(turnRequest{recordType: openType, text: open.Request, whole: true}, turn.request) {
+					open.ResponseOverflow = true
+					openPaired = true
+					continue
+				}
+				// Nor is the other unread codex copy of the turn just counted.
+				if unread.counted && !unread.paired && codexTurnCopy(unread.request, turn.request) {
+					unread.paired = true
+					continue
+				}
+				// A user turn nobody can read (a pasted screenshot, say)
+				// ends the open exchange: the answer after it belongs to a
+				// request without text, not to the one before it. It counts
+				// as an incomplete exchange, so turn ordinals stay aligned.
+				closeOpen(lineNumber - 1)
+				result.Incomplete++
+				unread = turn
+				continue
+			}
+			// The open exchange spans a line nobody read. It is usually a
+			// screenshot or a command's output, but it could be narrative, so
+			// the projection must not claim to be whole. It also separates
+			// an unread turn from the next one.
+			unread = unreadConversationTurn{}
+			if open != nil {
+				open.ResponseOverflow = true
+			}
+			continue
+		}
 		text := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(text, "{") {
 			continue
@@ -245,19 +289,34 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 			// request with no narrative between them is that duplication, not a
 			// new turn.
 			if open != nil && open.Request == request && strings.TrimSpace(open.Response) == "" && len(open.ToolNames) == 0 {
+				openPaired = true
 				continue
 			}
 			closeOpen(lineNumber - 1)
+			requestType := transcriptRecordType(record)
+			openPaired = false
+			if unread.counted && !unread.paired && codexTurnCopy(unread.request, turnRequest{recordType: requestType, text: request, whole: true}) {
+				// The readable codex copy of the unread turn just counted:
+				// it is that turn, so the turn no longer counts apart.
+				result.Incomplete--
+				openPaired = true
+			}
+			unread = unreadConversationTurn{}
 			open = &conversationExchange{TurnOrdinal: len(result.Exchanges) + result.Incomplete + 1, Request: request, Line: lineNumber}
+			openType = requestType
 			continue
 		}
+		narrative, tools := conversationAssistantNarrative(record), conversationToolNames(record)
 		if open == nil {
+			if len(narrative) > 0 || len(tools) > 0 {
+				unread = unreadConversationTurn{}
+			}
 			continue
 		}
-		for _, chunk := range conversationAssistantNarrative(record) {
+		for _, chunk := range narrative {
 			appendConversationNarrative(open, chunk, conversationScanResponseMaxBytes)
 		}
-		open.ToolNames = appendConversationToolNames(open.ToolNames, conversationToolNames(record))
+		open.ToolNames = appendConversationToolNames(open.ToolNames, tools)
 	}
 	if err := scanner.Err(); err != nil {
 		return conversationScanResult{}, err
@@ -265,6 +324,55 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 	closeOpen(lineNumber)
 	result.SourceDigest = "sha256:" + hex.EncodeToString(hasher.Sum(nil))
 	return result, nil
+}
+
+// unreadConversationTurn is a user turn the conversation scan could not read,
+// counted once it counts as incomplete, with the request its head showed.
+type unreadConversationTurn struct {
+	counted bool
+	// paired is set once both codex copies of the turn were seen.
+	paired  bool
+	request turnRequest
+}
+
+// turnRequest is a user turn's request as the scan knows it: the line's record
+// type and the normalized request text, whole (a readable request, or a head
+// that carried all of it) or only its start.
+type turnRequest struct {
+	recordType string
+	text       string
+	whole      bool
+}
+
+// codexTurnCopy reports whether two user-turn lines are codex's two copies of
+// one turn: one response_item and one event_msg with the same text, or, where
+// a head shows only the start of one, text that begins the other. Codex wraps
+// the turn's image differently in each copy, so near the line limit only one
+// may be too long to read. Other dialects write a turn once, so two of their
+// turns are never copies.
+func codexTurnCopy(a, b turnRequest) bool {
+	codex := func(recordType string) bool { return recordType == "response_item" || recordType == "event_msg" }
+	if a.recordType == b.recordType || !codex(a.recordType) || !codex(b.recordType) || a.text == "" || b.text == "" {
+		return false
+	}
+	switch {
+	case a.whole && b.whole:
+		return a.text == b.text
+	case a.whole:
+		return strings.HasPrefix(a.text, b.text)
+	case b.whole:
+		return strings.HasPrefix(b.text, a.text)
+	}
+	return strings.HasPrefix(a.text, b.text) || strings.HasPrefix(b.text, a.text)
+}
+
+// transcriptRecordType is a native record's top-level "type", "" for a line in
+// the Entire Transcript Format.
+func transcriptRecordType(record transcriptRecord) string {
+	if record.obj == nil {
+		return ""
+	}
+	return jsonString(record.obj["type"])
 }
 
 // scanDocumentConversation applies the same role semantics to a document-form
@@ -757,8 +865,9 @@ func expandConversationExchangeContext(ctx context.Context, brainDir string, rec
 // expandLineConversationRange streams only the indexed line range, rebuilding
 // the request and visible assistant narrative under the expansion caps.
 func expandLineConversationRange(r io.Reader, record historyRecord) (conversationExpansion, error) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), historyMaxLineBytes)
+	// The same skipping scanner as index time, so every line keeps the number
+	// the stored range was built from.
+	scanner := newHistoryLineScanner(r)
 	var out conversationExpansion
 	var response strings.Builder
 	lineNumber := 0
@@ -774,6 +883,12 @@ func expandLineConversationRange(r io.Reader, record historyRecord) (conversatio
 		}
 		if lineNumber > endLine {
 			break
+		}
+		if scanner.Oversized() {
+			// Part of the range could not be read, so the expansion is not the
+			// faithful full content of the exchange.
+			out.Truncated = true
+			continue
 		}
 		text := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(text, "{") {

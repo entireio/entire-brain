@@ -37,13 +37,14 @@ func TestHistoryTranscriptSingleReadYieldsDigestAndRecords(t *testing.T) {
 		ext         string
 		content     string
 		wantSummary string
-		wantScanErr bool
+		wantSkipped int
 	}{
 		{name: "jsonl", ext: ".jsonl", content: `{"type":"agent_message","message":"Decision: retain JSONL parsing."}` + "\n", wantSummary: "Decision: retain JSONL parsing."},
 		{name: "document", ext: ".json", content: document, wantSummary: "Decision: retain document parsing."},
 		{name: "markdown", ext: ".md", content: "Decision: retain markdown parsing.\n", wantSummary: "Decision: retain markdown parsing."},
 		{name: "document-shaped fallback", ext: ".md", content: "{\nDecision: retain bounded fallback parsing.\n", wantSummary: "Decision: retain bounded fallback parsing."},
-		{name: "oversized line", ext: ".txt", content: "Decision: " + strings.Repeat("x", historyMaxLineBytes+1) + "\n", wantScanErr: true},
+		// One line too long to read costs that line, not the session.
+		{name: "oversized line", ext: ".txt", content: "Decision: " + strings.Repeat("x", historyMaxLineBytes+1) + "\nDecision: retain the rest of the session.\n", wantSummary: "Decision: retain the rest of the session.", wantSkipped: 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -73,15 +74,15 @@ func TestHistoryTranscriptSingleReadYieldsDigestAndRecords(t *testing.T) {
 			if want := "sha256:" + hex.EncodeToString(sum[:]); digest != want {
 				t.Fatalf("digest = %q, want %q", digest, want)
 			}
-			records, _, warnings, ok := scanSessionFileReaderRecords(context.Background(), bytes.NewReader(content), file.Path, file.Rel)
-			if tc.wantScanErr {
-				if ok || len(warnings) == 0 || !strings.Contains(strings.Join(warnings, " "), "token too long") {
-					t.Fatalf("oversized scan = ok:%v warnings:%v, want a token-too-long refusal", ok, warnings)
-				}
-				return
-			}
+			records, _, skipped, warnings, ok := scanSessionFileReaderRecords(context.Background(), bytes.NewReader(content), file.Path, file.Rel)
 			if !ok {
 				t.Fatalf("scan failed: %v", warnings)
+			}
+			if skipped != tc.wantSkipped {
+				t.Fatalf("skipped = %d, want %d", skipped, tc.wantSkipped)
+			}
+			if tc.wantSkipped > 0 && !strings.Contains(strings.Join(warnings, " "), file.Rel) {
+				t.Fatalf("a partial session must be attributable; warnings = %v", warnings)
 			}
 			found := false
 			for _, record := range records {

@@ -2027,25 +2027,30 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 // its compact transcript the whole export stays raw and says so, rather than
 // silently handing back raw bytes under a "compact" label — which is exactly
 // what the reader used to do, unconditionally, for every v1 checkpoint.
+//
+// The warning counts sessions and checkpoints separately. members is every
+// (session, checkpoint) pair, including each exported session's own newest
+// checkpoint, so adding its misses to the session count counted most sessions
+// twice and could report more missing sessions than were exported ("97 of
+// 94").
 func useCompactTranscripts(selected map[string]selectedSession, members []sessionCheckpoint) (string, []string) {
-	total := 0
-	missing := 0
+	missingSessions := 0
 	for _, session := range selected {
-		total++
 		if session.CompactTranscriptPath == "" {
-			missing++
+			missingSessions++
 		}
 	}
+	missingCheckpoints := 0
 	for _, member := range members {
 		if member.CompactTranscriptPath == "" {
-			missing++
+			missingCheckpoints++
 		}
 	}
-	if total == 0 {
+	if len(selected) == 0 {
 		return "raw", nil
 	}
-	if missing > 0 {
-		return "raw", []string{fmt.Sprintf("compact transcripts unavailable for %d of %d exported v1 sessions; exported raw full.jsonl logs", missing, total)}
+	if missingSessions > 0 || missingCheckpoints > 0 {
+		return "raw", []string{fmt.Sprintf("compact transcripts unavailable for %d of %d exported v1 sessions and %d of %d session checkpoints; exported raw full.jsonl logs", missingSessions, len(selected), missingCheckpoints, len(members))}
 	}
 	for key, session := range selected {
 		session.SourceTranscriptPath = session.CompactTranscriptPath

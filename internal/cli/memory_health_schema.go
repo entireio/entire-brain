@@ -94,6 +94,7 @@ func memoryOverlayHealth(brainDir string, source *historySourceManifest) map[str
 	health["truncated"] = overlay.Truncated
 	health["failed_files"] = len(overlay.FailedFiles)
 	health["scan_warnings"] = len(overlay.ScanWarnings)
+	health["skipped_line_files"] = overlay.skippedLineFiles()
 	if source == nil || !overlay.BaseGeneratedAt.Equal(source.GeneratedAt) {
 		health["state"] = shortTermStateStale
 		health["error_code"] = brainstore.SourceStaleCode
