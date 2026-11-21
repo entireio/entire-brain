@@ -41,7 +41,10 @@ deterministic, no agent.
 
 Added `Kind` to `factRecord` (additive metadata — **not** in the id hash, so ids /
 provenance / vector cache are stable). Closed set
-`decision|invariant|gotcha|preference|convention`. Hybrid source: the distill /
+`decision|invariant|gotcha|preference|convention` as it landed here;
+`closed-negative` was added to the set in Phase 2 and the list is now rendered
+from `factmerge.FactKinds` rather than written out by hand, because six copies
+of this sentence had drifted apart. Hybrid source: the distill /
 `remember` prompts emit a leading `kind<TAB>` column (parser tolerant of the
 legacy 2-field form), and `inferFactKind` (taxonomy prior + high-precision text
 cues) backfills the rest for free. New surfaces: `facts reclassify` (no-agent
