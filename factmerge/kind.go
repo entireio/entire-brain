@@ -36,3 +36,32 @@ func ValidFactKind(kind string) bool {
 	_, ok := validFactKinds[strings.ToLower(strings.TrimSpace(kind))]
 	return ok
 }
+
+// FactKinds is the closed set in a stable order. Every user-facing list of
+// kinds — flag help, validation errors, the tree's narrowing hint — renders
+// from this one slice, because they did not: four hand-written copies all read
+// "decision|invariant|gotcha|preference|convention", and every one of them
+// omitted closed-negative, the sixth member.
+//
+// The omission was not cosmetic. 448 of this repository's own 3,950 memories
+// (11%) carry that kind, and a flag whose help does not name a value is a value
+// nobody passes; ValidateKindFlag's error named the same five, so a user who
+// read "closed-negative" out of `--json` and guessed the flag right was told
+// the kind they were looking at was invalid. On `remember` it cost more than
+// discovery: an agent reading that help never authors one at all, so the kind
+// the set exists to carry — a question settled negatively, which is what stops
+// the next session re-exploring a dead end — arrived only by inference.
+var FactKinds = []string{
+	KindDecision,
+	KindInvariant,
+	KindGotcha,
+	KindPreference,
+	KindConvention,
+	KindClosedNegative,
+}
+
+// FactKindList renders the kinds for flag help and errors. One renderer, so a
+// kind cannot be added to the vocabulary and left out of every sentence that
+// tells a user it exists — which is exactly how closed-negative stayed hidden
+// through six releases.
+func FactKindList() string { return strings.Join(FactKinds, "|") }

@@ -39,7 +39,7 @@ func NewRemember(cfg Config) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&rememberOpts.Path, "path", "", "Taxonomy path(s), comma-separated, at most 2. Each is "+factmerge.PathRule+", e.g. preferences.coding.style. If omitted, the agent classifies the memory")
-	cmd.Flags().StringVar(&rememberOpts.Kind, "kind", "", "Memory kind: decision|invariant|gotcha|preference|convention. If omitted, it is inferred")
+	cmd.Flags().StringVar(&rememberOpts.Kind, "kind", "", "Memory kind: "+factmerge.FactKindList()+". If omitted, it is inferred")
 	cmd.Flags().StringVar(&rememberOpts.Branch, "branch", "", "Branch to store the memory on (default: current branch)")
 	cmd.Flags().StringVar(&rememberOpts.Session, "session", "", "Session id the memory was authored in (default: $"+RememberSessionEnv+"); agent and hook callers pass it so the memory carries session provenance")
 	cmd.Flags().StringVar(&rememberOpts.Agent, "agent", "auto", "Agent used to classify when --path is omitted: auto, codex, claude-code, ollama, command, or none")

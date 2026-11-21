@@ -236,7 +236,7 @@ func ValidateKindFlag(kind string) error {
 	if strings.TrimSpace(kind) == "" || factmerge.ValidFactKind(kind) {
 		return nil
 	}
-	return fmt.Errorf("--kind must be one of decision|invariant|gotcha|preference|convention")
+	return fmt.Errorf("--kind must be one of %s", factmerge.FactKindList())
 }
 
 // ValidateScopeFlag rejects an unrecognized --scope value.
