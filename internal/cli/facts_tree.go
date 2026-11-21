@@ -2,11 +2,13 @@ package cli
 
 import (
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"os"
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
@@ -137,11 +139,83 @@ func filterTreeByPath(root *factTreeNode, prefix string) *factTreeNode {
 	return out
 }
 
+// kindBreakdownHint renders a leaf's KIND histogram as a narrowing offer,
+// densest first, or "" when the leaf is all one kind and narrowing would not
+// divide it. KindOrInferred, not Record.Kind: a record whose stored kind is
+// absent or outside the closed set is filtered under its inferred one, so
+// offering the raw field would advertise a --kind value that then matches
+// nothing.
+func kindBreakdownHint(records []factRecord) string {
+	counts := map[string]int{}
+	for _, f := range records {
+		counts[factstore.KindOrInferred(f)]++
+	}
+	if len(counts) < 2 {
+		return ""
+	}
+	kinds := make([]string, 0, len(counts))
+	for kind := range counts {
+		kinds = append(kinds, kind)
+	}
+	sort.Slice(kinds, func(i, j int) bool {
+		if counts[kinds[i]] != counts[kinds[j]] {
+			return counts[kinds[i]] > counts[kinds[j]]
+		}
+		return kinds[i] < kinds[j]
+	})
+	parts := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		parts = append(parts, fmt.Sprintf("%s (%d)", kind, counts[kind]))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// leafNavigationHint is the pointer printed under a sampled leaf, or "" when
+// nothing was held back.
+//
+// It used to be "drill with --path <leaf>" unconditionally. That advances
+// while you are reading the whole tree, and is the identity the moment you are
+// already standing on that leaf: `memories tree --path constraints.invariants.general`
+// ends in "(+876 more — drill with --path constraints.invariants.general)",
+// which is the command that produced it. Progressive disclosure is the stated
+// reason this command exists, and a move that returns you to where you are
+// discloses nothing.
+//
+// The store's shape makes that the common case rather than an edge. Measured
+// on this repository's own brain: 595 taxonomy paths over 3,950 memories, of
+// which 5 paths hold 67% and 469 paths hold exactly one memory each. The
+// buckets a reader actually opens are precisely the oversized ones whose only
+// offered move was the identity.
+//
+// What advances from a terminal leaf is a different axis. KIND is the one that
+// exists, is closed (so it cannot sprawl the way the free-text taxonomy did),
+// and already composes with --path because FilterByKind runs before the tree is
+// built. It also genuinely divides: that same 879-memory bucket is gotcha 477,
+// invariant 306, closed-negative 57, decision 38, convention 1. Once --kind is
+// spent too, --leaves is the honest last move, and recall is named because at
+// that point the question is a query, not a walk.
+func leafNavigationHint(leaf *factTreeNode, rest int, drilledPath, drilledKind string) string {
+	if rest <= 0 {
+		return ""
+	}
+	if !strings.EqualFold(leaf.Label, strings.TrimSpace(drilledPath)) {
+		return fmt.Sprintf("(+%d more — drill with --path %s)", rest, leaf.Label)
+	}
+	if strings.TrimSpace(drilledKind) == "" {
+		if breakdown := kindBreakdownHint(leaf.Facts); breakdown != "" {
+			return fmt.Sprintf("(+%d more — narrow with --kind: %s)", rest, breakdown)
+		}
+	}
+	return fmt.Sprintf("(+%d more — raise --leaves, or query with `%s`)",
+		rest, base.BrainInvocation(os.LookupEnv, "recall"))
+}
+
 // renderFactTree writes the outline. depth 1 prints categories only; depth 2
 // adds the path leaves; depth >= 3 adds up to `leaves` sample facts per leaf
-// with a "+N more" pointer so the rest is reachable via recall or a deeper
-// drill, never silently hidden.
-func renderFactTree(cmd *cobra.Command, root *factTreeNode, depth, leaves int) {
+// with a "+N more" pointer so the rest is reachable, never silently hidden.
+// drilledPath and drilledKind are what the caller already narrowed by, so the
+// pointer can offer a move that is not the one just taken.
+func renderFactTree(cmd *cobra.Command, root *factTreeNode, depth, leaves int, drilledPath, drilledKind string) {
 	for _, cat := range root.Children {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s (%d)\n", cat.Label, cat.Count)
 		if depth < 2 {
@@ -159,8 +233,8 @@ func renderFactTree(cmd *cobra.Command, root *factTreeNode, depth, leaves int) {
 			for _, f := range shown {
 				fmt.Fprintf(cmd.OutOrStdout(), "    - %s\n", base.TruncateString(f.Text, 140))
 			}
-			if rest := leaf.Count - len(shown); rest > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "    (+%d more — drill with --path %s)\n", rest, leaf.Label)
+			if hint := leafNavigationHint(leaf, leaf.Count-len(shown), drilledPath, drilledKind); hint != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "    %s\n", hint)
 			}
 		}
 	}
@@ -224,7 +298,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 				return integrityErr
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%d memories on %s%s\n", distinct, resolvedBranch, pathSuffix(path))
-			renderFactTree(cmd, tree, depth, leaves)
+			renderFactTree(cmd, tree, depth, leaves, path, kind)
 			return integrityErr
 		},
 	}
@@ -234,7 +308,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&leaves, "leaves", 3, "Sample memories to show per path at depth 3")
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted memories")
 	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) memories")
-	cmd.Flags().StringVar(&kind, "kind", "", "Restrict to one kind: decision|invariant|gotcha|preference|convention")
+	cmd.Flags().StringVar(&kind, "kind", "", "Restrict to one kind: "+factmerge.FactKindList())
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the tree as JSON")
 	return cmd
 }
