@@ -1,0 +1,52 @@
+{
+  "cli_version": "0.11.5-nightly.202610100625.1f44a6f96.0.20261024214757-e7c0393725dd",
+  "checkpoint_id": "01M7XPTP9NN2KEYAN7C89JT9JR",
+  "strategy": "manual-commit",
+  "branch": "fix/memory-view",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "docs/durable_facts_handover.md",
+    "factmerge/kind.go",
+    "factmerge/kind_list_test.go",
+    "internal/cli/command/facts/facts_read_cmd.go",
+    "internal/cli/command/facts/facts_write_cmd.go",
+    "internal/cli/internal/factstore/factstore.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 230,
+    "cache_creation_tokens": 483984,
+    "cache_read_tokens": 26852297,
+    "output_tokens": 92749,
+    "api_call_count": 115,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  },
+  "redaction": {
+    "replacements": 340,
+    "layers": {
+      "betterleaks": 5,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 10,
+      "credentialed_uri": 0,
+      "entropy": 360,
+      "key_context": 0,
+      "provider_token": 10,
+      "shell_stdin": 0
+    }
+  }
+}
