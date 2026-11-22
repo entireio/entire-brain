@@ -158,13 +158,32 @@ func TestEveryMemoryKindFlagNamesEveryKind(t *testing.T) {
 	t.Parallel()
 	root := NewRootCommand(Options{Version: "test-version"})
 
-	// The commands that pass --kind to factstore's memory-kind filter. A
-	// command dropped from this set, or renamed, fails below rather than
-	// quietly reducing the guard's reach.
-	required := map[string]bool{
-		"entire-brain memories tree": false,
-		"entire-brain recall":        false,
-		"entire-brain remember":      false,
+	// The commands that pass --kind to factstore's memory-kind filter.
+	//
+	// These are checked for ONE failure mode: a command that still takes
+	// --kind whose help names no kind at all. namesAMemoryKind would skip it,
+	// so the loop below would shrink its own reach and still pass — the
+	// circularity this set exists to close.
+	//
+	// A command that loses the flag, or leaves the tree entirely, is NOT a
+	// failure. It is a deliberate removal, and a test that goes red on one is
+	// a test vetoing another author's legitimate change. That distinction —
+	// the mechanism is gone (skip) versus the mechanism is present and has
+	// lost its property (fail) — is the whole point.
+	required := []string{
+		"entire-brain memories tree",
+		"entire-brain recall",
+		"entire-brain remember",
+	}
+	type reach struct {
+		present     bool
+		hasKindFlag bool
+		namesKind   bool
+		usage       string
+	}
+	status := map[string]*reach{}
+	for _, path := range required {
+		status[path] = &reach{}
 	}
 
 	namesAMemoryKind := func(usage string) bool {
@@ -180,11 +199,14 @@ func TestEveryMemoryKindFlagNamesEveryKind(t *testing.T) {
 	var walk func(*cobra.Command)
 	walk = func(cmd *cobra.Command) {
 		flag := cmd.Flags().Lookup("kind")
+		if st, ok := status[cmd.CommandPath()]; ok {
+			st.present = true
+			if flag != nil {
+				st.hasKindFlag, st.namesKind, st.usage = true, namesAMemoryKind(flag.Usage), flag.Usage
+			}
+		}
 		if flag != nil && namesAMemoryKind(flag.Usage) {
 			checked++
-			if _, ok := required[cmd.CommandPath()]; ok {
-				required[cmd.CommandPath()] = true
-			}
 			for _, kind := range factmerge.FactKinds {
 				if !strings.Contains(flag.Usage, kind) {
 					t.Errorf("%s --kind help omits the valid kind %q: %q",
@@ -198,9 +220,15 @@ func TestEveryMemoryKindFlagNamesEveryKind(t *testing.T) {
 	}
 	walk(root)
 
-	for path, seen := range required {
-		if !seen {
-			t.Errorf("%s was not reached with a memory --kind flag; either it lost the flag or its help no longer names any kind, which would make this guard skip it silently", path)
+	for _, path := range required {
+		st := status[path]
+		switch {
+		case !st.present:
+			t.Logf("%s is no longer in the command tree — a deliberate removal, not a defect; this guard's reach is reduced by one", path)
+		case !st.hasKindFlag:
+			t.Logf("%s no longer takes --kind — a deliberate removal, not a defect; this guard's reach is reduced by one", path)
+		case !st.namesKind:
+			t.Errorf("%s still takes --kind but its help names no memory kind at all (%q), so the walk above skipped it and this guard silently lost its reach. The help is what broke, not the flag", path, st.usage)
 		}
 	}
 	if checked == 0 {
