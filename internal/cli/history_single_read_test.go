@@ -75,8 +75,8 @@ func TestHistoryTranscriptSingleReadYieldsDigestAndRecords(t *testing.T) {
 			}
 			records, _, warnings, ok := scanSessionFileReaderRecords(context.Background(), bytes.NewReader(content), file.Path, file.Rel)
 			if tc.wantScanErr {
-				if ok || len(warnings) == 0 || !strings.Contains(strings.Join(warnings, " "), "token too long") {
-					t.Fatalf("oversized scan = ok:%v warnings:%v, want a token-too-long refusal", ok, warnings)
+				if !ok || len(warnings) == 0 || !strings.Contains(strings.Join(warnings, " "), "1 oversized") {
+					t.Fatalf("oversized scan = ok:%v warnings:%v, want a counted skip warning", ok, warnings)
 				}
 				return
 			}

@@ -63,27 +63,29 @@ func TestHistoryScanCacheWireCompatibilityAndExtractionInvalidation(t *testing.T
 	}
 }
 
-// A cache written by the previous extractor revision (wire 10,
-// extractor_version one lower) must be rescanned rather than reused.
+// Revision 14 could join exchanges across skipped lines; it and the previous
+// extractor revision must be rescanned rather than reused.
 func TestHistoryScanCachePreviousExtractorRevisionRescans(t *testing.T) {
-	root := t.TempDir()
-	cache := historyScanCache{Version: historyScanCacheWireVersion, ExtractorVersion: historyScanCacheVersion - 1, Files: map[string]historyScanCacheEntry{"sessions/main/fixture.jsonl": {ContentDigest: "unchanged"}}}
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	if err := json.NewEncoder(gz).Encode(cache); err != nil {
-		t.Fatal(err)
-	}
-	if err := gz.Close(); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(root, historyScanCachePath)
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, buf.Bytes(), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if got := loadHistoryScanCache(root); len(got.Files) != 0 {
-		t.Fatalf("extractor %d cache reused by extractor %d: %+v", historyScanCacheVersion-1, historyScanCacheVersion, got)
+	for _, revision := range []int{14, historyScanCacheVersion - 1} {
+		root := t.TempDir()
+		cache := historyScanCache{Version: historyScanCacheWireVersion, ExtractorVersion: revision, Files: map[string]historyScanCacheEntry{"sessions/main/fixture.jsonl": {ContentDigest: "unchanged"}}}
+		var buf bytes.Buffer
+		gz := gzip.NewWriter(&buf)
+		if err := json.NewEncoder(gz).Encode(cache); err != nil {
+			t.Fatal(err)
+		}
+		if err := gz.Close(); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(root, historyScanCachePath)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, buf.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if got := loadHistoryScanCache(root); len(got.Files) != 0 {
+			t.Fatalf("extractor %d cache reused by extractor %d: %+v", revision, historyScanCacheVersion, got)
+		}
 	}
 }

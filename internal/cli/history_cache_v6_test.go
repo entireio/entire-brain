@@ -258,7 +258,7 @@ func historyMutationRaceFixture(t *testing.T) (string, string, os.FileInfo, time
 	return brainDir, targetPath, info, now
 }
 
-func TestHistoryCacheEmptyFingerprintsButDoesNotCacheParseLimitFailure(t *testing.T) {
+func TestHistoryCacheCachesOversizedLineSkip(t *testing.T) {
 	brainDir := t.TempDir()
 	path := filepath.Join(brainDir, brainstore.SessionsDirName, "main", "20260717T010000Z-oversized.txt")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -279,21 +279,26 @@ func TestHistoryCacheEmptyFingerprintsButDoesNotCacheParseLimitFailure(t *testin
 	if want := [][2]int{{0, 1}, {1, 1}}; !reflect.DeepEqual(progress, want) {
 		t.Fatalf("progress = %v, want %v", progress, want)
 	}
-	// The warning names the transcript. A whole session drops out of the
-	// projection here, and an unattributed scanner error left no way to tell
-	// which one had gone missing.
-	if want := []string{"history records skipped for sessions/main/20260717T010000Z-oversized.txt: bufio.Scanner: token too long"}; !reflect.DeepEqual(source.Warnings, want) {
+	// The warning attributes the skipped physical line.
+	if want := []string{"sessions/main/20260717T010000Z-oversized.txt: skipped 1 oversized transcript lines"}; !reflect.DeepEqual(source.Warnings, want) {
 		t.Fatalf("warnings = %v, want %v", source.Warnings, want)
+	}
+	_, reused, err := buildBrainHistoryIndex(brainDir, time.Date(2026, 7, 18, 14, 0, 0, 0, time.UTC), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(reused.Warnings, source.Warnings) {
+		t.Fatalf("cached warnings=%v fresh=%v", reused.Warnings, source.Warnings)
 	}
 	const wantFingerprint = "sha256:999bbc4efb10f491343b79dee94e03b966545c254838a9f00d681e3f3bc04aea"
 	if source.TranscriptsFingerprint != wantFingerprint {
 		t.Fatalf("fingerprint = %q, want %q", source.TranscriptsFingerprint, wantFingerprint)
 	}
 	if len(index.Records) != 0 || source.Records != 0 {
-		t.Fatalf("parse-failed records entered index: %+v source=%+v", index.Records, source)
+		t.Fatalf("oversized-only transcript yielded records: %+v source=%+v", index.Records, source)
 	}
-	if cache := loadHistoryScanCache(brainDir); len(cache.Files) != 0 {
-		t.Fatalf("parse-failed transcript entered cache: %+v", cache.Files)
+	if cache := loadHistoryScanCache(brainDir); len(cache.Files) != 1 {
+		t.Fatalf("skipped-line transcript missing from cache: %+v", cache.Files)
 	}
 }
 
