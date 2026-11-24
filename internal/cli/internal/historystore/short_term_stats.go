@@ -13,5 +13,6 @@ type ShortTermStats struct {
 	Truncated           bool `json:"truncated,omitempty"`
 	// Failed counts transcripts this delta could not scan; the overlay
 	// records their identities durably.
-	Failed int `json:"failed_files,omitempty"`
+	Failed          int               `json:"failed_files,omitempty"`
+	SettledFailures map[string]string `json:"settled_failures,omitempty"`
 }
