@@ -1,0 +1,21 @@
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+<hc from="t31">Aggregate discrepancy on Change 524 (head c7e45fa3): 4 open Trail findings (1 medium, 3 low), new since your last readiness report, from the project-level agents. Resume your review steward for one bounded wave on them under the normal readiness gates, then report the counts.</hc>
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+<hc from="t31">Parent decision, authorized by Alex: end conversation exchanges at skipped lines. This replaces the packet's requirement that expansion work across a skipped line. Resume your steward on the medium finding with that approach, add a regression test for the B-answer-to-A misattribution case, then continue the wave on the remaining low findings under the normal readiness gates. Type-aware handling of known noise records (compactions, images, stdout) is deferred to COR-2360 and is out of scope here.</hc>
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
