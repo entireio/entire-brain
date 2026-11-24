@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.13.5-nightly.202611160626.76f1b5129+dirty",
+  "checkpoint_id": "01M85M6DXX0CN6ERA4VPYM034Q",
+  "strategy": "manual-commit",
+  "branch": "alex/cor-2358-history-line-limit",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/transcript_lines_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 20089,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3807232,
+    "output_tokens": 2861,
+    "api_call_count": 22
+  },
+  "redaction": {
+    "replacements": 1,
+    "layers": {
+      "betterleaks": 1,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 0,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  }
+}
