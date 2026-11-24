@@ -465,7 +465,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 		add("history_freshness", "ok", "history and conversation projections were built from the current exported sessions")
 	case shortTermCovers && len(shortTerm.Files) == 0:
 		add("history_freshness", "ok", "unchanged parse failures are settled; no repair needed")
-	case shortTermCovers && shortTerm.complete():
+	case shortTermCovers:
 		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`)", len(shortTerm.Files)))
 	case shortTermCurrentForSources && !shortTerm.complete():
 		add("history_freshness", "warn", fmt.Sprintf("short-term memory covers the gap only partially (%s); run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` to consolidate", shortTermIncompleteness(shortTerm)))

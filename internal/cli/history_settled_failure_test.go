@@ -29,8 +29,13 @@ func TestShortTermSettlesUnchangedScanFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(first.NewFailures) != 1 || !strings.Contains(first.NewFailures[0], failed) {
+	if len(first.SettledFailures) != 1 {
 		t.Fatalf("missing diagnostic: %+v", first)
+	}
+	for _, reason := range first.SettledFailures {
+		if !strings.Contains(reason, failed) {
+			t.Fatalf("diagnostic omits failed path: %q", reason)
+		}
 	}
 	if first.Failed != 0 {
 		t.Fatalf("stable parse failure is repairable: %+v", first)

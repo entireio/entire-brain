@@ -15,5 +15,4 @@ type ShortTermStats struct {
 	// records their identities durably.
 	Failed          int               `json:"failed_files,omitempty"`
 	SettledFailures map[string]string `json:"settled_failures,omitempty"`
-	NewFailures     []string          `json:"new_failures,omitempty"`
 }

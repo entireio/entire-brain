@@ -360,7 +360,7 @@ func TestWatchTickMaintainsUnchangedStoreBeforeWorker(t *testing.T) {
 	}
 }
 
-func TestWatchSettledFailureDoesNotScheduleRepair(t *testing.T) {
+func TestWatchLogsSettledFailureOncePerIdentity(t *testing.T) {
 	var refreshed, seeded, distilled, reconciled int
 	steps := fakeWatchSteps("changed", &refreshed, &seeded, &distilled)
 	steps.Reconcile = func(context.Context) error { reconciled++; return nil }

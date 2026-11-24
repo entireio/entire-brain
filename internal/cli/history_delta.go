@@ -426,7 +426,6 @@ func buildHistoryShortTermLockedContextWithScanner(ctx context.Context, outputDi
 		if !ok {
 			reason := historyScanFailureReason(rel, warnings)
 			failures[rel] = historyScanFailure{ContentDigest: contentDigest, Reason: reason}
-			stats.NewFailures = append(stats.NewFailures, reason)
 			overlay.SettledFiles = append(overlay.SettledFiles, rel)
 			continue
 		}
