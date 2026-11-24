@@ -9,12 +9,13 @@ import (
 	"github.com/entireio/entire-brain/internal/factsync"
 )
 
-// newCommitReachability answers "is this commit an ancestor of HEAD?" with
+// newCommitReachability answers "is this commit an ancestor of visibleFrom?"
+// (HEAD, or the commit an explicit `memories sync --branch` resolved) with
 // one memoized `git merge-base --is-ancestor` per distinct commit. Any
 // failure — including a commit this clone has never seen (squash merge, gc,
 // shallow clone) — is quietly "unreachable": absence of history is a normal
 // state here, not an error worth a line per fact.
-func newCommitReachability(ctx context.Context, runner CommandRunner, repoDir string) func(commit string) bool {
+func newCommitReachability(ctx context.Context, runner CommandRunner, repoDir, visibleFrom string) func(commit string) bool {
 	memo := make(map[string]bool)
 	return func(commit string) bool {
 		if commit == "" {
@@ -23,7 +24,7 @@ func newCommitReachability(ctx context.Context, runner CommandRunner, repoDir st
 		if known, ok := memo[commit]; ok {
 			return known
 		}
-		_, _, err := runner.Run(ctx, repoDir, "git", "merge-base", "--is-ancestor", commit, "HEAD")
+		_, _, err := runner.Run(ctx, repoDir, "git", "merge-base", "--is-ancestor", commit, visibleFrom)
 		memo[commit] = err == nil
 		return memo[commit]
 	}
@@ -39,7 +40,7 @@ func newCommitReachability(ctx context.Context, runner CommandRunner, repoDir st
 //  2. The member's own facts follow them to every machine. Checked before
 //     reachability: it is free, while the anchor loop shells out to git.
 //     A member's own commit-anchored facts must not each cost a git call.
-//  3. Any anchor commit reachable from HEAD.
+//  3. Any anchor commit reachable from HEAD (or the --branch tip).
 //  4. No session/commit anchors at all: the repo pool, kept by everyone.
 //
 // ponytail: rule 2 keys on the fact's server-stamped creator, not per-anchor

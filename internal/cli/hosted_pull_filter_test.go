@@ -65,7 +65,7 @@ func TestKeepHostedFact(t *testing.T) {
 
 func TestNewCommitReachabilityMemoizes(t *testing.T) {
 	runner := &reachabilityFakeRunner{reachable: map[string]bool{"aaa": true}}
-	reachable := newCommitReachability(context.Background(), runner, "/repo")
+	reachable := newCommitReachability(context.Background(), runner, "/repo", "HEAD")
 	if !reachable("aaa") || !reachable("aaa") {
 		t.Fatal("aaa should be reachable")
 	}

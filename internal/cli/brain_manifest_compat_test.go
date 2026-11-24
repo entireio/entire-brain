@@ -213,3 +213,43 @@ func TestWorkspaceFullRefreshSweepsTranscriptCache(t *testing.T) {
 		t.Fatalf("user-invoked workspace refresh --full did not sweep the transcript cache: %v", err)
 	}
 }
+
+// #568: an external scheduler running `refresh` is as unattended as the watch
+// daemon's tick, so it needs the guard the tick sets for itself. Plain
+// `refresh` keeps sweeping; `refresh --no-transcript-sweep` leaves a stale
+// cached transcript alone.
+func TestRefreshNoTranscriptSweepFlagKeepsCache(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		kept bool
+	}{
+		{name: "plain refresh sweeps", args: []string{"refresh"}, kept: false},
+		{name: "--no-transcript-sweep keeps the cache", args: []string{"refresh", "--no-transcript-sweep"}, kept: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, repoDir, storage, _ := watchCommandFixture(t)
+			opts.Runner.(*fakeCommandRunner).responses[fakeRoutedCheckpointListKey("entire", true)] = fakeCommandResponse{stdout: `[]`}
+			if out, err := execute(t, NewRootCommand(opts), "watch", repoDir, "--once"); err != nil {
+				t.Fatalf("watch once: %v\n%s", err, out)
+			}
+
+			sweepable := "sessions/main/stale.jsonl"
+			if err := writeTranscriptFile(storage.BrainDir, sweepable, []byte("stale")); err != nil {
+				t.Fatal(err)
+			}
+
+			if out, err := execute(t, NewRootCommand(opts), tc.args...); err != nil {
+				t.Fatalf("%v: %v\n%s", tc.args, err, out)
+			}
+
+			_, err := os.Stat(filepath.Join(storage.BrainDir, filepath.FromSlash(sweepable)))
+			switch {
+			case tc.kept && err != nil:
+				t.Fatalf("%v swept the transcript cache: %v", tc.args, err)
+			case !tc.kept && !os.IsNotExist(err):
+				t.Fatalf("%v did not sweep the transcript cache: %v", tc.args, err)
+			}
+		})
+	}
+}

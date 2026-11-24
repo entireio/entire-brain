@@ -51,7 +51,7 @@ func TestHostedPullBoundsConcurrentCacheRetries(t *testing.T) {
 			defer srv.Close()
 			serverURL = srv.URL
 			started := time.Now()
-			_, _, _, err = pullHostedFacts(ctx, opts, repoDir, storage, &factsync.HTTPServer{BaseURL: srv.URL}, "repo1", srv.URL, fakeJWT)
+			_, _, _, err = pullHostedFacts(ctx, opts, repoDir, storage, &factsync.HTTPServer{BaseURL: srv.URL}, "repo1", srv.URL, fakeJWT, "HEAD")
 			if cancelDuringRetry {
 				if !errors.Is(err, context.Canceled) || calls.Load() != 1 {
 					t.Fatalf("cancelled retry: calls=%d err=%v", calls.Load(), err)
@@ -118,7 +118,7 @@ func TestHostedPullYieldsToForegroundAndRevalidatesCache(t *testing.T) {
 			defer cancel()
 			done := make(chan error, 1)
 			go func() {
-				_, _, _, err := pullHostedFacts(ctx, opts, repoDir, storage, &factsync.HTTPServer{BaseURL: srv.URL}, "repo1", srv.URL, fakeJWT)
+				_, _, _, err := pullHostedFacts(ctx, opts, repoDir, storage, &factsync.HTTPServer{BaseURL: srv.URL}, "repo1", srv.URL, fakeJWT, "HEAD")
 				done <- err
 			}()
 			select {
