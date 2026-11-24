@@ -5124,7 +5124,12 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 			}()
 		}
 		scanner := newTranscriptLines(reader, brainInspectHistoryMaxLine)
-		defer func() { report.SkippedLines += scanner.skipped }()
+		defer func() {
+			report.SkippedLines += scanner.skipped
+			if scanner.skipped > 0 {
+				report.Partial = true
+			}
+		}()
 		lineNo := 0
 		for scanner.Scan() {
 			lineNo = scanner.line

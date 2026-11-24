@@ -59,6 +59,30 @@ func TestInspectRawTextMatchesAfterOversizedLine(t *testing.T) {
 	}
 }
 
+func TestInspectRawTextSkippedLinesArePartial(t *testing.T) {
+	oversized := strings.Repeat("x", brainInspectHistoryMaxLine+1)
+	for _, tc := range []struct {
+		name, input string
+		maxHits     int
+		partial     bool
+		matches     int
+	}{
+		{"skipped-only", oversized, 10, true, 0},
+		{"retained-match", oversized + "\nretainedcanary\n", 10, true, 1},
+		{"hit-limit", oversized + "\nretainedcanary\n", 1, true, 1},
+		{"complete", "retainedcanary\n", 10, false, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeBundleTestFile(t, dir+"/notes.txt", tc.input)
+			report, err := inspectBrainRawText(dir, "all", "retainedcanary", tc.maxHits)
+			if err != nil || report.Partial != tc.partial || len(report.Matches) != tc.matches {
+				t.Fatalf("partial=%v matches=%d err=%v", report.Partial, len(report.Matches), err)
+			}
+		})
+	}
+}
+
 func TestTranscriptLeadingWhitespaceDocument(t *testing.T) {
 	data := "\n \t\r\n{\n  \"messages\": [\n    {\"info\":{\"role\":\"user\"},\"parts\":[{\"type\":\"text\",\"text\":\"Explain the decision\"}]},\n    {\"info\":{\"role\":\"assistant\"},\"parts\":[{\"type\":\"text\",\"text\":\"Decision: retained document\"}]}\n  ]\n}\n"
 	dir := t.TempDir()
