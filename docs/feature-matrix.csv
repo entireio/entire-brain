@@ -8,9 +8,9 @@ SOURCING,"Ingest non-code documents (PDF, Office, images)",No,Partial,Yes,No,Yes
 SOURCING,"Ingest from external services (Slack, Notion, Drive)",No,No,Unknown,Yes,Yes,Yes,No,"TRADE-OFF — Genuinely needs network and OAuth. The honest sub-gap is issues and PRs, which are git-adjacent and reachable offline from a fetched remote.",https://supermemory.ai/connectors/
 SOURCING,Capture beyond a single repository,No,Yes,Unknown,Yes,Yes,Yes,No,"Was REAL GAP, and the cell was wrong: multi-repo already shipped as `brain workspace`. The genuine gap was knowledge with no repository at all, now `remember --global`, recalled everywhere and labelled. Pieces still captures across applications; we capture across repositories.",https://docs.pieces.app/products/core-dependencies/pieces-os/long-term-memory
 RETRIEVAL,Ranked code search from plain language,Yes,Via Graph,Yes,No,Partial,No,Yes,,
-RETRIEVAL,Keyword / lexical retrieval,Yes,Yes,Yes,Partial,Yes,Yes,Yes,Brain modes: hybrid keyword semantic,verified: capabilities --json
-RETRIEVAL,Vector / semantic retrieval,No,Yes,Yes,Yes,Yes,Yes,No,Brain: needs the brain_cgo build for the embedder,verified: capabilities --json
-RETRIEVAL,Hybrid retrieval (lexical + vector fused),No,Yes,Unknown,Unknown,Unknown,Unknown,No,Brain default_mode is hybrid (RRF),verified: capabilities --json
+RETRIEVAL,Keyword / lexical retrieval,Yes,Yes,Yes,Partial,Yes,Yes,Yes,Brain modes: keyword (BM25 lexical),verified: capabilities --json
+RETRIEVAL,Vector / semantic retrieval,No,No,Yes,Yes,Yes,Yes,No,Brain: semantic retrieval removed (trail #278),verified: capabilities --json
+RETRIEVAL,Hybrid retrieval (lexical + vector fused),No,No,Unknown,Unknown,Unknown,Unknown,No,Brain default_mode is keyword (BM25 lexical),verified: capabilities --json
 RETRIEVAL,Task-scoped context packet,No,Yes,No,No,No,No,No,`entire brain brief` — bounded packet for one task,verified: capabilities --json
 RETRIEVAL,Recency decay / time-weighted ranking,No,Yes,Unknown,Yes,Unknown,Unknown,Unknown,"Was REAL GAP. `entire brain query --recency` enables opt-in time-weighted ranking; `--recency-half-life` tunes the soft bias. It uses no LLM and never filters records. No TTL: we retract and gc instead of expiring.",https://docs.mem0.ai/platform/features/memory-decay
 RETRIEVAL,Cross-user / multi-tenant memory scoping,No,No,No,Yes,Yes,Yes,No,"TRADE-OFF — Fair for a single-machine tool, but it blocks every memory-for-my-product's-users case outright.",https://supermemory.ai/docs/concepts/container-tags

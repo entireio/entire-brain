@@ -137,6 +137,42 @@ func TestGuideOnlyAdvertisesFlagsThatExist(t *testing.T) {
 	}
 }
 
+// TestGuideDoesNotAdvertiseRemovedRetrieval ties the guide to what the binary
+// says about itself (issue #569). Semantic retrieval was removed (trail #278)
+// and `query --semantic` survives only as a BM25 compatibility alias whose own
+// help says so; an agent that reads the guide must not be steered to it, nor
+// told that a vector arm or embedder exists.
+func TestGuideDoesNotAdvertiseRemovedRetrieval(t *testing.T) {
+	root := NewRootCommand(Options{Version: "test"})
+	for _, tokens := range guideCommandLines(t) {
+		cmd, ok := guideResolvePath(t, root, tokens)
+		if !ok {
+			continue
+		}
+		for _, token := range tokens {
+			name := strings.TrimRight(strings.TrimLeft(token, "["), "],")
+			if !strings.HasPrefix(name, "--") {
+				continue
+			}
+			name = strings.SplitN(strings.TrimPrefix(name, "--"), "=", 2)[0]
+			flag := cmd.Flags().Lookup(name)
+			if flag != nil && strings.Contains(flag.Usage, "removed") {
+				t.Errorf("guide advertises --%s on `%s`, but its help says: %s", name, cmd.CommandPath(), flag.Usage)
+			}
+		}
+	}
+	t.Chdir(t.TempDir())
+	out, err := execute(t, NewRootCommand(Options{Version: "test"}), "agent-guide")
+	if err != nil {
+		t.Fatalf("guide: %v", err)
+	}
+	for _, stale := range []string{"vector", "embedder", "gemma", "hybrid", "rrf"} {
+		if strings.Contains(strings.ToLower(out), stale) {
+			t.Errorf("guide mentions %q, but retrieval is BM25 lexical only", stale)
+		}
+	}
+}
+
 // lookupGuideFlag resolves a long flag on a command or any of its parents
 // (persistent flags are inherited).
 func lookupGuideFlag(cmd *cobra.Command, name string) any {
