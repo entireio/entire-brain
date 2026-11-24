@@ -232,8 +232,8 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 		}
 		// An unknown skipped record may be a new user turn. Never attach
 		// narrative beyond that gap to the previous request.
-		if scanner.line > lineNumber+1 {
-			closeOpen(lineNumber)
+		if scanner.lastUnsafeLine > lineNumber {
+			closeOpen(scanner.firstUnsafeLine - 1)
 		}
 		lineNumber = scanner.line
 		text := strings.TrimSpace(scanner.Text())
@@ -268,7 +268,11 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 	if err := scanner.Err(); err != nil {
 		return conversationScanResult{}, err
 	}
-	closeOpen(lineNumber)
+	if scanner.lastUnsafeLine > lineNumber {
+		closeOpen(scanner.firstUnsafeLine - 1)
+	} else {
+		closeOpen(scanner.line)
+	}
 	result.SourceDigest = "sha256:" + hex.EncodeToString(hasher.Sum(nil))
 	return result, nil
 }
@@ -772,7 +776,7 @@ func expandLineConversationRange(r io.Reader, record historyRecord) (conversatio
 	}
 	responseBudget := conversationExpansionMaxBytes
 	for scanner.Scan() {
-		if scanner.line > lineNumber+1 && scanner.line-1 >= record.Line && lineNumber+1 <= endLine {
+		if scanner.lastUnsafeLine > lineNumber && scanner.lastUnsafeLine >= record.Line && scanner.firstUnsafeLine <= endLine {
 			return conversationExpansion{}, errConversationSourceStale
 		}
 		lineNumber = scanner.line
@@ -807,7 +811,7 @@ func expandLineConversationRange(r io.Reader, record historyRecord) (conversatio
 		return conversationExpansion{}, err
 	}
 	// Scan can drain an oversized final line without returning another record.
-	if scanner.line > lineNumber && scanner.line >= record.Line && lineNumber+1 <= endLine {
+	if scanner.lastUnsafeLine > lineNumber && scanner.lastUnsafeLine >= record.Line && scanner.firstUnsafeLine <= endLine {
 		return conversationExpansion{}, errConversationSourceStale
 	}
 	out.Response = response.String()

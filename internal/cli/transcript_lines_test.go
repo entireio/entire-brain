@@ -210,3 +210,158 @@ func TestTranscriptCapAcrossHistoryConversationAndExpansion(t *testing.T) {
 		})
 	}
 }
+
+func TestConversationKnownNoisePreservesExchange(t *testing.T) {
+	for _, prefix := range []string{`{"type":"compacted","data":"`, `{"type":"event_msg","payload":{"type":"item_completed","data":"`} {
+		suffix := `"}}`
+		if strings.Contains(prefix, "compacted") {
+			suffix = `"}`
+		}
+		for _, tail := range []string{"", "\n" + `{"type":"assistant","message":{"role":"assistant","content":"Answer suffix"}}`} {
+			data := `{"type":"user","message":{"role":"user","content":"Explain request A"}}` + "\n" + `{"type":"assistant","message":{"role":"assistant","content":"Answer prefix"}}` + "\n" + prefix + strings.Repeat("x", historyMaxLineBytes) + suffix + tail
+			scan, err := scanLineConversationContext(context.Background(), strings.NewReader(data))
+			want := "Answer prefix"
+			if tail != "" {
+				want += "\nAnswer suffix"
+			}
+			if err != nil || len(scan.Exchanges) != 1 {
+				t.Fatalf("scan=%+v err=%v", scan, err)
+			}
+			ex := scan.Exchanges[0]
+			if ex.Response != want || ex.EndLine != 3+strings.Count(tail, "\n") || scan.SourceDigest != conversationDigest([]byte(data)) || scan.SkippedLines != 1 {
+				t.Fatalf("exchange=%+v", ex)
+			}
+			out, err := expandLineConversationRange(strings.NewReader(data), historyRecord{Line: 1, EndLine: ex.EndLine})
+			if err != nil || out.Response != want {
+				t.Fatalf("out=%+v err=%v", out, err)
+			}
+		}
+	}
+}
+
+// These dialect records already emit no history facts or distillation text.
+func TestTranscriptKnownNoiseHasNoExtractedContent(t *testing.T) {
+	for _, data := range []string{
+		`{"timestamp":"2026-11-17T00:00:00Z","type":"compacted","payload":{"message":"Decision: summarized context","replacement_history":[]}}`,
+		`{"timestamp":"2026-11-17T00:00:00Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"agent_message","text":"Decision: item complete"}}}`,
+	} {
+		record, ok := decodeTranscriptRecord(data)
+		if !ok || distillConversationText(record) != "" {
+			t.Fatalf("unexpected distillation: %q", data)
+		}
+		records, err := scanHistoryFileReader(context.Background(), strings.NewReader(data), "sessions/main/noise.jsonl", ".jsonl")
+		if err != nil || len(records) != 0 {
+			t.Fatalf("history=%+v err=%v", records, err)
+		}
+	}
+}
+
+func TestConversationAdjacentSafeAndUnsafeSkips(t *testing.T) {
+	user := `{"type":"user","message":{"role":"user","content":"Explain request A"}}` + "\n"
+	answer := `{"type":"assistant","message":{"role":"assistant","content":"Answer A"}}` + "\n"
+	safe := `{"type":"compacted","payload":"` + strings.Repeat("x", historyMaxLineBytes) + `"}` + "\n"
+	unsafe := `{"type":"unknown","payload":"` + strings.Repeat("x", historyMaxLineBytes) + `"}` + "\n"
+	for _, gap := range []string{safe + unsafe + safe, unsafe + safe + unsafe} {
+		data := user + answer + gap + strings.ReplaceAll(answer, "Answer A", "Answer B")
+		scan, err := scanLineConversationContext(context.Background(), strings.NewReader(data))
+		if err != nil || len(scan.Exchanges) != 1 || scan.Exchanges[0].Response != "Answer A" || scan.SkippedLines != 3 {
+			t.Fatalf("scan=%+v err=%v", scan, err)
+		}
+		_, err = expandLineConversationRange(strings.NewReader(data), historyRecord{Line: 1, EndLine: 6})
+		if !errors.Is(err, errConversationSourceStale) {
+			t.Fatalf("cross-gap error=%v", err)
+		}
+	}
+}
+
+func TestTranscriptLinesKnownNoiseBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name, prefix string
+		unsafe       bool
+	}{
+		{"compacted", `{"type":"compacted","data":"`, false},
+		{"completed", `{"type":"event_msg","payload":{"type":"item_completed","data":"`, false},
+		{"reordered", `{"timestamp":"now","payload":{"type":"item_completed"},"type":"event_msg","data":"`, false},
+		{"user", `{"type":"user","data":"`, true},
+		{"unknown", `{"type":"future","data":"`, true},
+		{"claude", `{"type":"user","message":{"content":[{"type":"tool_result","data":"`, true},
+		{"nested", `{"other":{"type":"compacted"},"data":"`, true},
+		{"incomplete", `{"data":"`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, ending := range []string{"", "\n", "\r\nend"} {
+				s := newTranscriptLines(strings.NewReader(tc.prefix+strings.Repeat("x", 1000)+ending), 128)
+				for s.Scan() {
+				}
+				if s.Err() != nil || s.skipped != 1 || (s.lastUnsafeLine > 0) != tc.unsafe {
+					t.Fatalf("skipped=%d unsafe=%d err=%v", s.skipped, s.lastUnsafeLine, s.Err())
+				}
+			}
+		})
+	}
+}
+
+// Moving the prefix cutoff or accepting incomplete metadata must not silently
+// join exchanges across records whose ownership cannot be established.
+func TestTranscriptConversationNoisePrefixCutoff(t *testing.T) {
+	for _, kind := range []string{"compacted", "item_completed"} {
+		for _, tc := range []struct {
+			name        string
+			metadataEnd int
+			safe        bool
+		}{
+			{"inside", 4095, true},
+			{"straddling", 4097, false},
+			{"beyond", 4128, false},
+			{"incomplete-preceding-value", 8192, false},
+		} {
+			t.Run(kind+"/"+tc.name, func(t *testing.T) {
+				leading := `{"timestamp":"2026-11-17T00:00:00Z","session_id":"`
+				metadata := `","type":"compacted"`
+				body := `,"payload":{"message":"` + strings.Repeat("x", historyMaxLineBytes) + `","replacement_history":[]}}`
+				if kind == "item_completed" {
+					metadata = `","type":"event_msg","payload":{"type":"item_completed"`
+					body = `,"item":{"type":"agent_message","text":"` + strings.Repeat("x", historyMaxLineBytes) + `"}}}`
+				}
+				noise := leading + strings.Repeat("s", tc.metadataEnd-len(leading)-len(metadata)) + metadata + body
+				// The final quote of the required type is at metadataEnd-1.
+				// In the last case even the preceding session_id is truncated.
+				data := `{"type":"user","message":{"role":"user","content":"Explain request A"}}` + "\r\n" +
+					`{"type":"assistant","message":{"role":"assistant","content":"Answer prefix"}}` + "\r\n" + noise + "\r\n" +
+					`{"type":"assistant","message":{"role":"assistant","content":"Answer suffix"}}`
+				lines := newTranscriptLines(strings.NewReader(data), historyMaxLineBytes)
+				var physical []int
+				for lines.Scan() {
+					physical = append(physical, lines.line)
+				}
+				wantUnsafe := 3
+				if tc.safe {
+					wantUnsafe = 0
+				}
+				if lines.Err() != nil || fmt.Sprint(physical) != "[1 2 4]" || lines.line != 4 || lines.skipped != 1 || lines.lastUnsafeLine != wantUnsafe {
+					t.Fatalf("physical=%v line=%d skipped=%d unsafe=%d err=%v", physical, lines.line, lines.skipped, lines.lastUnsafeLine, lines.Err())
+				}
+				scan, err := scanLineConversationContext(context.Background(), strings.NewReader(data))
+				if err != nil || len(scan.Exchanges) != 1 || scan.SkippedLines != 1 || scan.SourceDigest != conversationDigest([]byte(data)) {
+					t.Fatalf("scan=%+v err=%v", scan, err)
+				}
+				wantEnd, wantResponse := 2, "Answer prefix"
+				if tc.safe {
+					wantEnd, wantResponse = 4, "Answer prefix\nAnswer suffix"
+				}
+				ex := scan.Exchanges[0]
+				if ex.Line != 1 || ex.EndLine != wantEnd || ex.Response != wantResponse {
+					t.Fatalf("exchange=%+v", ex)
+				}
+				out, err := expandLineConversationRange(strings.NewReader(data), historyRecord{Line: 1, EndLine: 4})
+				if tc.safe {
+					if err != nil || out.Response != wantResponse {
+						t.Fatalf("expanded=%+v err=%v", out, err)
+					}
+				} else if !errors.Is(err, errConversationSourceStale) {
+					t.Fatalf("cross-gap expansion error=%v", err)
+				}
+			})
+		}
+	}
+}
