@@ -138,6 +138,19 @@ All notable changes to `entire-brain` are recorded here. The format follows
   lowercase letters, digits and `_`, no hyphens. `remember --help` and the agent
   guide written by `setup` now state the rule too.
 
+- `connect` puts the push hook back after the Entire CLI rotated it to a
+  timestamped `pre-push.pre-entire.<time>` copy, which no longer runs. That
+  happens when a hook manager such as Husky rewrites `pre-push` on install.
+  `connect` and `setup` used to report that copy as running through the CLI's
+  chain, so uploads on push stopped silently. `setup --verbose` now says the
+  hook no longer runs and names the copy. When the CLI's hook already chains
+  to another hook, `connect` adds Brain's hook to that chain. It no longer puts
+  its hook in front of the CLI's: the CLI's next check moved it back and set
+  the hook it had chained aside, where it no longer ran. When the CLI's
+  uninstall moves Brain's hook back into `pre-push`, Brain's hook still runs
+  the hook it chained to. `disconnect` puts that hook back in the chain and
+  also removes rotated copies of Brain's hook (#645).
+
 ## [0.5.1] - 2026-11-04
 
 ### Fixed
