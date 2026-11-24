@@ -351,6 +351,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	snapshot := memoryReadOnlyHealth(brainDir, opts.Now().UTC())
 	payload = snapshot.Payload
 	checks = append(checks, memoryDoctorChecks(snapshot)...)
+	checks = append(checks, settledHistoryFailureChecks(brainDir)...)
 	manifest := snapshot.Manifest
 	switch snapshot.ManifestHealth.State {
 	case "current":
@@ -452,7 +453,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	// the exact current source fingerprint with nothing failed, dropped, or
 	// truncated. Anything less is at best partial coverage.
 	shortTermCurrentForSources := shortTermState == shortTermStateCurrent && shortTerm.SessionsFingerprint == current
-	shortTermCovers := shortTermCurrentForSources && len(shortTerm.Files) > 0
+	shortTermCovers := shortTermCurrentForSources && shortTerm.complete()
 	switch {
 	case history.SessionsFingerprint == "":
 		add("history_freshness", "warn", "index predates fingerprinting; run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`")
@@ -462,7 +463,9 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 		add("history_freshness", "warn", "history index was built by "+extractorRevisionLabel(history.ExtractionVersion)+"; run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` to rebuild it")
 	case current == history.SessionsFingerprint:
 		add("history_freshness", "ok", "history and conversation projections were built from the current exported sessions")
-	case shortTermCovers && shortTerm.complete():
+	case shortTermCovers && len(shortTerm.Files) == 0:
+		add("history_freshness", "ok", "unchanged parse failures are settled; no repair needed")
+	case shortTermCovers:
 		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`)", len(shortTerm.Files)))
 	case shortTermCurrentForSources && !shortTerm.complete():
 		add("history_freshness", "warn", fmt.Sprintf("short-term memory covers the gap only partially (%s); run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` to consolidate", shortTermIncompleteness(shortTerm)))
@@ -519,4 +522,18 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	}
 
 	return checks, payload
+}
+
+func settledHistoryFailureChecks(brainDir string) []doctorCheckResult {
+	cache := loadHistoryScanCache(brainDir)
+	paths := make([]string, 0, len(cache.Failures))
+	for path := range cache.Failures {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	var checks []doctorCheckResult
+	for _, path := range paths {
+		checks = append(checks, doctorCheckResult{Name: "history_settled_failure", State: "warn", Detail: cache.Failures[path].Reason})
+	}
+	return checks
 }
