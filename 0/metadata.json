@@ -1,0 +1,70 @@
+{
+  "cli_version": "0.13.5-nightly.202611160626.76f1b5129+dirty",
+  "checkpoint_id": "01M85SRFDV2TZ4YHE47VHPZJ41",
+  "session_id": "01a20b8b-9176-7414-a8ae-ace42b505376",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-24T03:31:59.98897Z",
+  "branch": "alex/cor-2361-remove-in-repo-runners",
+  "checkpoints_count": 7,
+  "files_touched": [],
+  "agent": "Pi",
+  "model": "gpt-6-luna",
+  "turn_id": "e906ecfe98e4",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 88899,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2158976,
+    "output_tokens": 3014,
+    "api_call_count": 53
+  },
+  "session_token_usage": {
+    "input_tokens": 88899,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2158976,
+    "output_tokens": 3014,
+    "api_call_count": 53
+  },
+  "redaction": {
+    "replacements": 3,
+    "layers": {
+      "betterleaks": 3,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 0,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "pi-skill-owning-workspace-slice-2026-11-24T03:13:46.705Z-0",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "owning-workspace-slice"
+      },
+      "source": {
+        "agent": "pi",
+        "signal": "input_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "08c649b3de31",
+      "timestamp": "2026-11-24T03:13:46.705Z",
+      "native": {
+        "command": "/skill:owning-workspace-slice"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/skill:owning-workspace-slice",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 7
+  }
+}
