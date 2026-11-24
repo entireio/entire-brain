@@ -173,7 +173,20 @@ type historyScanCache struct {
 	ExtractorVersion int                              `json:"extractor_version,omitempty"`
 	Version          int                              `json:"version"`
 	Files            map[string]historyScanCacheEntry `json:"files"`
+	Failures         map[string]historyScanFailure    `json:"failures,omitempty"`
 	contentIdentity  string
+}
+
+type historyScanFailure struct {
+	ContentDigest string `json:"content_digest"`
+	Reason        string `json:"reason"`
+}
+
+func historyScanFailureReason(rel string, warnings []string) string {
+	if reason := strings.Join(warnings, "; "); reason != "" {
+		return reason
+	}
+	return "history records skipped for " + rel + ": parse failed"
 }
 
 type historyScanCacheEntry struct {
@@ -1052,6 +1065,12 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 }
 
 func buildBrainHistoryIndexSnapshotFromStore(ctx context.Context, outputDir string, now time.Time, progress historyIndexProgress, manifest *exportManifest, store *transcriptStore) (historyIndex, *historySourceManifest, historyScanCache, error) {
+	return buildBrainHistoryIndexSnapshotFromStoreWithScanner(ctx, outputDir, now, progress, manifest, store, scanSessionFileReaderRecords)
+}
+
+type historySessionScanner func(context.Context, io.ReadSeeker, string, string) ([]historyRecord, int, []string, bool)
+
+func buildBrainHistoryIndexSnapshotFromStoreWithScanner(ctx context.Context, outputDir string, now time.Time, progress historyIndexProgress, manifest *exportManifest, store *transcriptStore, scan historySessionScanner) (historyIndex, *historySourceManifest, historyScanCache, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1126,6 +1145,20 @@ func buildBrainHistoryIndexSnapshotFromStore(ctx context.Context, outputDir stri
 		// rebuild loop.
 		file.ContentDigest = contentDigest
 		fingerprintedFiles = append(fingerprintedFiles, file)
+		if failure, ok := prevCache.Failures[rel]; ok && failure.ContentDigest == contentDigest && failure.Reason != "" {
+			if err := inventory.validateFileMembership(ctx, file); err != nil {
+				return index, nil, historyScanCache{}, err
+			}
+			if newCache.Failures == nil {
+				newCache.Failures = map[string]historyScanFailure{}
+			}
+			newCache.Failures[rel] = failure
+			index.Warnings = append(index.Warnings, failure.Reason)
+			if progress != nil {
+				progress(i+1, total)
+			}
+			continue
+		}
 		// The content digest is the sole reuse authority: a restored mtime or a
 		// same-size rewrite cannot resurrect stale records, and a touch that
 		// leaves the bytes alone still reuses.
@@ -1142,9 +1175,13 @@ func buildBrainHistoryIndexSnapshotFromStore(ctx context.Context, outputDir stri
 			records = cached.Records
 			incomplete = cached.IncompleteExchanges
 		} else {
-			scanned, scannedIncomplete, warnings, ok := scanSessionFileReaderRecords(ctx, bytes.NewReader(content), file.Path, file.Rel)
+			scanned, scannedIncomplete, warnings, ok := scan(ctx, bytes.NewReader(content), file.Path, file.Rel)
 			index.Warnings = append(index.Warnings, warnings...)
 			if !ok {
+				if newCache.Failures == nil {
+					newCache.Failures = map[string]historyScanFailure{}
+				}
+				newCache.Failures[rel] = historyScanFailure{ContentDigest: contentDigest, Reason: historyScanFailureReason(rel, warnings)}
 				if progress != nil {
 					progress(i+1, total)
 				}
@@ -1153,8 +1190,7 @@ func buildBrainHistoryIndexSnapshotFromStore(ctx context.Context, outputDir stri
 			records = scanned
 			incomplete = scannedIncomplete
 		}
-		// Only files that scanned cleanly (or were reused) are cached; a file
-		// that errored is left out so the next refresh retries it. Branch and
+		// Successful records and settled failures are stored separately. Branch and
 		// conversation identity are build context derived from the MANIFEST, so
 		// the cache stores raw scanner records and the annotations are applied
 		// to a copy below. Caching the annotated shape would let a manifest

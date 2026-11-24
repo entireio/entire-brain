@@ -359,3 +359,34 @@ func TestWatchTickMaintainsUnchangedStoreBeforeWorker(t *testing.T) {
 		})
 	}
 }
+
+func TestWatchSettledFailureDoesNotScheduleRepair(t *testing.T) {
+	var refreshed, seeded, distilled, reconciled int
+	steps := fakeWatchSteps("changed", &refreshed, &seeded, &distilled)
+	steps.Reconcile = func(context.Context) error { reconciled++; return nil }
+	steps.Delta = func(context.Context) (historystore.ShortTermStats, error) {
+		return historystore.ShortTermStats{SettledFailures: map[string]string{"digest-v1": "sessions/bad.jsonl: parse failed"}}, nil
+	}
+	path := filepath.Join(t.TempDir(), "watch.json")
+	if err := SaveCursor(path, Cursor{LastFingerprint: "old", LastRefreshAt: steps.Now().Add(-5 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	spent := 0
+	for range 2 {
+		Tick(context.Background(), &out, Flags{SeedAgent: "none", ConsolidateEvery: time.Hour, Interval: time.Second}, path, steps, &spent)
+	}
+	if strings.Count(out.String(), "sessions/bad.jsonl: parse failed") != 1 {
+		t.Fatalf("missing or repeated settled diagnostic: %s", &out)
+	}
+	steps.Delta = func(context.Context) (historystore.ShortTermStats, error) {
+		return historystore.ShortTermStats{SettledFailures: map[string]string{"digest-v2": "sessions/bad.jsonl: parse failed"}}, nil
+	}
+	Tick(context.Background(), &out, Flags{SeedAgent: "none", ConsolidateEvery: time.Hour, Interval: time.Second}, path, steps, &spent)
+	if strings.Count(out.String(), "sessions/bad.jsonl: parse failed") != 2 {
+		t.Fatal("changed identity was not logged")
+	}
+	if refreshed != 0 || reconciled != 0 || LoadCursor(path).ConsolidationRepairs != 0 {
+		t.Fatalf("settled failure scheduled repair: refresh=%d reconcile=%d", refreshed, reconciled)
+	}
+}

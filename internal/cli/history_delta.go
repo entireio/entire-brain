@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -93,7 +94,8 @@ var historyShortTermMaxRecords = 20000
 var beforeHistoryShortTermInventoryRecheck = func() {}
 
 type shortTermIndex struct {
-	Version int `json:"version"`
+	SettledFiles []string `json:"settled_files,omitempty"`
+	Version      int      `json:"version"`
 	// BaseGeneratedAt pins the long-term build this overlay extends. After a
 	// consolidation (full build) the overlay is cleared under the same lock;
 	// this pin is the belt-and-braces guard that voids a stale overlay anyway.
@@ -328,6 +330,10 @@ func buildHistoryShortTermLocked(outputDir string, now time.Time) (historystore.
 }
 
 func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, now time.Time) (historystore.ShortTermStats, error) {
+	return buildHistoryShortTermLockedContextWithScanner(ctx, outputDir, now, scanSessionFileReaderRecords)
+}
+
+func buildHistoryShortTermLockedContextWithScanner(ctx context.Context, outputDir string, now time.Time, scan historySessionScanner) (historystore.ShortTermStats, error) {
 	var stats historystore.ShortTermStats
 	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
@@ -354,6 +360,7 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 	defer inventory.Close()
 	files := inventory.files
 	cache := loadHistoryScanCache(outputDir)
+	failures := map[string]historyScanFailure{}
 	previous := loadHistoryShortTerm(outputDir, source)
 	branchByPath := historyBranchByTranscriptPath(manifest)
 	sessionByPath := historySessionByTranscriptPath(manifest)
@@ -391,6 +398,14 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 			stats.Failed++
 			continue
 		}
+		if failure, ok := cache.Failures[rel]; ok && failure.ContentDigest == contentDigest && failure.Reason != "" {
+			if err := inventory.validateFileMembership(ctx, file); err != nil {
+				return stats, err
+			}
+			failures[rel] = failure
+			overlay.SettledFiles = append(overlay.SettledFiles, rel)
+			continue
+		}
 		// Long-term already current for this file: not short-term material.
 		if cached, ok := cache.Files[rel]; ok && cached.Size == file.Size && cached.ModUnixNano == file.ModUnixNano && cached.ContentDigest != "" && cached.ContentDigest == contentDigest {
 			if err := inventory.validateFileMembership(ctx, file); err != nil {
@@ -407,13 +422,12 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 			stats.Reused++
 			continue
 		}
-		records, incomplete, _, ok := scanSessionFileReaderRecords(ctx, bytes.NewReader(content), file.Path, file.Rel)
+		records, incomplete, warnings, ok := scan(ctx, bytes.NewReader(content), file.Path, file.Rel)
 		if !ok {
-			// Unscannable now: record the identity durably so no surface can
-			// claim complete coverage; the next delta or full build
-			// retries it.
-			overlay.FailedFiles = append(overlay.FailedFiles, rel)
-			stats.Failed++
+			reason := historyScanFailureReason(rel, warnings)
+			failures[rel] = historyScanFailure{ContentDigest: contentDigest, Reason: reason}
+			stats.NewFailures = append(stats.NewFailures, reason)
+			overlay.SettledFiles = append(overlay.SettledFiles, rel)
 			continue
 		}
 		records = annotateHistoryRecordBranches(records, rel, branchByPath)
@@ -478,7 +492,25 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 	// An overlay that holds no records but DID fail or drop something must
 	// stay on disk: deleting it would erase the very state that proves
 	// coverage is incomplete.
-	if len(overlay.Files) == 0 && overlay.complete() {
+	// Failure identity must be durable before an overlay claims settled coverage.
+	// Watch reports retained identities, so an overlay write failure cannot
+	// consume the diagnostic when the following delta reuses the cache.
+	if !maps.Equal(cache.Failures, failures) {
+		cache.Failures = failures
+		data, err := encodeHistoryScanCache(cache)
+		if err != nil {
+			return stats, err
+		}
+		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, historyScanCachePath, data, 0600); err != nil {
+			return stats, err
+		}
+	}
+	stats.SettledFailures = map[string]string{}
+	for rel, failure := range failures {
+		identity := fmt.Sprintf("%s:%d:%s", rel, historyScanCacheVersion, failure.ContentDigest)
+		stats.SettledFailures[identity] = failure.Reason
+	}
+	if len(overlay.Files) == 0 && len(failures) == 0 && overlay.complete() {
 		clearHistoryShortTerm(outputDir)
 		return stats, nil
 	}
@@ -510,10 +542,13 @@ func loadFreshHistory(brainDir string, source *historySourceManifest) (freshHist
 func loadFreshHistoryOverlay(brainDir string, source *historySourceManifest) freshHistory {
 	fresh := freshHistory{}
 	overlay := loadHistoryShortTerm(brainDir, source)
-	if len(overlay.Files) == 0 {
+	if len(overlay.Files) == 0 && len(overlay.SettledFiles) == 0 {
 		return fresh
 	}
 	fresh.replaced = make(map[string]bool, len(overlay.Files))
+	for _, rel := range overlay.SettledFiles {
+		fresh.replaced[rel] = true
+	}
 	rels := make([]string, 0, len(overlay.Files))
 	for rel := range overlay.Files {
 		rels = append(rels, rel)
@@ -1027,6 +1062,9 @@ func runRefreshDelta(cmd *cobra.Command, opts Options, export bool) error {
 		stats.Records, stats.Exchanges, stats.Files, stats.Scanned, stats.Reused)
 	if stats.Truncated {
 		line += "; buffer full; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + "` to consolidate"
+	}
+	for _, reason := range stats.SettledFailures {
+		fmt.Fprintln(cmd.OutOrStdout(), "settled transcript failure: "+reason)
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), line)
 	return nil
