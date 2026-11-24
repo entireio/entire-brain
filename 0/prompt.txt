@@ -1,0 +1,33 @@
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+<hc from="t31">Aggregate gap on Change 524 (head 2eee740d): 2 open low findings. Readiness requires 0 open Trail findings, so deferral needs a recorded disposition: fix them, or resolve or dismiss each with its reason and a follow-up reference (COR-2360 if it fits). Do that in your steward's next wave once current-head CI and Bugbot settle.</hc>
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+<hc from="t31">Approved: dismiss both low findings as optional enhancements. Give each its reason and record it in the PR description. If either is a real defect rather than an enhancement, fix it instead. Then confirm open findings are 0 and report readiness on the current head.</hc>
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+<hc from="t31">Aggregate discrepancy on Change 524 (head 9af06093): GitHub now reports CONFLICTING, because COR-2359 (PR 661) just merged into main as 959f619a. Resume your steward to bring the branch up to date with origin/main and resolve the conflicts. Keep both behaviours: your skipped-line reader, and COR-2359's settled-failure bookkeeping in history.go and history_delta.go. Re-run full verification, push, and report under the normal readiness gates.</hc>
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.

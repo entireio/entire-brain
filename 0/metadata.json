@@ -1,0 +1,82 @@
+{
+  "cli_version": "0.13.5-nightly.202611160626.76f1b5129+dirty",
+  "checkpoint_id": "01M85ZM433D80DDJY5YC1B713S",
+  "session_id": "01a20b0d-edcb-728d-987a-4dff6b745878",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-24T05:14:27.829199Z",
+  "branch": "alex/cor-2358-history-line-limit",
+  "checkpoints_count": 12,
+  "save_step_count": 1,
+  "files_touched": [
+    "internal/cli/command/watch/watch.go",
+    "internal/cli/command/watch/watch_test.go",
+    "internal/cli/history.go",
+    "internal/cli/history_delta.go",
+    "internal/cli/history_settled_failure_test.go",
+    "internal/cli/internal/historystore/short_term_stats.go",
+    "internal/cli/lifecycle_ops.go",
+    "internal/cli/watch_command_regression_test.go"
+  ],
+  "agent": "Pi",
+  "model": "gpt-6.1-sol",
+  "turn_id": "489f276438f7",
+  "checkpoint_transcript_start": 1675,
+  "transcript_lines_at_start": 1675,
+  "compact_transcript_start": 115,
+  "token_usage": {
+    "input_tokens": 22484,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 6961664,
+    "output_tokens": 5427,
+    "api_call_count": 32
+  },
+  "session_token_usage": {
+    "input_tokens": 223718,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 21141888,
+    "output_tokens": 21553,
+    "api_call_count": 131
+  },
+  "redaction": {
+    "replacements": 10,
+    "layers": {
+      "betterleaks": 1,
+      "connection_string": 0,
+      "credential_key": 0,
+      "credential_value": 0,
+      "credentialed_uri": 0,
+      "entropy": 9,
+      "key_context": 0,
+      "provider_token": 0,
+      "shell_stdin": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "pi-skill-owning-workspace-slice-2026-11-24T00:56:32.813Z-0",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "owning-workspace-slice"
+      },
+      "source": {
+        "agent": "pi",
+        "signal": "input_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "5da07dc085ed",
+      "timestamp": "2026-11-24T00:56:32.813Z",
+      "native": {
+        "command": "/skill:owning-workspace-slice"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/skill:owning-workspace-slice",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 30
+  }
+}
