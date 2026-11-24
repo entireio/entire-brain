@@ -135,16 +135,19 @@ func corpusEpisodeOps(workText, repoRoot string) (tools []corpusToolOp, commands
 		commands = append(commands, c...)
 		files = append(files, f...)
 	}
-	// Correlate exit codes, and failures that carry none, to their commands.
+	// Correlate exit codes, and failures an exit code does not show, to
+	// their commands.
 	for i := range commands {
-		if commands[i].callID == "" {
+		id := commands[i].callID
+		if id == "" {
 			continue
 		}
-		if code, ok := exitByCall[commands[i].callID]; ok {
+		if code, ok := exitByCall[id]; ok {
 			c := code
 			commands[i].exitCode = &c
 			commands[i].failed = code != 0
-		} else if failedByCall[commands[i].callID] {
+		}
+		if failedByCall[id] {
 			commands[i].failed = true
 		}
 	}
@@ -268,18 +271,30 @@ func repoRelativePath(p, repoRoot string) string {
 // codexSessionRoot is the checkout a compact codex session's FileChange paths
 // are under, worked out from the session itself: a FileChange path is
 // absolute, and the session's checkpoint records the repo-relative files it
-// touched (files_touched), so a path that ends in one of them, split at a
-// "/", gives a candidate root.
+// touched (files_touched), so a candidate root that a path is a touched file
+// under is a match.
 //
-// A candidate scores one for each distinct session path that is a touched
-// file under it, and the highest score wins. Every split of every path counts,
-// so a checkout named like one of its own directories (/work/repo with
+// The candidates start from the session's working directory. From cli 0.13.3
+// a FileChange's result carries its turn's cwd, and the checkout is that
+// directory or one of its parents: Entire's Codex hooks live in the
+// checkout's .codex directory, a project config layer Codex loads only when it
+// runs inside the checkout, so a session Entire recorded ran there. A path
+// outside them, such as a scratch copy under /tmp, cannot give the root, and a
+// checkout at the filesystem root can. A session written before cli 0.13.3
+// carries no cwd, so every split of every path at a "/" is a candidate,
+// except the filesystem root.
+//
+// Without a cwd, a candidate scores one for each distinct session path that
+// is a touched file under it, and the highest score wins. Every candidate is
+// scored, so a checkout named like one of its own directories (/work/repo with
 // repo/main.go) still gets its full score, and repeated edits of one file
-// count once. A tie is ambiguous, whatever else the tied roots hold, so it
-// gives "" and the paths are stored as written rather than linked to the
+// count once. From a cwd, a candidate wins only when its matches include
+// every other candidate's and add to them (see cwdRoot). Either way an
+// unsettled contest is ambiguous, whatever else the competing roots hold, so
+// it gives "" and the paths are stored as written rather than linked to the
 // wrong files. So does a session with any ".." path (see
-// codexFileChangePaths), and one with no FileChange or no path that ends in
-// a touched file.
+// codexFileChangePaths), and one with no FileChange or no path that is a
+// touched file under a candidate.
 //
 // The live checkout the corpus is built from is not used: worktrees of a repo
 // share one corpus, and an unchanged session is not re-indexed, so the paths
@@ -296,10 +311,20 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 			touched[f] = true
 		}
 	}
-	paths, resolved := codexFileChangePaths(transcript)
+	paths, cwds, resolved := codexFileChangePaths(transcript)
 	if !resolved {
 		return ""
 	}
+	if len(cwds) > 0 {
+		return cwdRoot(paths, dirsFrom(cwds), touched)
+	}
+	return bestCodexRoot(splitRootScores(paths, touched))
+}
+
+// splitRootScores scores every split of every path at a "/" (the filesystem
+// root aside) as a candidate root: one for each path that is a touched file
+// under it.
+func splitRootScores(paths []string, touched map[string]bool) map[string]int {
 	score := map[string]int{}
 	for _, p := range paths {
 		for i := 1; i < len(p)-1; i++ {
@@ -308,10 +333,80 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 			}
 		}
 	}
+	return score
+}
+
+// cwdRoot is the one of roots (the session's cwds and their parents) whose
+// matches, the session paths that are a touched file under it, include every
+// other root's matches and add at least one, or "" when no root's do.
+//
+// Counting matches cannot settle a contest where each root explains a path
+// the other does not, because either side can be a coincidence of names: an
+// edit outside the checkout matching under a parent (/tmp/a.go read as
+// tmp/a.go under "/"), or an ignored or reverted edit in the checkout matching
+// under a subdirectory cwd (sub/a.go read as a.go). Enough coincidences
+// outvote any number of real matches, so such a session is ambiguous. Where
+// one root explains everything the other does, the other's matches are no
+// evidence against it: a parent of a subdirectory cwd that reads the cwd's
+// edits as touched files, and edits beside the cwd too, is the checkout. An
+// edit that is not a touched file under any root costs nothing.
+func cwdRoot(paths, roots []string, touched map[string]bool) string {
+	matches := map[string]map[string]bool{}
+	var live []string
+	for _, root := range roots {
+		m := map[string]bool{}
+		for _, p := range paths {
+			if rel, ok := pathUnderRoot(p, root); ok && touched[rel] {
+				m[p] = true
+			}
+		}
+		if len(m) > 0 {
+			matches[root] = m
+			live = append(live, root)
+		}
+	}
+	for _, root := range live {
+		if coversAll(root, live, matches) {
+			return root
+		}
+	}
+	return ""
+}
+
+// coversAll reports whether root's matches strictly include those of every
+// other root in roots.
+func coversAll(root string, roots []string, matches map[string]map[string]bool) bool {
+	for _, other := range roots {
+		if other == root {
+			continue
+		}
+		adds := countMissing(matches[root], matches[other]) > 0
+		misses := countMissing(matches[other], matches[root]) > 0
+		if !adds || misses {
+			return false
+		}
+	}
+	return true
+}
+
+// countMissing counts the paths in a that are not in b.
+func countMissing(a, b map[string]bool) int {
+	n := 0
+	for p := range a {
+		if !b[p] {
+			n++
+		}
+	}
+	return n
+}
+
+// bestCodexRoot is the root with the highest score, or "" when there is none
+// or the highest is tied.
+func bestCodexRoot(score map[string]int) string {
 	best, bestScore, tied := "", 0, false
 	for root, n := range score {
 		switch {
-		case n > bestScore:
+		case best == "" || n > bestScore:
 			best, bestScore, tied = root, n, false
 		case n == bestScore:
 			tied = true
@@ -326,13 +421,36 @@ func codexSessionRoot(transcript string, filesTouched []string) string {
 // codexFileChangePaths is every distinct absolute path of the file refs a
 // compact codex transcript's FileChange calls give (fileChangeRefs, read
 // through recordToolUses as the episode ops read them), cleaned by
-// cleanAbsPath. resolved is false when any of them has a ".." segment: where
-// that path really is cannot be known here, and leaving it out could hand the
-// root to whichever paths are left.
-func codexFileChangePaths(transcript string) (paths []string, resolved bool) {
-	seen := map[string]bool{}
-	var out []string
+// cleanAbsPath, and every distinct working directory their results carry,
+// cleaned the same way. A cwd that is not absolute or has a ".." segment is
+// left out. resolved is false when any path has a ".." segment: where that
+// path really is cannot be known here, and leaving it out could hand the root
+// to whichever paths are left.
+func codexFileChangePaths(transcript string) (paths, cwds []string, resolved bool) {
+	var ps, cs distinctStrings
 	resolved = true
+	eachCodexFileChange(transcript, func(use toolUse) {
+		for _, ref := range fileChangeRefs(use.input, 0) {
+			if hasDotDotSegment(slashPath(ref.path)) {
+				resolved = false
+			}
+			if s, ok := cleanAbsPath(ref.path); ok {
+				ps.add(s)
+			}
+		}
+		if s, ok := cleanAbsPath(use.cwd); ok {
+			cs.add(s)
+		}
+	})
+	return ps.list, cs.list, resolved
+}
+
+// eachCodexFileChange calls fn with each FileChange tool call in a
+// transcript, in order, read through recordToolUses as the episode ops read
+// them. A line that cannot hold one (mayHoldFileChange) is skipped without
+// decoding it. Each call is handed over as its line is read, so a call's
+// input, diffs included, is not kept past it.
+func eachCodexFileChange(transcript string, fn func(toolUse)) {
 	for _, line := range strings.Split(transcript, "\n") {
 		if !mayHoldFileChange(line) {
 			continue
@@ -342,33 +460,71 @@ func codexFileChangePaths(transcript string) (paths []string, resolved bool) {
 			continue
 		}
 		for _, use := range recordToolUses(record) {
-			if use.name != fileChangeToolName {
-				continue
-			}
-			for _, ref := range fileChangeRefs(use.input, 0) {
-				if hasDotDotSegment(slashPath(ref.path)) {
-					resolved = false
-				}
-				if s, ok := cleanAbsPath(ref.path); ok && !seen[s] {
-					seen[s] = true
-					out = append(out, s)
-				}
+			if use.name == fileChangeToolName {
+				fn(use)
 			}
 		}
 	}
-	return out, resolved
+}
+
+// distinctStrings collects strings in first-seen order, each once.
+type distinctStrings struct {
+	seen map[string]bool
+	list []string
+}
+
+func (d *distinctStrings) add(s string) {
+	if d.seen[s] {
+		return
+	}
+	if d.seen == nil {
+		d.seen = map[string]bool{}
+	}
+	d.seen[s] = true
+	d.list = append(d.list, s)
+}
+
+// dirsFrom is every distinct directory in dirs (clean absolute slash paths
+// from cleanAbsPath) and each of their parents, up to and including the
+// filesystem root: "/" for a rooted path, the drive ("C:") for a drive path.
+// Directories that differ only in case under a drive are one directory (see
+// rootKey), spelled as first seen, so they don't tie with each other.
+func dirsFrom(dirs []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, d := range dirs {
+		for {
+			if seen[rootKey(d)] {
+				break
+			}
+			seen[rootKey(d)] = true
+			out = append(out, d)
+			parent := path.Dir(d)
+			if parent == d || parent == "." {
+				break
+			}
+			d = parent
+		}
+	}
+	return out
 }
 
 // cleanAbsPath is p as a slashPath with "." segments and doubled slashes
 // removed, when it is absolute. A path with a ".." segment is refused: the OS
 // resolves ".." after symlinks, so root/link/../x.go need not be root/x.go,
-// and the checkout it was written in may not be here to look at.
+// and the checkout it was written in may not be here to look at. A drive
+// letter is made upper case: Windows ignores its case, and one session can
+// spell it both ways (a cwd of c:/src/repo, a path of C:/src/repo/main.go).
 func cleanAbsPath(p string) (string, bool) {
 	s := slashPath(p)
 	if !isAbsSlashPath(s) || hasDotDotSegment(s) {
 		return "", false
 	}
-	return path.Clean(s), true
+	s = path.Clean(s)
+	if isDrivePath(s) {
+		s = strings.ToUpper(s[:1]) + s[1:]
+	}
+	return s, true
 }
 
 // hasDotDotSegment reports whether a slashPath has a ".." segment.
@@ -378,12 +534,39 @@ func hasDotDotSegment(p string) bool {
 
 // pathUnderRoot is p relative to root when p is strictly inside it. Both are
 // clean slash paths, so a root that is only a string prefix (/work/repo2 for
-// /work/repo) is not a parent.
+// /work/repo) is not a parent. The filesystem root "/" is the parent of every
+// other rooted path. Under a drive root the directories match in any case,
+// because Windows ignores it and a cwd can be spelled C:/Src/Repo where the
+// paths say C:/src/repo; the part of p under root keeps its case, to match
+// the checkpoint's files. A rooted path compares exactly, because it may be
+// on a filesystem that is case-sensitive.
 func pathUnderRoot(p, root string) (string, bool) {
-	if strings.HasPrefix(p, root+"/") && len(p) > len(root)+1 {
-		return p[len(root)+1:], true
+	prefix := root + "/"
+	if root == "/" {
+		prefix = root
+	}
+	if len(p) <= len(prefix) {
+		return "", false
+	}
+	if head := p[:len(prefix)]; head == prefix || (isDrivePath(root) && strings.EqualFold(head, prefix)) {
+		return p[len(prefix):], true
 	}
 	return "", false
+}
+
+// isDrivePath reports whether a clean slash path starts with a drive letter
+// ("C:" or "C:/work").
+func isDrivePath(p string) bool {
+	return len(p) >= 2 && p[1] == ':' && ((p[0] >= 'a' && p[0] <= 'z') || (p[0] >= 'A' && p[0] <= 'Z'))
+}
+
+// rootKey is the spelling of root that roots naming the same directory share:
+// root itself, or lower case under a drive, as pathUnderRoot compares it.
+func rootKey(root string) string {
+	if isDrivePath(root) {
+		return strings.ToLower(root)
+	}
+	return root
 }
 
 // slashPath is p trimmed and with backslashes as slashes, so a Windows
@@ -399,7 +582,7 @@ func isAbsSlashPath(p string) bool {
 	if strings.HasPrefix(p, "/") {
 		return true
 	}
-	return len(p) >= 3 && p[1] == ':' && p[2] == '/' && ((p[0] >= 'a' && p[0] <= 'z') || (p[0] >= 'A' && p[0] <= 'Z'))
+	return isDrivePath(p) && len(p) >= 3 && p[2] == '/'
 }
 
 func patchFiles(patch string, ln int) []corpusFileRef {
@@ -461,30 +644,48 @@ func codexWrapperHeader(text string) string {
 // about how their commands ended, keyed by call id for the same correlation
 // the native function_call_output case feeds.
 //
-// For a rollout of an older Codex (the cli's response_item path) every result
-// is status "success" and the exit code is only in the wrapper text Codex puts
-// around the command's output, which goes into exitByCall. A current Codex
-// rollout (the cli's item path) carries the command's own output with no
-// wrapper and marks a failure only as status "error"; the exit code is not
-// carried over. Such a call's output is not read for exit text (a test that
-// logs "exited with code 1" is not the command's exit code), and its status
-// "error" goes into failedByCall: the command failed, with no exit code to
-// store. The cli also writes "error" for a command the user declined.
+// A current Codex rollout (the cli's item path) writes, from cli 0.13.3, a
+// command's exit code on its result ("exitCode"), which goes into exitByCall,
+// and "declined" on a call the user declined. A declined call never ran, so it
+// records nothing: it is not a failure and has no exit code. Any other status
+// "error" on a command goes into failedByCall, as Codex's own verdict: it also
+// marks a command failed that ended with no exit code (one that could not
+// start, or was cut off). The item path's output is the command's own, with no
+// wrapper, so it is never read for exit text (a test that logs "exited with
+// code 1" is not the command's exit code).
+//
+// Older transcripts keep their fallbacks. The item path before cli 0.13.3
+// writes no exit code and no declined flag, so status "error" is its only
+// failure signal, and a declined command still counts as failed: its line
+// cannot tell the two apart. A rollout of an older Codex (the cli's
+// response_item path) marks every result status "success" and has its exit
+// code only in the wrapper text Codex puts around the command's output, which
+// is parsed when the result carries no exit code of its own.
 func compactCodexResults(uses []toolUse, exitByCall map[string]int, failedByCall map[string]bool) {
 	for _, use := range uses {
-		if use.id == "" {
+		if use.id == "" || use.declined {
 			continue
 		}
-		if use.name == codexItemCommandTool {
-			if use.status == transcript.ToolStatusError {
-				failedByCall[use.id] = true
-			}
-			continue
-		}
-		if code, ok := parseExitCode(use.output); ok {
+		if code, ok := compactCodexExitCode(use); ok {
 			exitByCall[use.id] = code
 		}
+		if use.name == codexItemCommandTool && use.status == transcript.ToolStatusError {
+			failedByCall[use.id] = true
+		}
 	}
+}
+
+// compactCodexExitCode is the exit code a compact codex call's result gives:
+// its exitCode field, or else, for any call but an item-path command, the one
+// in Codex's wrapper text.
+func compactCodexExitCode(use toolUse) (int, bool) {
+	if use.exitCode != nil {
+		return *use.exitCode, true
+	}
+	if use.name == codexItemCommandTool {
+		return 0, false
+	}
+	return parseExitCode(use.output)
 }
 
 // codexItemCommandTool is the name the cli's item path gives every command,
