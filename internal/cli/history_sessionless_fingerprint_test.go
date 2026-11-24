@@ -119,6 +119,6 @@ func TestOversizedTranscriptLineWarningNamesTheTranscript(t *testing.T) {
 	}
 	joined := strings.Join(source.Warnings, "\n")
 	if !strings.Contains(joined, rel) || !strings.Contains(joined, "1 oversized") {
-		t.Fatalf("a dropped session must be attributable; warnings = %q", joined)
+		t.Fatalf("skipped transcript lines must be attributable; warnings = %q", joined)
 	}
 }

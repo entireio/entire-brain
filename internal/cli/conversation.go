@@ -230,6 +230,11 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 		if err := ctx.Err(); err != nil {
 			return conversationScanResult{}, err
 		}
+		// An unknown skipped record may be a new user turn. Never attach
+		// narrative beyond that gap to the previous request.
+		if scanner.line > lineNumber+1 {
+			closeOpen(lineNumber)
+		}
 		lineNumber = scanner.line
 		text := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(text, "{") {
@@ -260,7 +265,6 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 		open.ToolNames = appendConversationToolNames(open.ToolNames, conversationToolNames(record))
 	}
 	result.SkippedLines = scanner.skipped
-	lineNumber = scanner.line
 	if err := scanner.Err(); err != nil {
 		return conversationScanResult{}, err
 	}
@@ -768,6 +772,9 @@ func expandLineConversationRange(r io.Reader, record historyRecord) (conversatio
 	}
 	responseBudget := conversationExpansionMaxBytes
 	for scanner.Scan() {
+		if scanner.line > lineNumber+1 && scanner.line-1 >= record.Line && lineNumber+1 <= endLine {
+			return conversationExpansion{}, errConversationSourceStale
+		}
 		lineNumber = scanner.line
 		if lineNumber < record.Line {
 			continue
@@ -798,6 +805,10 @@ func expandLineConversationRange(r io.Reader, record historyRecord) (conversatio
 	}
 	if err := scanner.Err(); err != nil {
 		return conversationExpansion{}, err
+	}
+	// Scan can drain an oversized final line without returning another record.
+	if scanner.line > lineNumber && scanner.line >= record.Line && lineNumber+1 <= endLine {
+		return conversationExpansion{}, errConversationSourceStale
 	}
 	out.Response = response.String()
 	return out, nil

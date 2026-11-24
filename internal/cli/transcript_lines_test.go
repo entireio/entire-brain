@@ -135,6 +135,31 @@ func TestHistoryCancellationWhileDraining(t *testing.T) {
 	}
 }
 
+func TestConversationSkippedLinesEndExchanges(t *testing.T) {
+	user := `{"type":"user","message":{"role":"user","content":"Explain request A"}}` + "\n"
+	answer := `{"type":"assistant","message":{"role":"assistant","content":"Answer A"}}` + "\n"
+	hugeUser := `{"type":"user","message":{"role":"user","content":"Explain request B ` + strings.Repeat("x", historyMaxLineBytes) + `"}}` + "\n"
+	orphan := strings.ReplaceAll(answer, "Answer A", "Answer B")
+	for _, tail := range []string{"", orphan, orphan + user + answer} {
+		data := user + answer + hugeUser + tail
+		scan, err := scanLineConversationContext(context.Background(), strings.NewReader(data))
+		want := 1
+		if strings.Contains(tail, "Explain request A") {
+			want = 2
+		}
+		if err != nil || len(scan.Exchanges) != want || scan.SkippedLines != 1 || scan.SourceDigest != conversationDigest([]byte(data)) {
+			t.Fatalf("scan=%+v err=%v", scan, err)
+		}
+		if scan.Exchanges[0].Response != "Answer A" || scan.Exchanges[0].EndLine != 2 {
+			t.Fatalf("misattributed exchange=%+v", scan.Exchanges[0])
+		}
+		_, err = expandLineConversationRange(strings.NewReader(data), historyRecord{Line: 1, EndLine: 3 + strings.Count(tail, "\n")})
+		if !errors.Is(err, errConversationSourceStale) {
+			t.Fatalf("cross-gap range error=%v", err)
+		}
+	}
+}
+
 func TestTranscriptCapAcrossHistoryConversationAndExpansion(t *testing.T) {
 	for _, extra := range []int{0, 1, 2} {
 		t.Run(fmt.Sprint(extra), func(t *testing.T) {
@@ -149,7 +174,7 @@ func TestTranscriptCapAcrossHistoryConversationAndExpansion(t *testing.T) {
 			records, err := scanHistoryFileReader(context.Background(), strings.NewReader(data), rel, ".jsonl")
 			wantRecords := 1
 			wantSkipped := 1
-			wantResponse := "Decision: final response"
+			wantResponse := ""
 			if extra == 0 {
 				wantRecords = 2
 				wantSkipped = 0
@@ -165,8 +190,17 @@ func TestTranscriptCapAcrossHistoryConversationAndExpansion(t *testing.T) {
 				t.Fatalf("history decisions=%d err=%v", decisions, err)
 			}
 			scan, err := scanConversationTranscriptFileContext(context.Background(), strings.NewReader(data), rel)
-			if err != nil || scan.SkippedLines != wantSkipped || len(scan.Exchanges) != 1 {
+			if err != nil || scan.SkippedLines != wantSkipped {
 				t.Fatalf("scan=%+v err=%v", scan, err)
+			}
+			if extra > 0 {
+				if len(scan.Exchanges) != 0 || scan.Incomplete != 1 {
+					t.Fatalf("cross-gap exchange=%+v", scan)
+				}
+				return
+			}
+			if len(scan.Exchanges) != 1 {
+				t.Fatalf("scan=%+v", scan)
 			}
 			record := conversationExchangeRecords(rel, scan)[0]
 			out, err := expandConversationExchange(dir, record)

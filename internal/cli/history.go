@@ -82,12 +82,13 @@ const (
 	// its top-level content. Pre-release revision 12 builds read nothing from
 	// such records, and their caches would otherwise stay current.
 	// v14: skip oversized physical lines without dropping surviving session records.
+	// v15: end conversation exchanges at skipped lines; never reuse cross-gap ranges.
 	// The value is also persisted as the history source's ExtractionVersion
 	// so refresh rebuilds an otherwise-unchanged index built by an older
 	// extractor, and as the short-term overlay's extractor_version so a delta
 	// re-parses entries an older extractor built.
-	historyScanCacheVersion = 14
-	// Extraction revisions 11 to 14 change parser behavior, not the record
+	historyScanCacheVersion = 15
+	// Extraction revisions 11 to 15 change parser behavior, not the record
 	// schema. Keep the wire version readable by supported stable clients. Old
 	// clients drop extractor_version when rewriting, forcing the new parser to
 	// rescan.

@@ -295,7 +295,7 @@ func TestHistoryCacheCachesOversizedLineSkip(t *testing.T) {
 		t.Fatalf("fingerprint = %q, want %q", source.TranscriptsFingerprint, wantFingerprint)
 	}
 	if len(index.Records) != 0 || source.Records != 0 {
-		t.Fatalf("parse-failed records entered index: %+v source=%+v", index.Records, source)
+		t.Fatalf("oversized-only transcript yielded records: %+v source=%+v", index.Records, source)
 	}
 	if cache := loadHistoryScanCache(brainDir); len(cache.Files) != 1 {
 		t.Fatalf("skipped-line transcript missing from cache: %+v", cache.Files)

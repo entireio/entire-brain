@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
@@ -960,10 +959,10 @@ func TestConversationOversizedLinesPreserveExpansion(t *testing.T) {
 			huge := strings.Repeat("x", historyMaxLineBytes+20) + "\n"
 			request := `{"type":"user","message":{"role":"user","content":"Explain the retained decision"}}` + "\n"
 			response := `{"type":"assistant","message":{"role":"assistant","content":"Decision: retained response"}}` + "\n"
-			data := request + huge + response
+			data := request + response + huge + response + request + response
 			wantLine := 1
 			if first {
-				data = huge + request + huge + response
+				data = huge + data
 				wantLine = 2
 			}
 			dir := t.TempDir()
@@ -974,11 +973,11 @@ func TestConversationOversizedLinesPreserveExpansion(t *testing.T) {
 				t.Fatal(err)
 			}
 			records := conversationExchangeRecords(rel, scan)
-			if len(records) != 1 {
+			if len(records) != 2 || records[1].Line != wantLine+4 || records[1].EndLine != wantLine+5 {
 				t.Fatalf("records=%+v", records)
 			}
 			record := records[0]
-			if record.Line != wantLine || record.EndLine != wantLine+2 || record.SourceDigest != conversationDigest([]byte(data)) {
+			if record.Line != wantLine || record.EndLine != wantLine+1 || record.SourceDigest != conversationDigest([]byte(data)) {
 				t.Fatalf("anchors/digest=%+v", record)
 			}
 			expanded, err := expandConversationExchange(dir, record)
