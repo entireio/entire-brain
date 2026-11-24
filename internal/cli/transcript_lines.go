@@ -33,12 +33,12 @@ func (s *transcriptLines) Scan() bool {
 		oversized := false
 		for {
 			fragment, err := s.r.ReadSlice('\n')
-			if len(prefix) < 4096 {
-				n := min(len(fragment), 4096-len(prefix))
-				prefix = append(prefix, fragment[:n]...)
-			}
 			if !oversized {
 				if len(data)+len(fragment) > s.limit+2 {
+					// Preserve metadata only when discarding an oversized line;
+					// normal lines need no separate prefix allocation or copy.
+					prefix = append(prefix, data[:min(len(data), 4096)]...)
+					prefix = append(prefix, fragment[:min(len(fragment), 4096-len(prefix))]...)
 					oversized = true
 					data = nil
 				} else {
@@ -62,6 +62,9 @@ func (s *transcriptLines) Scan() bool {
 			}
 			data = []byte(strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r"))
 			if oversized || len(data) > s.limit {
+				if !oversized {
+					prefix = data[:min(len(data), 4096)]
+				}
 				s.skipped++
 				if !transcriptNoisePrefix(prefix) {
 					s.lastUnsafeLine = s.line
