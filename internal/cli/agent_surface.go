@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -443,15 +442,16 @@ type brainTextMatch struct {
 }
 
 type brainHistoryInspectReport struct {
-	Kind       string           `json:"kind"`
-	Query      string           `json:"query"`
-	QueryTerms []string         `json:"query_terms,omitempty"`
-	BrainPath  string           `json:"brain_path"`
-	Matches    []brainTextMatch `json:"matches"`
-	Partial    bool             `json:"partial,omitempty"`
-	Truncated  bool             `json:"truncated,omitempty"`
-	Scanned    int              `json:"scanned_files"`
-	ScanErrors []string         `json:"scan_errors,omitempty"`
+	Kind         string           `json:"kind"`
+	Query        string           `json:"query"`
+	QueryTerms   []string         `json:"query_terms,omitempty"`
+	BrainPath    string           `json:"brain_path"`
+	Matches      []brainTextMatch `json:"matches"`
+	Partial      bool             `json:"partial,omitempty"`
+	Truncated    bool             `json:"truncated,omitempty"`
+	Scanned      int              `json:"scanned_files"`
+	SkippedLines int              `json:"skipped_lines,omitempty"`
+	ScanErrors   []string         `json:"scan_errors,omitempty"`
 }
 
 func newAgentStatusCommand(opts Options) *cobra.Command {
@@ -5123,11 +5123,11 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 				observation.scannedBytes += counting.bytes
 			}()
 		}
-		scanner := bufio.NewScanner(reader)
-		scanner.Buffer(make([]byte, 0, 64*1024), brainInspectHistoryMaxLine)
+		scanner := newTranscriptLines(reader, brainInspectHistoryMaxLine)
+		defer func() { report.SkippedLines += scanner.skipped }()
 		lineNo := 0
 		for scanner.Scan() {
-			lineNo++
+			lineNo = scanner.line
 			line := scanner.Text()
 			if !historyTextMatchesQuery(line, query) {
 				continue

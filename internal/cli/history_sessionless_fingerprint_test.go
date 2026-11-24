@@ -94,7 +94,7 @@ func TestOversizedTranscriptLineWarningNamesTheTranscript(t *testing.T) {
 	rel := "sessions/main/20260901T000000Z_huge.jsonl"
 	huge := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Decision: ` +
 		strings.Repeat("x", historyMaxLineBytes+1) + `"}]}}`
-	writeBundleTestFile(t, filepath.Join(brainDir, filepath.FromSlash(rel)), huge+"\n")
+	writeBundleTestFile(t, filepath.Join(brainDir, filepath.FromSlash(rel)), `{"type":"assistant","message":{"role":"assistant","content":"Decision: retain before"}}`+"\n"+huge+"\n"+`{"type":"assistant","message":{"role":"assistant","content":"Decision: retain after"}}`+"\n")
 
 	manifest := exportManifest{
 		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now,
@@ -114,11 +114,11 @@ func TestOversizedTranscriptLineWarningNamesTheTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatalf("publish history projection: %v", err)
 	}
-	if source.Records != 0 {
-		t.Fatalf("expected the oversized transcript to contribute nothing, got %d records", source.Records)
+	if source.Records != 2 {
+		t.Fatalf("expected surviving records, got %d records", source.Records)
 	}
 	joined := strings.Join(source.Warnings, "\n")
-	if !strings.Contains(joined, rel) {
+	if !strings.Contains(joined, rel) || !strings.Contains(joined, "1 oversized") {
 		t.Fatalf("a dropped session must be attributable; warnings = %q", joined)
 	}
 }
