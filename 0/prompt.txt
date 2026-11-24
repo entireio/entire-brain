@@ -1,0 +1,153 @@
+<skill name="owning-workspace-slice" location="/Users/alex/.claude/skills/owning-workspace-slice/SKILL.md">
+References are relative to /Users/alex/.claude/skills/owning-workspace-slice.
+
+# Own a Workspace Slice
+
+You own one coherent vertical slice. Read normal global and project instructions, the Linear issue, and the parent dispatch packet. Normal skill, plugin, extension, and project-instruction discovery must remain enabled.
+
+The dispatch packet is the requirements contract:
+
+1. desired outcome and why it matters;
+2. Linear issue ID and authoritative issue requirements;
+3. settled product decisions and hard constraints;
+4. cross-piece interfaces and dependencies;
+5. acceptance signals and granted authority;
+6. known evidence, separate from hypotheses.
+
+Parent-supplied repository files, symbols, architecture, and implementation steps are hypotheses unless marked as directly verified evidence. Validate or discard them through independent repository exploration; do not follow a false technical hint merely because it appeared in the packet.
+
+## Startup workflow receipt
+
+Before any repository mutation, read the normal global and project instructions, then invoke or read the current harness workflows required for this slice. Your first visible response must be a concise **Workflow receipt** naming:
+
+- `owning-workspace-slice` and the global/project instruction files actually loaded;
+- `brainstorming` and `writing-plans`;
+- `test-driven-development` for behavior changes;
+- the harness's delegated implementation workflow (`superpowers:subagent-driven-development` for Claude, Pi-native `subagent` writer roles for Pi);
+- `verification-before-completion` and the planned fresh review workflow; and
+- any missing workflow as an exact blocker.
+
+Mark a workflow `not applicable` only with a concrete reason, such as a read-only investigation or documentation-only reconciliation. Do not claim a workflow was loaded merely because the starter packet named it or its description appeared in the system prompt: invoke/read the actual current skill before listing it. Do not start repository-changing tools in the same response before this receipt is visible. A missing required workflow is a blocker, never permission to improvise a substitute process.
+
+## Own the full repository workflow
+
+Continue without parent approval through:
+
+1. deep exploration sufficient to understand the repository and replace bad hypotheses;
+2. the appropriate spec and implementation plan;
+3. test-first delegated implementation for behavior changes;
+4. complete repository verification and full-diff inspection;
+5. Change creation (and a linked PR only in `gh` mode) and review follow-up to merge readiness.
+
+The workspace controller owns exploration, specification, planning, and coordination. After planning, it **MUST NOT directly implement application code after planning**. It may write only specs, ephemeral plans, coordination ledgers/receipts, and exact transcription of non-application configuration when existing global or project policy already allows that writing. This narrow allowance does not permit application-code implementation or broaden any existing policy.
+
+For Claude workspaces, explicitly invoke the enabled Superpowers workflow appropriate to the work: `superpowers:brainstorming`, `superpowers:writing-plans`, `superpowers:test-driven-development`, `superpowers:subagent-driven-development`, receiving-review, and verification-before-completion. After planning, invoke `superpowers:subagent-driven-development` for application implementation and use fresh review agents for review; do not substitute direct controller edits. During deep exploration, use `using-agent-knowledge-base` when recurring behavior may have durable prior evidence, but validate note claims against current repository and authoritative sources. Before the final receipt, evaluate verified reusable discoveries with `capturing-agent-knowledge`; its vault-note ownership rules are separate from this workspace's checkout ownership.
+
+For Pi workspaces, explicitly invoke the approved `brainstorming`, Pi-native `writing-plans`, `test-driven-development`, `receiving-code-review` as applicable, and `verification-before-completion` workflows. Pi delegation uses package-registered roles through the `subagent` tool: activate it with `subagents_enable` when deferred, discover available roles with `subagent({ action: "list" })`, then launch a configured writer and fresh review roles. Here `pi-subagents` names the parent-side package guidance, not a child skill: do not resolve `~/.pi/agent/skills/pi-subagents/SKILL.md` or pass `skill: "pi-subagents"`. After planning, dispatch application implementation to a Pi-native writer; do not substitute direct controller edits. Keep implementation plans ephemeral and outside the tracked tree. If a required named Pi agent or workflow is unavailable from the tool registry, report the missing agent/workflow or adapt it within the approved Pi-native workflow; do not infer availability from files under `~/.pi/agent/agents`, silently substitute another harness, or bypass the required workflow with direct implementation.
+
+Direct/inline execution is forbidden unless the user explicitly requests it. That explicit exception permits only the requested direct execution; it does not waive planning, verification, or fresh review. Workflow launch or tooling failure is a blocker, not permission to implement directly: record the failure and escalate it rather than bypassing the workflow.
+
+Follow project instructions where they are stricter. Do not mutate Linear state, create dependencies, or close the issue. Report scope discoveries to the parent instead.
+
+## Verified forge modes
+
+**REQUIRED:** read `~/.claude/skills/pr-followup/verified-forge-modes.md` in full before selecting downstream review policy. It is the single source for `gh` mode, `et` mode, native readiness, the native watch and native merge confirmation; references in this file to the forge-mode or native policy "above" mean that file.
+
+## Own PR review follow-up
+
+PR creation/linking instructions in this paragraph apply only in `gh` mode. In `et` mode, verify the native Change/project association and dispatch the steward with the Change identity and absolute checkout path, without creating a PR. For planned multi-Change work, receive the verified project Trail identity from the parent, run Trail help/commands with `ENTIRE_PROJECT_TRAILS=1`, and link this branch as a Change with its repository-specific description before creating the human-authored PR. Do not create a separate parent. For a standalone PR whose parent is created automatically, create the human PR, verify the actual parent/Change association, and ensure the parent owner explicitly sets the project Trail description using the `trail` skill's concise Markdown contract. If linking or parent authority is unavailable, report the exact integration/permission blocker. Start and own the review steward in this checkout.
+
+The owner remains accountable for review-loop liveness, may inspect aggregate state, and may nudge or resume the steward. Once started, the steward is the sole writer in the checkout: it reads detailed CI, Bugbot, thread, and trail feedback; implements fixes, verifies, commits, pushes, and follows review feedback through merge readiness. The owner must not edit, commit, or push while the steward owns the checkout. Owner intervention requires an explicit steward stop or release and a recorded handoff before any write.
+
+Trail monitor review is mandatory on every steward wave, not only when a user mentions Slopgate. Require the steward to fetch authenticated Trail detail and record the current PR and Trail heads plus each monitor present in `.monitors[]` with its key, value, state, and evaluated SHA. Only monitors present in `.monitors[]` are configured. An absent Confidence, Risk, Security, or Slop key is `not configured`, does not block readiness, and does not create `insufficient_evidence`. Interrogate a present current Slop evaluation at every value. Confidence, Risk, and Security require interrogation when a current value, trend, or rationale names a concrete concern. Every monitor claim must have one canonical classification (`actionable_bug`, `actionable_cleanup`, `already_fixed_or_stale`, `non_actionable_opinion`, or `insufficient_evidence`), an explicit disposition, and steward-held code/test/diff/spec evidence. `insufficient_evidence` blocks readiness; stale and opinion claims are documented `no-action`, never silently dropped. Resume the sole-writer steward with only verified claims and evidence; do not turn monitor rationale into a fix instruction yourself.
+
+Reconcile `trail-review=missing` against authenticated Trail detail before nudging or retriggering. Select from `.runners[]` by exact `runner_id == "trail-review"`; current-passed requires `state == "evaluated"`, `outcome == "passed"`, and `evaluated_at_sha == head_sha`, with the Trail head matching the current PR head in `gh` mode or verified local Change head in `et` mode. Where the base branch has no in-repo `trail-review` runner because review runs on project-level agents (agent-insights since ENT-3787), main review is the project "Code review" agent instead: its latest run for the Change must have succeeded at the current head, and `trail-review` absent there is expected, not missing. Record absent/not-configured, running, stale, failed, and current-passed distinctly; an empty auxiliary summary is never main-review evidence. Genuine absence is not a passing required review; report the configuration/evidence gap. Unavailable detail names the next authenticated observation, not another review run.
+
+Check Trail status before mergeability: `.status == "merged"` may coexist with false `.mergeability.mergeable`; report direct merge confirmation to the parent without restarting review. For open Trails, in `gh` mode only, `.mergeability.mergeable` and `.mergeability.gates[]` are corroborating evidence only; Entire Ready-to-merge never substitutes for Alex's personal current-head gates. When those gates hold, approval-only Entire failure means **automated work complete; human handoff**, not another review run or an automated approval-polling condition.
+
+The GitHub check named exactly `Partial Gates` is always an environment/testing artifact. The owner and steward never inspect, wait on, fix, or report it as required; it does not block merge readiness. This does not apply to `Entire Gates` or any differently named check.
+
+For human-facing owner reports (not artifact creation), lead with the verified canonical `https://entire.com/` project Trail URL and its freshest state or phase. Show this Change URL only for slice-specific review evidence or blockers; do not identify or link its PR. If project detail is unavailable, report the known project URL as unknown and do not fall back to the Change or PR. Only when no actual project association exists may the PR URL appear with `Trail: pending/not linked`. Repository or branch similarity is not association evidence. Keep Change-specific review mechanics, personal gates, post-merge verification, and structured/internal PR evidence unchanged. Pi and Claude bottom status lines remain Trail-only.
+
+In `et` mode return only Change status/current head, approvals, configured gate summaries, native dry-run mergeability, finding count, main-review and monitor aggregate receipts, readiness and next signal. The PR-based receipt and readiness conjunction below are `gh`-only. Return only aggregate review receipts to the parent: PR/current SHA, **current-head mergeability** (`MERGEABLE`, `UNKNOWN`, or `CONFLICTING`) with its next action/signal, required-check summary (excluding `Partial Gates`), Bugbot status for that SHA, unresolved-thread count, trail/open-finding count, main-review receipt (Trail status/head, runner ID/state/outcome/evaluated SHA, Entire gate summary), **monitor receipt** (PR/Trail head, each monitor's value/state/evaluated SHA, per-canonical-classification disposition counts, evidence-recorded status, actionable count, insufficient-evidence count, and next signal), and merge readiness. Monitor rationale and per-claim evidence stay with the owner and steward. A merge-ready receipt requires `mergeable == "MERGEABLE"` on the current PR head, Bugbot terminal, current-passed main review, green required CI excluding `Partial Gates`, zero unresolved threads, and zero open Trail findings; every monitor present in `.monitors[]` evaluated on the current PR and Trail head; no present monitor evaluating, stale, or failed; absent keys recorded as `not configured` without blocking or `insufficient_evidence`; zero verified actionable and insufficient-evidence claims; and documented `no-action` dispositions for stale or opinion claims. A non-ready receipt must name its next signal or action. The parent may coordinate or nudge with aggregate discrepancies, but it never prescribes review fixes or launches a competing steward.
+
+## Publish local Trail footer state
+
+When the owner/steward or its existing watch already observes this Change's actual `open`, `draft`, `merged`, or `closed` status, publish its canonical `.com` Change URL with `node ~/.pi/agent/extensions/session-trail-footer/record-state.mjs "$trail_url" "$trail_status" "$observed_at"`. Inside the actual owning Herdr workspace, the helper automatically records the workspace's own Trail association, even without a parent's hand-written ledger. It does not create any parent edge. A relay from another workspace must append `--workspace <actual-owner-id> --pane <actual-owner-pane-id>` from the verified launch receipt, rather than associating the Trail with the relayer. The third argument is the ISO observation timestamp; omit it only for a fresh direct observation, and preserve it when relaying a receipt. Publish when linking the Trail and when the existing workflow observes a status change, including final closure. This writes only local footer state outside the checkout and is safe while the steward owns repository writes. It does not create/link a Trail or replace the parent's ownership ledger. Never make an extra remote request or launch another watch for the footer, and never infer Trail status from PR readiness, PR merge, approvals, or cleanup. Lookup failure preserves last-known local state. Include the canonical Trail URL, actual status, and observation timestamp in the parent's aggregate receipt so it can relay the same evidence without another fetch.
+
+## Escalate only these cases
+
+- an unsettled product or scope decision;
+- a cross-piece contract change;
+- a destructive or security-sensitive action not already authorized;
+- a blocker for which every safe path would be a guess.
+
+Everything else—including replacing a parent technical hypothesis—is yours to resolve and continue.
+
+## Progress and cleanup receipts
+
+Keep a readable progress record and provide receipts containing:
+
+- decisions and replaced hypotheses;
+- implementation and verification results;
+- PR and review state;
+- residual risks or blockers;
+- every resource started (Compose project, server, tunnel, temporary state); and
+- exact, idempotent cleanup commands and intentional retained resources.
+
+Before review, stop resources no longer needed. Update the receipt if review work starts a resource. In `et` mode, wait for parent authorization based on native gates and Change status `merged`, then provide the same cleanup receipt; no build receipt is required. In `gh` mode, after direct merge confirmation, wait for the parent's current merge-commit success receipt for default-branch builds/checks before the final repository-specific cleanup pass. The parent owns the event-driven post-merge watch; the review steward remains pre-merge. Report post-merge failures to the parent, including apparently unrelated failures with evidence, rather than silently ignoring them or cleaning. Once the parent authorizes cleanup after that receipt, report the cleanup receipt and leave the checkout clean and unoccupied.
+
+Never remove the Herdr workspace yourself. The parent verifies cleanup and removes it only after merge confirmation and the mode-specific verification receipts. In `gh` mode, no final cleanup or Done receipt before both merge confirmation and post-merge success; in `et` mode, native gates and merged status replace that build receipt. If you crash, the parent may run only cleanup commands already recorded, one at a time after inspection.
+</skill>
+
+1. Desired outcome and why it matters
+Transcript records with nothing worth remembering (Codex `compacted` records, image data blocks and huge command stdout) must stop flowing into Brain's history index, conversation exchanges and distillation. They may be costing distillation tokens, filling BM25 search with junk terms and duplicate records, and since COR-2358 they split conversation turns whenever they exceed the line limit.
+
+2. Linear issue and authoritative requirements
+COR-2360 (https://linear.app/entirehq/issue/COR-2360). Read it in full, including plan steps 1 to 3 and its Agent notes; it is authoritative. Do not change its Linear state, assignee or labels: the parent owns the lifecycle.
+
+3. Settled decisions and hard constraints
+- Investigate first, on real checkpoint data, before choosing the skip list. Distillation cost comes first, because it's the only part that may be spending money today.
+- Classify by record type, not by size. The same rule must apply to history, conversation scanning and distillation.
+- Over-limit lines: classify them from their leading bytes (`type` and `role`). Known noise records must not end a conversation exchange; unknown lines and genuine user requests still must, which is the COR-2358 behaviour authorized by Alex on 2026-11-24.
+- Don't drop genuine content: a Claude tool result is role `user` but isn't a user request, and command stdout may hold real errors. Trim or cap where skipping would lose signal.
+- Bump the history scan cache version if extracted records change.
+- Repository: gh/entireio/entire-brain. Branch off origin/main, which now contains COR-2358's shared line reader and COR-2359's settled-failure bookkeeping. If the investigation shows it's warranted, split into more than one slice under the repo's sizing rules, and say so.
+- Recording: do not run session-crosslink for, attach to, or reference the parent orchestrator session in commits, Trails or PRs. Only your own workspace sessions may be recorded.
+
+4. Cross-piece interfaces and dependencies
+No other open slices touch this code. Build on the shared transcript line reader that COR-2358 landed on main; don't create a parallel reader.
+Project Trail (parent-owned, do not edit its description): https://entire.com/gh/entireio/-/trails/2962. Link your branch as a Change under project trail 2962 and report its canonical Change URL. The repo now uses project-level review agents (Code review, Slop, Security) only; there are no in-repo runners.
+
+5. Acceptance signals and granted authority
+- An investigation receipt with numbers: distillation tokens attributable to these records per distill, history records and terms per record type, and conversation exchanges affected, across at least entire-brain and one other repo's checkpoints. Put it in the PR description or the Change, not in a committed docs/spec file.
+- Failing tests first for each behaviour change, then passing: noise records are skipped in history, conversation and distillation; known noise over the limit doesn't end an exchange; a genuine user request over the limit still does.
+- Full fmt, lint and test trio green. Pre-push preflight run. The Change is linked under trail 2962, and your review steward drives it to merge-ready under the normal readiness gates.
+- Authority: create a branch, commit, push, link the Change, open the PR, run and own your review steward. Not authorized: merging, Linear lifecycle changes, editing the project Trail description.
+
+6. Known evidence vs replaceable hypotheses
+Known (parent measurement, read-only from `git cat-file` on entire/checkpoints/v1):
+- entire-brain: 1,183 transcripts, median line 694 B. 115 files (9.7%) have a line over 1 MiB, made of 396 `compacted` lines (about 96% `payload.guardian_history`, only 2.9% base64), 66 `event_msg/item_completed` lines (CommandExecution stdout of 1 to 2+ MB) and 28 Claude `user` tool-result lines (99.9% base64 image `source.data`).
+- Other repos, share of files with a line over 1 MiB: entire.io 5.7% (631 of 11,091 files, 40 over 4 MiB, max 9.4 MB), cli 1.2% (max 4.9 MB), entire-graph 5.0% (30 files over 4 MiB), entire-search 5.2%, entiredb 0.1% (max 11.2 MB), mirror-pipeline 1.2%, librarian 0.4%, entire-api 0.2%. go-git-api, infra and marvin have none.
+- Code facts at 7d566025 are listed in the COR-2360 Agent notes. Re-verify them on current main, since COR-2358 and COR-2359 have since changed history.go, conversation.go and history_delta.go.
+Hypotheses (replace if wrong): `guardian_history` looks like a nested Codex helper's history saved inside compactions (inferred, unverified). Distillation may or may not extract text from compactions; nobody has checked.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+<hc from="t31">Decision from Alex: no stream-parsing. Ambiguous oversized Claude records keep COR-2358's exchange boundary. Only clearly-noise types (Codex compacted, item_completed) may be skipped without ending the exchange. The block-level peek is deferred to COR-2363. Your investigation shows no distillation cost from compactions or stdout, so size the fix to what the data shows: the exchange splits plus any noise you found in history records. Continue to a linked Change under trail 2962.</hc>
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
