@@ -12,6 +12,7 @@
 package retrieval
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -229,6 +230,23 @@ func Unified(deps Deps, repoDir, brainDir, branch, query string, limit int, mode
 }
 
 func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limit int, mode Mode, opts Options) ([]Result, error) {
+	return UnifiedWithOptionsContext(context.Background(), deps, repoDir, brainDir, branch, query, limit, mode, opts)
+}
+
+// UnifiedWithOptionsContext is UnifiedWithOptions with cooperative cancellation.
+// Cancellation returns the context error and discards incomplete results.
+func UnifiedWithOptionsContext(ctx context.Context, deps Deps, repoDir, brainDir, branch, query string, limit int, mode Mode, opts Options) (results []Result, err error) {
+	defer func() {
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			results = nil
+			err = cancelErr
+		}
+	}()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if limit <= 0 {
 		limit = 10
 	}
@@ -266,7 +284,7 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 	var active []factmerge.Record
 	if includeFacts {
 		var err error
-		all, err = factstore.Load(brainDir)
+		all, err = factstore.LoadContext(ctx, brainDir)
 		if err != nil {
 			return nil, err
 		}
@@ -279,6 +297,9 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 		// Global facts apply everywhere; --no-global is their only off switch.
 		branchFilter := strings.TrimSpace(opts.Branch)
 		for _, f := range all {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			if branchFilter != "" && f.Branch != branchFilter && !globalFactIDs[f.ID] {
 				continue
 			}
@@ -290,6 +311,9 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 
 	var lists [][]Result
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Facts.
 	if includeFacts && len(active) > 0 {
 		factLimit := min(len(active), candidateLimit)
@@ -307,6 +331,9 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// History — BM25 (lexical / hybrid), plus the gated semantic arm (hybrid /
 	// vector; see history_vec.go). The FTS index is an optimization, never
 	// load-bearing (see history_fts.go): on a build/open/query failure fall
@@ -342,6 +369,9 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Docs — lexical (search/query) and/or vector (vsearch/query). In hybrid mode
 	// docs join BOTH arms, mirroring facts. A never-built doc index is skipped; a
 	// corrupt/unreadable one is a real storage problem and is surfaced.
@@ -410,6 +440,9 @@ func UnifiedWithOptions(deps Deps, repoDir, brainDir, branch, query string, limi
 	}
 	if len(fused) > limit {
 		fused = fused[:limit]
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return fused, nil
 }

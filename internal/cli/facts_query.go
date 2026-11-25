@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"time"
@@ -38,9 +39,10 @@ func factLexicalScore(f factRecord, query string, queryLocus []string) int {
 	return score
 }
 
-// scoredFact pairs a fact with its query score for ranking.
+// scoredFact references an immutable candidate instead of copying its full
+// payload into both the scoring and related-family ordering buffers.
 type scoredFact struct {
-	Record factRecord
+	Record *factRecord
 	Score  float64
 }
 
@@ -56,18 +58,48 @@ func rankFacts(facts []factRecord, query string, limit int, includeAll bool) []f
 // rankFactsAt is rankFacts with an explicit clock for the recency prior, so
 // ranking tests are not a race with the wall clock.
 func rankFactsAt(facts []factRecord, query string, limit int, includeAll bool, now time.Time) []factRecord {
+	return rankFactsAtContext(context.Background(), facts, query, limit, includeAll, now)
+}
+
+func rankFactsAtContext(ctx context.Context, facts []factRecord, query string, limit int, includeAll bool, now time.Time) []factRecord {
+	if ctx.Err() != nil {
+		return nil
+	}
+
 	if limit <= 0 {
 		limit = 10
 	}
-	candidates := make([]factRecord, 0, len(facts))
+	count := 0
 	for _, f := range facts {
+		if ctx.Err() != nil {
+			return nil
+		}
 		if !includeAll && f.Status != factStatusActive {
 			continue
 		}
-		candidates = append(candidates, f)
+		count++
+	}
+	// Scoring only reads candidates. Reuse the input when no records need
+	// filtering instead of keeping another full corpus per workspace worker.
+	candidates := facts
+	if count != len(facts) {
+		candidates = make([]factRecord, 0, count)
+		for _, f := range facts {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if f.Status == factStatusActive {
+				candidates = append(candidates, f)
+			}
+		}
 	}
 
 	if strings.TrimSpace(query) == "" {
+		// Recent-listing sorts in place, so it must own the candidate slice.
+		if count == len(facts) {
+			candidates = make([]factRecord, len(facts))
+			copy(candidates, facts)
+		}
 		sort.SliceStable(candidates, func(i, j int) bool {
 			return candidates[i].UpdatedAt.After(candidates[j].UpdatedAt)
 		})
@@ -79,10 +111,14 @@ func rankFactsAt(facts []factRecord, query string, limit int, includeAll bool, n
 
 	queryLocus := base.FactLocus(query)
 	terms := factQueryTerms(query)
-	corpus := newBM25Corpus(candidates)
+	corpus := newBM25CorpusContext(ctx, candidates, terms)
 	scored := make([]scoredFact, 0, len(candidates))
-	for i, f := range candidates {
-		if score := factBM25Score(f, corpus, i, terms, queryLocus); score > 0 {
+	for i := range candidates {
+		f := &candidates[i]
+		if ctx.Err() != nil {
+			return nil
+		}
+		if score := factBM25Score(*f, corpus, i, queryLocus); score > 0 {
 			// Recency prior (COR-2311): a soft multiplier, never a filter — it
 			// reorders neighbours and breaks stale-vs-current ties; a dateless
 			// fact stays neutral. Applied after the >0 match check so time
@@ -105,7 +141,7 @@ func rankFactsAt(facts []factRecord, query string, limit int, includeAll bool, n
 	}
 	out := make([]factRecord, len(scored))
 	for i, s := range scored {
-		out[i] = s.Record
+		out[i] = *s.Record
 	}
 	return out
 }

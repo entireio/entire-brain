@@ -18,6 +18,7 @@ package factstore
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -43,6 +44,12 @@ type repoFactStore struct {
 	SchemaVersion int                        `json:"schema_version"`
 	Records       map[string]json.RawMessage `json:"records"`
 }
+
+// repoStoreField discards a value during the top-level key check. It never
+// retains the temporary JSON bytes supplied by encoding/json.
+type repoStoreField struct{}
+
+func (*repoStoreField) UnmarshalJSON([]byte) error { return nil }
 
 // readStoreFile reads facts/store.json raw, with the shared forward-version
 // gate: a schema newer than this build fails closed.
@@ -80,15 +87,46 @@ func readStoreFile(brainDir string) (version int, data []byte, present bool, err
 // when a body is unparseable or disagrees with its key: a key standing over a
 // different fact's body is a substitution — the fact the key names is gone.
 func decodeV3(data []byte) (map[string]factmerge.Record, error) {
-	var s repoFactStore
-	if _, err := brainstore.DecodeStrictVersionedJSON(data, &s, repoFactsVersion, "repository memory store"); err != nil {
+	return decodeV3Context(context.Background(), data)
+}
+
+func decodeV3Context(ctx context.Context, data []byte) (map[string]factmerge.Record, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+
+	var s repoFactStore
+	if _, err := brainstore.CheckedVersionedJSONHeader(data, repoFactsVersion, "repository memory store"); err != nil {
+		return nil, err
+	}
+	// The canonical writer has only these two top-level keys. Inspect the keys
+	// without retaining their payloads, then decode directly from existing bytes.
+	// Other spellings and errors keep the original strict decoder's behavior.
+	var keys map[string]repoStoreField
+	direct := json.Unmarshal(data, &keys) == nil
+	for key := range keys {
+		if key != "schema_version" && key != "records" {
+			direct = false
+		}
+	}
+	var decodeErr error
+	if direct {
+		decodeErr = json.Unmarshal(data, &s)
+	}
+	if !direct || decodeErr != nil {
+		s = repoFactStore{}
+		if _, err := brainstore.DecodeStrictVersionedJSON(data, &s, repoFactsVersion, "repository memory store"); err != nil {
+			return nil, err
+		}
 	}
 	if s.SchemaVersion != repoFactsVersion || s.Records == nil {
 		return nil, fmt.Errorf("invalid repository memory store header")
 	}
 	out := make(map[string]factmerge.Record, len(s.Records))
 	for id, raw := range s.Records {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var rec factmerge.Record
 		if err := json.Unmarshal(raw, &rec); err != nil {
 			return nil, fmt.Errorf("invalid repository memory record %s: %w", id, err)
@@ -106,11 +144,24 @@ func decodeV3(data []byte) (map[string]factmerge.Record, error) {
 // writes). Records come back in factmerge.Sort order. Corrupt or
 // forward-version stores fail closed.
 func Load(brainDir string) ([]factmerge.Record, error) {
-	combined, err := loadCombined(brainDir)
+	return LoadContext(context.Background(), brainDir)
+}
+
+// LoadContext is Load with cancellation between stored records and legacy sources.
+func LoadContext(ctx context.Context, brainDir string) ([]factmerge.Record, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	combined, err := loadCombinedWithEvidenceContext(ctx, brainDir, false)
 	if err != nil {
 		return nil, err
 	}
-	return combined.sorted(), nil
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	out := combined.sorted()
+	return out, ctx.Err()
 }
 
 // Write replaces the flat store with exactly these records. Callers hold the

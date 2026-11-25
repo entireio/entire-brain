@@ -1005,6 +1005,13 @@ func writeWorkspaceGraphPayload(env EntireEnv, payload workspaceGraphPayload) (s
 }
 
 func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspaceRetrieveOptions, mode retrievalMode, workspaceName, query string) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if retrieveOpts.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
@@ -1035,26 +1042,38 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 		return err
 	}
 	dirs, dirsErr := base.ResolvePluginDirs(opts.Env)
-	var results []workspaceRetrieveResult
+	// Resolve and validate all member roots before admitting work. A bad root is
+	// still an operation error, while branch/store failures remain member errors.
+	brainDirs := make(map[string]string, len(manifest.Repos))
 	for _, repo := range manifest.Repos {
-		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
-		result := workspaceRetrieveResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness, Results: []unifiedResult{}}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		brainDir, err := base.BrainDirForKey(opts.Env, repo.RepoKey)
 		if err != nil {
 			return err
 		}
+		brainDirs[repo.RepoKey] = brainDir
+	}
+	workers := workspaceRetrievalWorkers
+	if concurrent, ok := opts.Runner.(ConcurrentCommandRunner); !ok || !concurrent.ConcurrentRunAllowed() {
+		workers = 1
+	}
+	results, err := retrieveWorkspaceMembers(ctx, manifest.Repos, workers, func(ctx context.Context, repo workspace.Repo) workspaceRetrieveResult {
+		freshness := workspaceRepoFreshnessForRepo(ctx, opts, repo)
+		result := workspaceRetrieveResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness, Results: []unifiedResult{}}
+		brainDir := brainDirs[repo.RepoKey]
 		branch, err := workspaceMemberBranch(brainDir, retrieveOpts.branch)
 		if err != nil {
 			result.Error = err.Error()
-			results = append(results, result)
-			continue
+			return result
 		}
 		result.Branch = branch
 		var repoDir string
 		if dirsErr == nil {
-			repoDir, _ = resolveWorkspaceMemberRepoDir(cmd.Context(), opts, dirs.Config, repo)
+			repoDir, _ = resolveWorkspaceMemberRepoDir(ctx, opts, dirs.Config, repo)
 		}
-		found, err := retrieveUnifiedWithOptions(repoDir, brainDir, branch, query, retrieveOpts.limit, mode, ropts)
+		found, err := retrieveUnifiedWithOptionsContext(ctx, repoDir, brainDir, branch, query, retrieveOpts.limit, mode, ropts)
 		if err != nil {
 			result.Error = err.Error()
 		} else {
@@ -1065,14 +1084,17 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 				result.Results = found
 			}
 		}
-		results = append(results, result)
+		return result
+	})
+	if err != nil {
+		return err
 	}
 	// The workspace-graph group joins only the default source set. An explicit
 	// single-source selection (conversation, fact, history, doc) is a source
 	// isolation contract: no fan-out or append stage may add records from any
 	// other source.
 	if mode != retrieval.ModeVector && ropts.Source == brainstore.RetrievalSourceAll {
-		graphResults, err := retrieveWorkspaceGraphCrossEdges(opts.Env, manifest.Name, query, retrieveOpts.limit)
+		graphResults, err := retrieveWorkspaceGraphCrossEdgesContext(ctx, opts.Env, manifest.Name, query, retrieveOpts.limit)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			results = append(results, workspaceRetrieveResult{
 				RepoKey: manifest.Name,
@@ -1088,6 +1110,9 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			})
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if retrieveOpts.json {
 		if len(ropts.Concepts) > 0 {
 			payload, budgetErr := boundedWorkspaceRetrievalJSONPayload(manifest.Name, query, results)
@@ -1098,7 +1123,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			if marshalErr != nil {
 				return marshalErr
 			}
-			return writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized)
+			return writeWorkspaceRetrievalResponse(ctx, cmd.OutOrStdout(), serialized)
 		}
 		qualified := qualifyWorkspaceRetrieveGroups(manifest.Name, results)
 		serialized, marshalErr := cmdutil.JSONOutputBytes(struct {
@@ -1109,14 +1134,14 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 		if marshalErr != nil {
 			return marshalErr
 		}
-		return writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized)
+		return writeWorkspaceRetrievalResponse(ctx, cmd.OutOrStdout(), serialized)
 	}
 	if len(ropts.Concepts) > 0 {
 		text, budgetErr := boundedWorkspaceRetrievalText(manifest.Name, results)
 		if budgetErr != nil {
 			return budgetErr
 		}
-		return writeRetrievalResponseBytes(cmd.OutOrStdout(), text)
+		return writeWorkspaceRetrievalResponse(ctx, cmd.OutOrStdout(), text)
 	}
 	var rendered bytes.Buffer
 	out := io.Writer(&rendered)
@@ -1143,7 +1168,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
 		}
 	}
-	return writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes())
+	return writeWorkspaceRetrievalResponse(ctx, cmd.OutOrStdout(), rendered.Bytes())
 }
 
 func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qualifiedIDs []string, branchOverride string, jsonOut bool, gopts getOptions) error {
@@ -1295,10 +1320,18 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 }
 
 func retrieveWorkspaceGraphCrossEdges(env EntireEnv, workspaceName, query string, limit int) ([]unifiedResult, error) {
+	return retrieveWorkspaceGraphCrossEdgesContext(context.Background(), env, workspaceName, query, limit)
+}
+
+func retrieveWorkspaceGraphCrossEdgesContext(ctx context.Context, env EntireEnv, workspaceName, query string, limit int) ([]unifiedResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if limit <= 0 {
 		limit = 10
 	}
-	payload, err := loadWorkspaceGraphPayload(env, workspaceName)
+	payload, err := loadWorkspaceGraphPayloadContext(ctx, env, workspaceName)
 	if err != nil {
 		return nil, err
 	}
@@ -1308,6 +1341,9 @@ func retrieveWorkspaceGraphCrossEdges(env EntireEnv, workspaceName, query string
 	}
 	scoredEdges := make([]scored, 0, len(payload.CrossEdges))
 	for _, edge := range payload.CrossEdges {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		result := workspaceGraphCrossEdgeUnified(edge)
 		score := workspace.GraphSearchScore(result.Text, query)
 		if score <= 0 {
@@ -1353,6 +1389,14 @@ func getWorkspaceLevelRecord(env EntireEnv, workspaceName, id string) (unifiedRe
 }
 
 func loadWorkspaceGraphPayload(env EntireEnv, workspaceName string) (workspaceGraphPayload, error) {
+	return loadWorkspaceGraphPayloadContext(context.Background(), env, workspaceName)
+}
+
+func loadWorkspaceGraphPayloadContext(ctx context.Context, env EntireEnv, workspaceName string) (workspaceGraphPayload, error) {
+	if err := ctx.Err(); err != nil {
+		return workspaceGraphPayload{}, err
+	}
+
 	dir, err := workspace.DefaultStore(env).Dir(workspaceName)
 	if err != nil {
 		return workspaceGraphPayload{}, err
@@ -1369,7 +1413,7 @@ func loadWorkspaceGraphPayload(env EntireEnv, workspaceName string) (workspaceGr
 	if err != nil {
 		return workspaceGraphPayload{}, err
 	}
-	generation, err := workspaceGraphGeneration(env, manifest)
+	generation, err := workspaceGraphGenerationContext(ctx, env, manifest)
 	if err != nil {
 		return workspaceGraphPayload{}, err
 	}
@@ -2165,6 +2209,11 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 // generations. A builder that finishes after either changes writes a stale token,
 // which readers reject even if that builder overwrites a newer cache file.
 func workspaceGraphGeneration(env EntireEnv, manifest workspace.Manifest) (string, error) {
+	return workspaceGraphGenerationContext(context.Background(), env, manifest)
+}
+
+func workspaceGraphGenerationContext(ctx context.Context, env EntireEnv, manifest workspace.Manifest) (string, error) {
+
 	type memberSource struct {
 		Repo        workspace.Repo  `json:"repo"`
 		Manifest    *exportManifest `json:"manifest"`
@@ -2173,6 +2222,9 @@ func workspaceGraphGeneration(env EntireEnv, manifest workspace.Manifest) (strin
 	}
 	members := make([]memberSource, 0, len(manifest.Repos))
 	for _, repo := range manifest.Repos {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		brainDir, err := base.BrainDirForKey(env, repo.RepoKey)
 		if err != nil {
 			return "", err
@@ -2184,7 +2236,7 @@ func workspaceGraphGeneration(env EntireEnv, manifest workspace.Manifest) (strin
 		// Graph can be rebuilt independently of Brain. Bind derived cross-repo
 		// edges to the current provider entry, including its missing state.
 		if repo.LocalPathHint != "" {
-			d, graphErr := fetchGraphStore(context.Background(), Options{Runner: ExecRunner{}}, repo.LocalPathHint, "", "full")
+			d, graphErr := fetchGraphStore(ctx, Options{Runner: ExecRunner{}}, repo.LocalPathHint, "", "full")
 			if graphErr == nil {
 				member.GraphDigest = d.EntryDigest
 			} else {
@@ -2195,6 +2247,9 @@ func workspaceGraphGeneration(env EntireEnv, manifest workspace.Manifest) (strin
 				// the generation never invalidated the cross-repo cache.
 				member.GraphDigest = "unavailable: " + graphErr.Error()
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
 		}
 		members = append(members, member)
 	}

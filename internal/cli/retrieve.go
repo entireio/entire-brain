@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -24,13 +25,36 @@ import (
 // retrievalEngineDeps binds the engine's injected seams to their cli homes:
 // the store rankers, declared-index inspection, and the conversation arms.
 func retrievalEngineDeps() retrieval.Deps {
+	return retrievalEngineDepsContext(context.Background())
+}
+
+func retrievalEngineDepsContext(ctx context.Context) retrieval.Deps {
 	return retrieval.Deps{
-		RankFacts:                        rankFacts,
-		RankHistoryLexical:               rankHistoryLexicalForRetrieval,
-		RankDocs:                         rankDocsForRetrieval,
-		InspectDeclaredIndex:             inspectBrainDeclaredIndex,
-		RetrieveConversation:             retrieveConversation,
-		RetrieveConversationMultiConcept: retrieveConversationMultiConcept,
+		RankFacts: func(facts []factRecord, query string, limit int, includeAll bool) []factRecord {
+			return rankFactsAtContext(ctx, facts, query, limit, includeAll, time.Now())
+		},
+		RankHistoryLexical: func(brainDir string, source *historySourceManifest, kind, query string, limit int) ([]scoredHistoryRecord, error) {
+			scored, _, _, err := rankFreshHistoryLexicalFromSourceContext(ctx, brainDir, source, kind, query, limit)
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return scored, err
+		},
+		// FTS remains an optimization; cancellation never triggers its fallback.
+		RankDocs: func(brainDir string, index docIndex, query string, limit int) []scoredDocRecord {
+			scored, ok := rankDocsViaFTSContext(ctx, brainDir, index, query, limit)
+			if !ok && ctx.Err() == nil {
+				scored = rankDocsLexicalContext(ctx, index, query, limit)
+			}
+			return scored
+		},
+		InspectDeclaredIndex: inspectBrainDeclaredIndex,
+		RetrieveConversation: func(brainDir, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
+			return retrieveConversationContext(ctx, brainDir, query, limit, mode, opts)
+		},
+		RetrieveConversationMultiConcept: func(brainDir, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
+			return retrieveConversationMultiConceptContext(ctx, brainDir, query, limit, mode, opts)
+		},
 	}
 }
 
@@ -44,23 +68,10 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	return retrieval.UnifiedWithOptions(retrievalEngineDeps(), repoDir, brainDir, branch, query, limit, mode, opts)
 }
 
-// rankHistoryLexicalForRetrieval adapts rankFreshHistoryLexicalFromSource's
-// diagnostic-rich signature to the engine seam, which needs only the scored
-// window.
-func rankHistoryLexicalForRetrieval(brainDir string, source *historySourceManifest, kind, query string, limit int) ([]scoredHistoryRecord, error) {
-	scored, _, _, rankErr := rankFreshHistoryLexicalFromSource(brainDir, source, kind, query, limit)
-	return scored, rankErr
-}
-
-// rankDocsForRetrieval ranks doc chunks for the engine.
-// FTS is an optimization, never load-bearing: fall back to the in-memory
-// lexical scorer so docs don't vanish when the doc FTS index can't open.
-func rankDocsForRetrieval(brainDir string, index docIndex, query string, limit int) []scoredDocRecord {
-	scored, ok := rankDocsViaFTS(brainDir, index, query, limit)
-	if !ok {
-		scored = rankDocsLexical(index, query, limit)
-	}
-	return scored
+// retrieveUnifiedWithOptionsContext carries cancellation into the shared engine
+// and its CPU, SQLite, and cache-lock dependencies.
+func retrieveUnifiedWithOptionsContext(ctx context.Context, repoDir, brainDir, branch, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
+	return retrieval.UnifiedWithOptionsContext(ctx, retrievalEngineDepsContext(ctx), repoDir, brainDir, branch, query, limit, mode, opts)
 }
 
 // errConversationVectorUnsupported answers a direct modeVector call on the
@@ -84,6 +95,14 @@ const conversationSessionTopKDivisor = 2
 // ranking otherwise; vsearch is semantic-only and returns a structured
 // unavailable error when the arm is closed.
 func retrieveConversation(brainDir, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
+	return retrieveConversationContext(context.Background(), brainDir, query, limit, mode, opts)
+}
+
+func retrieveConversationContext(ctx context.Context, brainDir, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
@@ -125,16 +144,16 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	case retrieval.ModeVector:
 		return nil, errConversationVectorUnsupported
 	case retrieval.ModeHybrid:
-		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
-			lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, eligible)
+		scored = rankFreshHistoryContext(ctx, fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+			lex, complete, ok := rankHistoryViaFTSFilteredContext(ctx, brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, eligible)
 			if ok && !complete {
 				scanComplete = false
 			}
 			return lex, ok
 		})
 	default:
-		scored = rankFreshHistory(fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
-			lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, eligible)
+		scored = rankFreshHistoryContext(ctx, fresh, conversationKind, query, candidateLimit, pred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
+			lex, complete, ok := rankHistoryViaFTSFilteredContext(ctx, brainDir, longTerm, conversationKind, query, candidateLimit, historyFTSRelevanceCutoff, eligible)
 			if ok && !complete {
 				scanComplete = false
 			}
@@ -149,6 +168,9 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	// bogus "filter scan exceeded" error on the default (unfiltered) path,
 	// contradicting this file's own contract that FTS is an optimization and
 	// never load-bearing.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if !scanComplete {
 		return nil, errConversationFilterScanExceeded()
 	}
@@ -177,7 +199,7 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 		// consistency with single-list merges.
 		out[i].Score = 1.0 / (retrieval.RRFK + float64(i+1))
 	}
-	return out, nil
+	return out, ctx.Err()
 }
 
 // maxGetBatchIDs caps one get/multi-get request across CLI and
