@@ -206,6 +206,7 @@ func TestBrainManifestReaderKeepsFileProtections(t *testing.T) {
 			case "directory":
 				err = os.Mkdir(path, 0700)
 			case "symlink":
+				skipIfSymlinksUnrepresentable(t)
 				err = os.Symlink(target, path)
 			case "hardlink":
 				err = os.Link(target, path)

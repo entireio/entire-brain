@@ -449,6 +449,41 @@ func TestFactsGlobalListsTheStore(t *testing.T) {
 	}
 }
 
+// TestFactsGlobalSaysTheStoreIsThisMachines covers #570 from the second
+// machine's side: an empty listing there is where somebody looks for a memory
+// recorded on the first, so the empty state, the listing and the JSON all say
+// that global memories are not synced.
+func TestFactsGlobalSaysTheStoreIsThisMachines(t *testing.T) {
+	opts, _ := globalTestOptions(t)
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := newFactsGlobalCommand(opts)
+		out := &bytes.Buffer{}
+		cmd.SetOut(out)
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("facts global %v: %v", args, err)
+		}
+		return out.String()
+	}
+
+	if empty := run(); !strings.Contains(empty, "on this machine") || !strings.Contains(empty, "does not upload them") {
+		t.Fatalf("the empty listing does not say global memories stay on this machine: %q", empty)
+	}
+	rememberGlobal(t, opts, "I prefer table-driven tests.")
+	if listed := run(); !strings.Contains(listed, "does not upload them") {
+		t.Fatalf("the listing does not say global memories stay on this machine: %q", listed)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(run("--json")), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if synced, ok := payload["synced"]; !ok || synced != false {
+		t.Fatalf("--json synced = %v (present %v), want false", synced, ok)
+	}
+}
+
 func TestGlobalFactsAreLabelledWhenSurfaced(t *testing.T) {
 	// Acting on a global convention as though this repository declared it is a
 	// different thing, and an agent reading unlabelled output cannot tell.

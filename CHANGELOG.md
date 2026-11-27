@@ -63,6 +63,10 @@ All notable changes to `entire-brain` are recorded here. The format follows
   compact transcripts with the CLI's own `transcript` package
   (`github.com/entireio/cli` v0.13.1), whose module requires it. The source
   installer's Go check compares the patch version too (#607).
+- Say that global memories stay on the machine that recorded them.
+  `memories sync` reports how many it did not upload (`global_not_synced` in
+  JSON), and `memories global` and `remember --global` name the limit. Global
+  memories are still not synced across machines (#570).
 
 ### Fixed
 
@@ -97,6 +101,9 @@ All notable changes to `entire-brain` are recorded here. The format follows
   files the session's checkpoint touched) so it links to the file's symbols.
   The indexer version moves, so the next refresh re-indexes existing
   sessions (#600).
+- The pattern corpus works out a Codex session's repository root from the
+  same edit records it stores file refs from, so the two can no longer
+  disagree about which records are edits.
 - `recall --evidence` no longer returns harness-injected `<system-reminder>`
   text as `role: "user"` evidence. User-role strings and text blocks now go
   through the same wrapper filter as the conversation reader, so reminders,
@@ -123,6 +130,23 @@ All notable changes to `entire-brain` are recorded here. The format follows
   codes the same way native codex records do. A patch-only turn is no longer
   classified read-only, and a failing command is no longer stored as a
   success (#566, #567).
+- Claude Code child processes that Brain starts no longer run your Claude
+  Code plugins and hooks. This covers distill, reconcile, `remember`
+  classification, memory abstracts, seed synthesis, the eval judge, query
+  expansion, outline, patterns and skills. Before, a session-memory plugin's
+  SessionStart context reached every extraction prompt, and its Stop and
+  SessionEnd hooks recorded each call as a new session. Every claude child now
+  gets `--settings '{"disableAllHooks":true}'`, which works on every supported
+  Claude Code version, and `CLAUDE_CODE_SAFE_MODE=1`, which on Claude Code
+  2.1.169 or later also leaves out plugins and your global `~/.claude/CLAUDE.md`.
+  Signed-in (OAuth) auth and the `model`, `env` and `apiKeyHelper` values in
+  your user settings still apply. `--agent command` is unchanged (#552).
+
+- `remember --path` rejects a malformed path even when another path in the list
+  is valid. Previously it was dropped and the memory was stored under fewer
+  paths. The error names the rejected path and the rule: `category.subcategory.type`,
+  lowercase letters, digits and `_`, no hyphens. `remember --help` and the agent
+  guide written by `setup` now state the rule too.
 
 ## [0.5.1] - 2026-11-04
 

@@ -110,7 +110,6 @@ func TestRetrieveCommandsRejectInvalidContractsBeforeReadingState(t *testing.T) 
 		"workspace missing manifest":         "missing",
 		"workspace conversation vector":      "vector search was removed",
 		"workspace fact conversation filter": "filters require --source conversation",
-		"workspace fact abstract":            "--include-abstract requires --source conversation",
 	}
 	for name, err := range map[string]error{
 		"single zero limit":                  retrieve.Run(cmd.Context(), cmd, retrieveCommandConfig(Options{}), "q", retrieval.ModeLexical, 0, "", retrievalOptions{}, false, false, "search"),
@@ -119,7 +118,6 @@ func TestRetrieveCommandsRejectInvalidContractsBeforeReadingState(t *testing.T) 
 		"workspace missing manifest":         runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: brainstore.RetrievalSourceFact}, retrieval.ModeLexical, "missing", "q"),
 		"workspace conversation vector":      runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: brainstore.RetrievalSourceConversation}, retrieval.ModeVector, "missing", "q"),
 		"workspace fact conversation filter": runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: brainstore.RetrievalSourceFact, session: "secret-session"}, retrieval.ModeLexical, "missing", "q"),
-		"workspace fact abstract":            runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: brainstore.RetrievalSourceFact, includeAbstract: true}, retrieval.ModeLexical, "missing", "q"),
 	} {
 		if err == nil || !strings.Contains(err.Error(), wantErrors[name]) {
 			t.Errorf("%s: got %v, want %q", name, err, wantErrors[name])
@@ -146,10 +144,6 @@ func TestRunRetrieveRealFactTextJSONNoResultsAndWriterFailure(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(storage.BrainDir, "hidden.txt"), []byte("HIDDEN-ORION-CANARY"), 0o600); err != nil {
 		t.Fatal(err)
-	}
-	invalidAbstract := &cobra.Command{}
-	if err := retrieve.Run(invalidAbstract.Context(), invalidAbstract, retrieveCommandConfig(opts), "orion", retrieval.ModeLexical, 1, "feature", retrievalOptions{Source: brainstore.RetrievalSourceFact, IncludeAbstract: true}, false, false, "search"); err == nil || !strings.Contains(err.Error(), "conversation") {
-		t.Fatalf("fact abstract error = %v", err)
 	}
 
 	for _, jsonOut := range []bool{false, true} {
@@ -258,7 +252,7 @@ func TestWorkspaceRetrieveMultiConceptJSONAndTextProofs(t *testing.T) {
 	opts := Options{Version: "test", Env: env, Now: func() time.Time { return time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC) }}
 	retrieveOpts := workspaceRetrieveOptions{
 		limit: 10, source: brainstore.RetrievalSourceConversation,
-		concepts: []string{"beta cache eviction", "gamma flag"}, includeAbstract: true,
+		concepts: []string{"beta cache eviction", "gamma flag"},
 	}
 	for _, jsonOut := range []bool{false, true} {
 		cmd := &cobra.Command{}
@@ -279,9 +273,6 @@ func TestWorkspaceRetrieveMultiConceptJSONAndTextProofs(t *testing.T) {
 		}
 		if len(got) > conversationConceptResponseMaxBytes {
 			t.Fatalf("json=%v response exceeded budget: %d", jsonOut, len(got))
-		}
-		if jsonOut && !strings.Contains(got, `"abstract_previews"`) {
-			t.Fatalf("JSON omitted abstract preview status: %s", got)
 		}
 	}
 }

@@ -380,7 +380,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 				warnings = append(warnings, fmt.Sprintf("skipped %d session(s) whose transcript bytes are not available locally; the first was: %v", len(unavailable), unavailable[0]))
 				// Record the dropped identities: they are still checkpoint-
 				// catalog members, so the mirror must not treat their derived
-				// facts and abstracts as deleted.
+				// facts as deleted.
 				type sessionKey struct {
 					id, branch, checkpoint string
 					index                  int

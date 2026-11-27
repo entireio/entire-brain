@@ -2,7 +2,6 @@ package brainstore
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -28,10 +27,6 @@ func TestPrivacyReadersOnlyReportConfirmedAbsence(t *testing.T) {
 		}},
 		{"artifact", "dir", func(rel string) (bool, error) {
 			_, present, err := ReadPrivacyArtifact(root, rel, "fixture", 100)
-			return present, err
-		}},
-		{"directory", "file", func(rel string) (bool, error) {
-			_, present, err := ReadPrivacyDirectory(root, rel, "fixture")
 			return present, err
 		}},
 	}
@@ -89,40 +84,9 @@ func TestPrivacyOpenFailuresAreUnsafe(t *testing.T) {
 			if data != nil || !present || !errors.Is(err, cause) || !strings.Contains(err.Error(), StateUnsafeCode) {
 				t.Fatalf("artifact open: data=%q present=%v err=%v", data, present, err)
 			}
-			entries, present, err := ReadPrivacyDirectory(root, "dir", "fixture")
-			if entries != nil || !present || !errors.Is(err, cause) || !strings.Contains(err.Error(), StateUnsafeCode) {
-				t.Fatalf("directory open: entries=%v present=%v err=%v", entries, present, err)
-			}
 		})
 	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != "evidence" {
-		t.Fatalf("source changed: data=%q err=%v", data, err)
-	}
-}
-
-func TestPrivacyDirectoryInventoryLimitIsUnsafe(t *testing.T) {
-	root := t.TempDir()
-	dir := filepath.Join(root, "inventory")
-	if err := os.Mkdir(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < privacyInventoryMaxEntries; i++ {
-		if err := os.WriteFile(filepath.Join(dir, fmt.Sprint(i)), nil, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	entries, present, err := ReadPrivacyDirectory(root, "inventory", "fixture")
-	if err != nil || !present || len(entries) != privacyInventoryMaxEntries {
-		t.Fatalf("at ceiling: entries=%d present=%v err=%v", len(entries), present, err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "overflow"), []byte("evidence"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	entries, present, err = ReadPrivacyDirectory(root, "inventory", "fixture")
-	if entries != nil || !present || err == nil || !strings.Contains(err.Error(), StateUnsafeCode) {
-		t.Fatalf("over ceiling: entries=%d present=%v err=%v", len(entries), present, err)
-	}
-	if data, err := os.ReadFile(filepath.Join(dir, "overflow")); err != nil || string(data) != "evidence" {
 		t.Fatalf("source changed: data=%q err=%v", data, err)
 	}
 }

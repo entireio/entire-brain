@@ -41,7 +41,7 @@ func NewRetrieve(cfg Config, use string, mode retrieval.Mode, short string) *cob
 	var format string
 	var limit int
 	var branch string
-	var patterns, includeAbstract, noGlobal bool
+	var patterns, noGlobal bool
 	var source, after, before, session, agent string
 	var concepts []string
 	var recency bool
@@ -59,7 +59,6 @@ func NewRetrieve(cfg Config, use string, mode retrieval.Mode, short string) *cob
 			if err != nil {
 				return fmt.Errorf("--%s", err.Error())
 			}
-			ropts.IncludeAbstract = includeAbstract
 			ropts.NoGlobalFacts = noGlobal
 			ropts, err = retrieval.WithRecencyOptions(ropts, recency, recencyHalfLife)
 			if err != nil {
@@ -87,7 +86,6 @@ func NewRetrieve(cfg Config, use string, mode retrieval.Mode, short string) *cob
 	cmd.Flags().StringVar(&session, "session", "", "Conversation source only: exchanges from this session id (also disables the per-session diversity cap)")
 	cmd.Flags().StringVar(&agent, "agent", "", "Conversation source only: exchanges captured by this agent/harness (e.g. \"Claude Code\", \"Codex\")")
 	cmd.Flags().StringArrayVar(&concepts, "concept", nil, "Conversation source only: additional concept (repeatable, up to 4); sessions must match the query AND every concept")
-	cmd.Flags().BoolVar(&includeAbstract, "include-abstract", false, "Conversation source only: include bounded evidence-linked session previews (never affects ranking)")
 	cmd.Flags().BoolVar(&recency, "recency", false, "Prefer recent dated results (not supported for source conversation)")
 	cmd.Flags().StringVar(&recencyHalfLife, "recency-half-life", "", "Recency half-life as a positive Go duration, e.g. 720h (default 2160h; requires --recency)")
 	return cmd
@@ -190,17 +188,6 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, query string, mode
 			return err
 		}
 	}
-	var abstractPreviews []retrieval.SessionAbstractPreview
-	var abstractPreviewsTruncated bool
-	if ropts.IncludeAbstract {
-		if ropts.Source != brainstore.RetrievalSourceConversation {
-			return fmt.Errorf(`--include-abstract requires --source conversation (got %q)`, ropts.Source)
-		}
-		abstractPreviews, abstractPreviewsTruncated, err = cfg.Deps.AbstractPreviews(brainDir, results)
-		if err != nil {
-			return err
-		}
-	}
 	if !multiConcept {
 		// Preserve the pre-multi-concept payload byte-for-byte, but buffer it so the shared
 		// final privacy check runs after assembly and before the first write. The
@@ -208,10 +195,6 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, query string, mode
 		// multi-concept coverage.
 		if jsonOut {
 			out := map[string]any{"query": query, "branch": resolvedBranch, "results": retrieval.CompactResults(results, query)}
-			if ropts.IncludeAbstract {
-				out["abstract_previews"] = abstractPreviews
-				out["abstract_previews_truncated"] = abstractPreviewsTruncated
-			}
 			hints := cfg.Deps.TaskHints(repoDir, results, query)
 			if len(hints.LikelyEditFiles) > 0 {
 				out["likely_edit_files"] = hints.LikelyEditFiles
@@ -272,19 +255,6 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, query string, mode
 			for _, pattern := range related {
 				fmt.Fprintf(out, "related [%s] %s  %s\n", pattern.Type, pattern.ID, pattern.Title)
 			}
-			for _, preview := range abstractPreviews {
-				text := ""
-				if preview.Overview != nil {
-					text = "  " + strings.Join(strings.Fields(preview.Overview.Text), " ")
-				}
-				fmt.Fprintf(out, "abstract [%s] %s%s\n", preview.AbstractStatus, preview.SessionRef, text)
-				if preview.AbstractIssue != "" {
-					fmt.Fprintf(out, "  automatic enqueue issue: %s\n", preview.AbstractIssue)
-				}
-			}
-			if abstractPreviewsTruncated {
-				fmt.Fprintln(out, "abstract previews truncated")
-			}
 		}); err != nil {
 			return err
 		}
@@ -297,10 +267,8 @@ func Run(ctx context.Context, cmd *cobra.Command, cfg Config, query string, mode
 		return nil
 	}
 	extras := retrieval.TransportExtras{
-		AbstractPreviews:          abstractPreviews,
-		AbstractPreviewsTruncated: abstractPreviewsTruncated,
-		Hints:                     cfg.Deps.TaskHints(repoDir, results, query),
-		Related:                   related,
+		Hints:   cfg.Deps.TaskHints(repoDir, results, query),
+		Related: related,
 	}
 	if len(results) == 0 {
 		extras.BlindSpot = cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch)

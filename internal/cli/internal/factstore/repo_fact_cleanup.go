@@ -244,6 +244,34 @@ func cleanupLegacyPreparedLocked(brainDir string, proofs map[string]cleanupRecei
 	return result
 }
 
+// cleanupReportedPath remembers the digest of the retained set the user was
+// LAST WARNED about. Separate from cleanup-status on purpose: the quick
+// in-lock scan and the out-of-lock verifier retain differently-shaped sets and
+// alternate in the status file, so gating on it re-warned on every pass.
+const cleanupReportedPath = "facts/.cleanup-reported"
+
+// CleanupNoticeDue reports whether a retained cleanup deserves a (one-line)
+// warning: the first time this exact retained set is seen, and again only when
+// it changes. A due notice records its digest, so callers print at most once
+// per change — a set that needs a human decision never shrinks on its own, and
+// an ungated warning reprinted the full list on every write, forever.
+func CleanupNoticeDue(brainDir string, status CleanupStatus) bool {
+	if status.State != "retained" || len(status.Retained) == 0 {
+		return false
+	}
+	retained := append([]string(nil), status.Retained...)
+	sort.Strings(retained)
+	sum := sha256.Sum256([]byte(strings.Join(retained, "\x00")))
+	digest := hex.EncodeToString(sum[:])
+	prev, _, err := brainstore.ReadMemoryStateFile(brainDir, cleanupReportedPath, "legacy cleanup notice", base.DefaultMaxReadBytes)
+	if err == nil && strings.TrimSpace(string(prev)) == digest {
+		return false
+	}
+	// Best-effort: a failed write only means the warning repeats once more.
+	_ = brainstore.WriteBrainRelativeFileAtomic(brainDir, cleanupReportedPath, []byte(digest+"\n"), 0600)
+	return true
+}
+
 func cleanupPark(brainDir string, facts *os.Root, name string, current map[string]factmerge.Record, storeHash string, limit int, byteLimit int64, started time.Time, after string, next *string, proofs map[string]cleanupReceipt) (processed int, scanned, removed int64, err error) {
 	info, err := facts.Lstat(name)
 	if err != nil {

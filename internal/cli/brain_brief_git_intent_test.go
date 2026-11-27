@@ -329,9 +329,7 @@ func TestBrainBriefGitIntentRejectsSymlinkAndTimeout(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(repoDir, "scripts"), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(outside, filepath.Join(repoDir, "scripts", "install.sh")); err != nil {
-			t.Fatal(err)
-		}
+		symlinkForTest(t, outside, filepath.Join(repoDir, "scripts", "install.sh"))
 		before := brainBriefGitIntentBaseline("install hooks configuration")
 		after := before
 		runner := &brainBriefGitIntentScriptedRunner{outputs: [][]byte{

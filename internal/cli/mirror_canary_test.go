@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -324,67 +323,6 @@ func TestMirrorSkipsPartialCatalogs(t *testing.T) {
 				t.Fatalf("partial catalog changed the fact store: %+v %v", remaining, err)
 			}
 		})
-	}
-}
-
-// TestMirrorSweepsAbstractsOfMissingSessions pins the abstract half of the
-// mirror: a session abstract is an LLM summary of transcript content, so when
-// the session leaves the checkpoint catalog, the abstract and its egress
-// receipt leave the brain at the next refresh.
-func TestMirrorSweepsAbstractsOfMissingSessions(t *testing.T) {
-	brainDir, _ := writeSessionNavigationFixture(t)
-	view := sessionViewForTest(t, brainDir)
-	digest := sessionViewDigest(view)
-	data, err := json.Marshal(validAbstractForView(view, digest))
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeAbstractBytesForTest(t, brainDir, digest, data)
-	receipt := abstractEgressReceipt{
-		OperationID: "aabbccddeeff00112233", SessionRef: view.Ref, SessionDigest: digest,
-		Provider: "codex", Model: "test-1", StartedAt: time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC), Status: "started",
-	}
-	if err := writeAbstractEgressReceipt(brainDir, receipt); err != nil {
-		t.Fatal(err)
-	}
-
-	// While the session is in the catalog, the mirror removes nothing.
-	counts, err := mirrorBrainToCheckpointCatalog(brainDir, time.Date(2026, 11, 1, 12, 1, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if counts.Abstracts != 0 || counts.EgressReceipts != 0 {
-		t.Fatalf("mirror removed artifacts of a live session: %+v", counts)
-	}
-	if _, ok := loadSessionAbstract(brainDir, digest); !ok {
-		t.Fatal("abstract of a live session was removed")
-	}
-
-	// Remove the session from the catalog (its checkpoint is gone) and mirror.
-	manifest, err := bmanifest.Load(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest.Sources.Sessions.Sessions = nil
-	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
-		t.Fatal(err)
-	}
-	counts, err = mirrorBrainToCheckpointCatalog(brainDir, time.Date(2026, 11, 1, 12, 2, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if counts.Abstracts != 1 || counts.EgressReceipts != 1 {
-		t.Fatalf("mirror counts = %+v, want one abstract and one receipt removed", counts)
-	}
-	if _, ok := loadSessionAbstract(brainDir, digest); ok {
-		t.Fatal("abstract of the deleted session survived the mirror")
-	}
-	receipts, err := loadAbstractEgressReceiptsChecked(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(receipts) != 0 {
-		t.Fatalf("egress receipts of the deleted session survived: %+v", receipts)
 	}
 }
 

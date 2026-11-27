@@ -63,8 +63,9 @@ type Flags struct {
 // Cursor persists across restarts so the daemon never re-refreshes unchanged state and never
 // re-runs the gated agent work within --distill-every after a restart.
 type Cursor struct {
-	PendingSeed    bool `json:"pending_seed,omitempty"`
-	PendingDistill bool `json:"pending_distill,omitempty"`
+	ReportedFailures map[string]bool `json:"reported_failures,omitempty"`
+	PendingSeed      bool            `json:"pending_seed,omitempty"`
+	PendingDistill   bool            `json:"pending_distill,omitempty"`
 	// LastFingerprint tracks the input already queued for agent work, even
 	// when the deterministic refresh is deferred. PendingRefresh keeps that
 	// unfinished refresh eligible without requeueing completed agent steps.
@@ -300,6 +301,24 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 			bufferFull = stats.Truncated
 			needsReconcile = stats.Files > 0 || stats.Failed > 0 || stats.Truncated
 			fmt.Fprintf(out, "[watch] short-term memory updated (%d records from %d changed transcripts)\n", stats.Records, stats.Files)
+			if err := withWatchCursorLock(cursorPath, func() error {
+				cursor := LoadCursor(cursorPath)
+				previous := cursor.ReportedFailures
+				reported := map[string]bool{}
+				for identity, reason := range stats.SettledFailures {
+					if !previous[identity] {
+						fmt.Fprintf(out, "[watch] settled transcript failure: %s\n", reason)
+					}
+					reported[identity] = true
+				}
+				if len(reported) == 0 && len(cursor.ReportedFailures) == 0 {
+					return nil
+				}
+				cursor.ReportedFailures = reported
+				return SaveCursor(cursorPath, cursor)
+			}); err != nil {
+				fmt.Fprintf(out, "[watch] failure diagnostic cursor update failed: %v\n", err)
+			}
 			if stats.Failed > 0 {
 				fmt.Fprintf(out, "[watch] short-term memory incomplete: %d transcripts failed to scan; consolidation will repair\n", stats.Failed)
 			}

@@ -1163,7 +1163,7 @@ sessions when explicitly asked. Memories are shared across branches by default.
 Retract facts that are no longer true, then garbage-collect eligible retractions.
 
 ```sh
-entire brain remember "Prefer table-driven tests for parser edge cases" --path preferences.tests
+entire brain remember "Prefer table-driven tests for parser edge cases" --path preferences.testing.style
 entire brain distill --agent codex --model gpt-5.4-mini --effort low
 entire brain memories retract <memory-id>
 entire brain memories gc --force
@@ -1199,7 +1199,9 @@ destination.
 
 The brain includes evaluation harnesses for maintainers who need evidence that a
 retriever or fact layer is actually helping — not required for everyday use, but
-the right surface before claiming a quality lift.
+the right surface before claiming a quality lift. Released binaries do not carry
+the eval and bench commands: run them from a checkout of this repository with
+`go run -tags brain_harness ./cmd/entire-brain <command>`.
 
 ```sh
 entire brain memories eval-gen > memories-tasks.json
@@ -1251,6 +1253,20 @@ to `repos/` under the plugin data directory, which `entire brain memories global
 prints. They are ordinary facts: the same format, the same taxonomy, the same
 retraction and garbage collection.
 
+### On one machine
+
+Global facts stay on the machine that recorded them. `memories sync` and the
+background sync exchange repository memories with the team's hosted memory set;
+the global store is not uploaded, so a second machine signed in to the same
+account does not recall them. There is no account-scoped hosted store for them,
+and a repository's hosted store is shared with that repository's team.
+
+`memories sync` names what it left behind: a `not synced: N global memory(ies)`
+line, and `global_not_synced` in `--json`. When the global store cannot be read,
+the sync still succeeds, and `global_not_synced` is `null` with the reason in
+`global_not_synced_error`. `memories global` says the same under the list, and
+its `--json` carries `"synced": false`.
+
 ### How they surface
 
 Every read surface merges them into the repository's results: `recall`,
@@ -1294,7 +1310,7 @@ value disables global facts rather than leaving them on.
 says so:
 
 ```
-not in a repository, so this was remembered globally; it will be recalled from every repo
+not in a repository, so this was remembered globally; it will be recalled from every repo on this machine
 ```
 
 This is decided by asking git whether the directory is a working tree, not by
@@ -1496,7 +1512,6 @@ model or by fetching over the network:
 - fact distillation with `distill --agent ...`
 - query expansion with `recall --expand`
 - pattern verification and skill synthesis
-- explicitly configured session-abstract generation
 - judged evaluation commands
 - `memories sync` pushes and pulls repository memories with the hosted
   memory set over the per-fact wire; opt-in and off by default, requiring the

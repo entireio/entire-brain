@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
@@ -934,13 +935,12 @@ func TestConversationExpansionDistinguishesFailureStates(t *testing.T) {
 		t.Fatalf("expected stale caveat: %+v", result.Caveats)
 	}
 
-	// A line transcript with an in-range line over the scanner bound:
-	// unreadable caveat, not stale.
+	// An oversized line is skipped rather than making the source unreadable.
 	huge := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("a", historyMaxLineBytes+1024) + `"}]}}` + "\n"
 	lineRecord := write("sessions/main/20260808T000000Z_line.jsonl", huge)
 	result = conversationGetResult(brainDir, lineRecord)
-	if !hasCaveatKind(result, retrieval.CaveatConversationSourceUnreadable) {
-		t.Fatalf("expected unreadable caveat: %+v", result.Caveats)
+	if hasCaveatKind(result, retrieval.CaveatConversationSourceUnreadable) {
+		t.Fatalf("oversized line should be skipped: %+v", result.Caveats)
 	}
 }
 
@@ -951,4 +951,43 @@ func hasCaveatKind(result unifiedResult, kind string) bool {
 		}
 	}
 	return false
+}
+
+func TestConversationOversizedLinesPreserveExpansion(t *testing.T) {
+	for _, first := range []bool{false, true} {
+		t.Run(fmt.Sprint(first), func(t *testing.T) {
+			huge := strings.Repeat("x", historyMaxLineBytes+20) + "\n"
+			request := `{"type":"user","message":{"role":"user","content":"Explain the retained decision"}}` + "\n"
+			response := `{"type":"assistant","message":{"role":"assistant","content":"Decision: retained response"}}` + "\n"
+			data := request + response + huge + response + request + response
+			wantLine := 1
+			if first {
+				data = huge + data
+				wantLine = 2
+			}
+			dir := t.TempDir()
+			rel := "sessions/main/retained.jsonl"
+			writeBundleTestFile(t, filepath.Join(dir, rel), data)
+			scan, err := scanConversationTranscriptFileContext(context.Background(), strings.NewReader(data), rel)
+			if err != nil {
+				t.Fatal(err)
+			}
+			records := conversationExchangeRecords(rel, scan)
+			if len(records) != 2 || records[1].Line != wantLine+4 || records[1].EndLine != wantLine+5 {
+				t.Fatalf("records=%+v", records)
+			}
+			record := records[0]
+			if record.Line != wantLine || record.EndLine != wantLine+1 || record.SourceDigest != conversationDigest([]byte(data)) {
+				t.Fatalf("anchors/digest=%+v", record)
+			}
+			expanded, err := expandConversationExchange(dir, record)
+			if err != nil || expanded.Request != "Explain the retained decision" || expanded.Response != "Decision: retained response" {
+				t.Fatalf("expansion=%+v err=%v", expanded, err)
+			}
+			writeBundleTestFile(t, filepath.Join(dir, rel), strings.Replace(data, "xxx", "xxy", 1))
+			if _, err := expandConversationExchange(dir, record); !errors.Is(err, errConversationSourceStale) {
+				t.Fatalf("mutation error=%v", err)
+			}
+		})
+	}
 }

@@ -84,6 +84,10 @@ cd entire-brain
 Builds and registers Brain and Graph. It does not initialize a repository's
 memory or install the watcher.
 
+The clone is itself a git repository, and `setup` acts on the repository you
+run it in. Go back to your own project's directory before you run
+`entire brain setup`, or pass the project's path as an argument.
+
 </details>
 
 See [installation options](docs/operations.md#full-install) for choosing a Graph checkout, installing offline, or building Brain alone.
@@ -206,7 +210,8 @@ entire brain verify
 `remember` infers where the fact belongs using a coding agent on `PATH`. Without
 one, pass it yourself: `--path constraints.retry.policy`, shaped
 `category.subcategory.type`, from `architecture`, `constraints`, `preferences`,
-`project`, `workflow`.
+`project`, `workflow`. Segments use lowercase letters, digits and `_`; a hyphen
+is rejected.
 
 `verify` reports hand-written facts as `unverifiable-here` — they have no source
 anchor in the repository. Expected, not a failure.
@@ -261,10 +266,11 @@ entire brain facts global                  # everything recorded globally
 entire brain facts retract <id> --global
 ```
 
-Global facts are recalled from every repository and labelled `(global)` when
-they surface, so a general convention is never mistaken for something this
-codebase declared. `--no-global`, or `ENTIRE_BRAIN_NO_GLOBAL_FACTS=1`, leaves
-them out.
+Global facts are recalled from every repository on the machine that recorded
+them and labelled `(global)` when they surface, so a general convention is never
+mistaken for something this codebase declared. `memories sync` does not upload
+them, so another machine does not see them. `--no-global`, or
+`ENTIRE_BRAIN_NO_GLOBAL_FACTS=1`, leaves them out.
 
 Running `remember` outside a checkout records the fact globally instead of
 failing — which is usually where you are when the thing you want to write down

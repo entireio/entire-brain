@@ -117,6 +117,8 @@ type conversationExchange struct {
 }
 
 type conversationScanResult struct {
+	SkippedLines int
+
 	Exchanges []conversationExchange
 	// Incomplete counts exchanges opened by a substantive request that produced
 	// no visible assistant narrative; they are skipped, not indexed.
@@ -171,15 +173,14 @@ func scanConversationTranscriptFileContext(ctx context.Context, f io.ReadSeeker,
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return conversationScanResult{}, err
 	}
-	probe := make([]byte, 4096)
-	n, readErr := contextCheckingReader{ctx: ctx, r: f}.Read(probe)
-	if readErr != nil && readErr != io.EOF {
+	br := bufio.NewReaderSize(contextCheckingReader{ctx: ctx, r: f}, historyMaxLineBytes+2)
+	firstLine, readErr := transcriptDocumentProbe(br)
+	if readErr != nil {
 		return conversationScanResult{}, readErr
 	}
-	firstLine, _, _ := strings.Cut(strings.TrimSpace(string(probe[:n])), "\n")
 	if strings.HasPrefix(firstLine, "{") && !json.Valid([]byte(firstLine)) {
 		// Document-form candidate: one pretty-printed JSON document.
-		data, err := base.SafeReadAll(contextCheckingReader{ctx: ctx, r: io.MultiReader(bytes.NewReader(probe[:n]), f)}, base.MaxDocumentTranscriptBytes, "document transcript "+path)
+		data, err := base.SafeReadAll(contextCheckingReader{ctx: ctx, r: br}, base.MaxDocumentTranscriptBytes, "document transcript "+path)
 		if err != nil {
 			return conversationScanResult{}, err
 		}
@@ -207,8 +208,7 @@ func scanLineConversation(r io.Reader) (conversationScanResult, error) {
 
 func scanLineConversationContext(ctx context.Context, r io.Reader) (conversationScanResult, error) {
 	hasher := sha256.New()
-	scanner := bufio.NewScanner(io.TeeReader(contextCheckingReader{ctx: ctx, r: r}, hasher))
-	scanner.Buffer(make([]byte, 0, 64*1024), historyMaxLineBytes)
+	scanner := newTranscriptLines(io.TeeReader(contextCheckingReader{ctx: ctx, r: r}, hasher), historyMaxLineBytes)
 
 	var result conversationScanResult
 	var open *conversationExchange
@@ -230,7 +230,12 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 		if err := ctx.Err(); err != nil {
 			return conversationScanResult{}, err
 		}
-		lineNumber++
+		// An unknown skipped record may be a new user turn. Never attach
+		// narrative beyond that gap to the previous request.
+		if scanner.lastUnsafeLine > lineNumber {
+			closeOpen(scanner.firstUnsafeLine - 1)
+		}
+		lineNumber = scanner.line
 		text := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(text, "{") {
 			continue
@@ -259,10 +264,15 @@ func scanLineConversationContext(ctx context.Context, r io.Reader) (conversation
 		}
 		open.ToolNames = appendConversationToolNames(open.ToolNames, conversationToolNames(record))
 	}
+	result.SkippedLines = scanner.skipped
 	if err := scanner.Err(); err != nil {
 		return conversationScanResult{}, err
 	}
-	closeOpen(lineNumber)
+	if scanner.lastUnsafeLine > lineNumber {
+		closeOpen(scanner.firstUnsafeLine - 1)
+	} else {
+		closeOpen(scanner.line)
+	}
 	result.SourceDigest = "sha256:" + hex.EncodeToString(hasher.Sum(nil))
 	return result, nil
 }
@@ -701,16 +711,15 @@ func expandConversationExchangeContext(ctx context.Context, brainDir string, rec
 	// materialized). Line transcripts stay bounded per line and by the
 	// requested range.
 	hasher := sha256.New()
-	br := bufio.NewReaderSize(io.TeeReader(contextCheckingReader{ctx: ctx, r: f}, hasher), historyMaxLineBytes)
+	br := bufio.NewReaderSize(io.TeeReader(contextCheckingReader{ctx: ctx, r: f}, hasher), historyMaxLineBytes+2)
 
 	// Probe through a complete supported JSONL line before choosing a dialect:
 	// a first line that starts with "{" but is not one valid JSON object marks
 	// a document-form transcript.
-	probe, probeErr := br.Peek(historyMaxLineBytes)
-	if probeErr != nil && probeErr != io.EOF && probeErr != bufio.ErrBufferFull {
+	firstLine, probeErr := transcriptDocumentProbe(br)
+	if probeErr != nil {
 		return conversationExpansion{}, probeErr
 	}
-	firstLine, _, _ := strings.Cut(strings.TrimSpace(string(probe)), "\n")
 	if strings.HasPrefix(firstLine, "{") && !json.Valid([]byte(firstLine)) {
 		// Document form cannot be range-decoded line by line; use the existing
 		// bounded document reader so input stays capped (same ceiling as the
@@ -757,8 +766,7 @@ func expandConversationExchangeContext(ctx context.Context, brainDir string, rec
 // expandLineConversationRange streams only the indexed line range, rebuilding
 // the request and visible assistant narrative under the expansion caps.
 func expandLineConversationRange(r io.Reader, record historyRecord) (conversationExpansion, error) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), historyMaxLineBytes)
+	scanner := newTranscriptLines(r, historyMaxLineBytes)
 	var out conversationExpansion
 	var response strings.Builder
 	lineNumber := 0
@@ -768,7 +776,10 @@ func expandLineConversationRange(r io.Reader, record historyRecord) (conversatio
 	}
 	responseBudget := conversationExpansionMaxBytes
 	for scanner.Scan() {
-		lineNumber++
+		if scanner.lastUnsafeLine > lineNumber && scanner.lastUnsafeLine >= record.Line && scanner.firstUnsafeLine <= endLine {
+			return conversationExpansion{}, errConversationSourceStale
+		}
+		lineNumber = scanner.line
 		if lineNumber < record.Line {
 			continue
 		}
@@ -798,6 +809,10 @@ func expandLineConversationRange(r io.Reader, record historyRecord) (conversatio
 	}
 	if err := scanner.Err(); err != nil {
 		return conversationExpansion{}, err
+	}
+	// Scan can drain an oversized final line without returning another record.
+	if scanner.lastUnsafeLine > lineNumber && scanner.lastUnsafeLine >= record.Line && scanner.firstUnsafeLine <= endLine {
+		return conversationExpansion{}, errConversationSourceStale
 	}
 	out.Response = response.String()
 	return out, nil

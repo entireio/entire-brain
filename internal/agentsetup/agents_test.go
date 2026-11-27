@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -1719,8 +1720,23 @@ func writeFileForTest(t *testing.T, path, content string) {
 func symlinkForTest(t *testing.T, target, link string) {
 	t.Helper()
 	if err := os.Symlink(target, link); err != nil {
-		t.Fatal(err)
+		if isSymlinkPrivilegeError(err) {
+			t.Skipf("symlinks unavailable on this host: %v", err)
+		}
+		t.Fatalf("symlink %s -> %s: %v", link, target, err)
 	}
+}
+
+// isSymlinkPrivilegeError reports the host refusing the privilege (Windows
+// ERROR_PRIVILEGE_NOT_HELD, 1314) rather than an ordinary failure. The code is
+// numeric so this compiles on every platform.
+func isSymlinkPrivilegeError(err error) bool {
+	const windowsErrorPrivilegeNotHeld = syscall.Errno(1314)
+	var errno syscall.Errno
+	if errors.As(err, &errno) && errno == windowsErrorPrivilegeNotHeld {
+		return true
+	}
+	return errors.Is(err, os.ErrPermission)
 }
 
 // TestInstructionReadsAreConfinedToRepository drives the read helpers directly, which is the only

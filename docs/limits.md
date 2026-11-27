@@ -82,11 +82,66 @@ memory and filesystem performance.
 - Brain-relative reads and writes reject `..`, absolute paths, and symlinked
   components, and verify the resolved path stays inside the brain root
   (`rejectSymlinkPathComponents` / `rejectExistingSymlinkPathComponents`).
-- Lock files (both `internal/cli` and `internal/config`) open with `O_NOFOLLOW`
-  and reject symlinks, hardlinks, and open-file aliasing.
+- Lock files (both `internal/cli` and `internal/config`) reject hardlinks and
+  open-file aliasing on every platform. Symlink refusal is **not** uniform:
+  - **Unix** opens with `O_NOFOLLOW` (`fileLockOpenFlags`), so a symlinked lock
+    path fails at the open itself.
+  - **Windows** has no `O_NOFOLLOW` equivalent in `syscall`, so
+    `fileLockOpenFlags` returns `0` and the open follows a symlink. What still
+    holds there is the post-open identity check —
+    `GetFileInformationByHandle` rejects `NumberOfLinks > 1` — so hardlinks are
+    caught but a symlinked lock file is not. Creating one requires a privilege
+    or Developer Mode, which is the reason this is accepted rather than closed;
+    it is a narrower guarantee than Unix, not an equal one.
 - The `checkpoint_remote` repo from `.entire/settings.json` must be a clean
   `owner/name` slug (`validateGitHubRepoSlug`); the fetch host is hardcoded to
   github.com.
+
+### Windows path length
+
+The export tree's path **below the store root** is up to **277 characters**:
+
+```
+sessions/branches/<branch-slug ≤80>-<hash 8>/<ts 16>_<agent ≤32>_<session ≤80>_<checkpoint ≤32>.jsonl
+```
+
+A classic Win32 path is capped at 260 characters *including* the root, and a
+real root (`C:\Users\<user>\AppData\Local\entire\plugins\data\brain\repos\<key>`)
+spends 70+ before any of that. So on paper every deep export path is over the
+limit.
+
+It works anyway because Go's `os` package rewrites a long **absolute** path to
+its extended-length `\\?\` form before calling Win32
+(`os/path_windows.go`, `fixLongPath`), and the store root is always absolute.
+**That covers Brain's own reads and writes and nothing else.** Anything outside
+Go's `os` package still sees a path over the limit:
+
+- `git` subprocesses, unless the repository sets `core.longpaths=true`;
+- backup and sync agents, Explorer, and archive tools;
+- any script a user points at the store.
+
+That the Go half of this actually holds is measured, not reasoned: on Windows 11
+with `LongPathsEnabled` **0**, a probe going through Go's `os` package wrote and
+read back a 383-character absolute path, while PowerShell 5.1's `New-Item -Force`
+silently failed to create a 368-character directory on the same machine — no
+error, no directory. Both halves of the paragraph above are therefore confirmed:
+Brain's own I/O survives, and the tools around it do not.
+
+The margin is therefore not "277 of 260 used" — it is zero, and the thing
+holding it up is an implementation detail of the Go standard library. Enabling
+the `LongPathsEnabled` policy on the machine (`HKLM\SYSTEM\CurrentControlSet\
+Control\FileSystem`) removes the dependency for every tool, not just Brain, and
+is the recommended setting for Windows users with deep repositories.
+
+`TestExportRelativePathStaysWithinItsBudget` pins the 277 in both directions, so
+a layout change that grows *or* shrinks it fails until this note is updated.
+
+The same ceiling bites the repository itself, and there it is confirmed rather
+than predicted: 13 tracked files under `benchmarks/agent-brain/evidence/` run to
+215 characters, and a stock `git clone` on Windows fails with `Filename too
+long` until `core.longpaths=true` is set. That is the "git subprocesses, unless
+the repository sets `core.longpaths=true`" bullet above, observed on real
+hardware. CONTRIBUTING.md carries the clone instructions.
 
 ## Egress threat model
 

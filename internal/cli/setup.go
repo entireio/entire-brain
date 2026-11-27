@@ -12,17 +12,20 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/command/connect"
 	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/setupui"
+	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -524,9 +527,13 @@ type setupCommandOptions struct {
 	// repository already saved — a bare re-run never flips a strict repo back.
 	strict bool
 	normal bool
-	// explicitPath is true when the reader typed the repository path, which is
-	// consent to a nested target: the nested-repo warning stays quiet.
-	explicitPath bool
+	// hosted/localOnly answer the hosted-or-local question from a flag, for
+	// automation and for overriding the remembered choice. hostedChoice is the
+	// resolved answer this run acts on and records: "hosted", "local", or ""
+	// (never asked, or asked and dismissed).
+	hosted       bool
+	localOnly    bool
+	hostedChoice string
 	// yes answers the Facts phase's consent prompt without a human. It is the
 	// ONLY way to spend tokens non-interactively: a run with no terminal and no
 	// --yes distills nothing, because silence is not consent to spend.
@@ -588,6 +595,18 @@ type setupSteps struct {
 	inspect   func(context.Context, daemonPlan) daemonState
 	install   func(context.Context, daemonPlan) error
 	uninstall func(context.Context, daemonPlan) error
+	// establishHosted binds the repo to its hosted brain and runs the first
+	// sync (connect.Establish); a step so tests exercise the hosted-choice
+	// decision table without a host CLI. The sync outcome rides along so the
+	// settled sync row can carry the pull/push counts, and onConnected fires
+	// after the binding lands and before the sync starts, so the UI can settle
+	// the Connected row and start the sync spinner at the honest moment.
+	establishHosted func(ctx context.Context, opts Options, stderr io.Writer, onConnected func()) (connect.EstablishResult, hostedSyncOutcome, error)
+	// hostedSync runs one sync for an ALREADY-bound repo. Separate from
+	// establishHosted on purpose: a live binding must never be re-resolved or
+	// re-written (a custom --repo-id binding would silently move, and the
+	// no-access pause would be cleared).
+	hostedSync func(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage) (hostedSyncOutcome, error)
 }
 
 // setupBackfillPlan is the detached distill invocation.
@@ -647,6 +666,11 @@ type setupReport struct {
 	Agents        setupAgentsState    `json:"agent_instructions"`
 	Facts         factsBackfillStatus `json:"facts"`
 	Warnings      []string            `json:"warnings,omitempty"`
+	// HostedConnectError is the hosted step's failure, verbatim, for the terse
+	// closing line (it replaces the generic connect offer there). json:"-":
+	// the JSON report is a published contract, and the same text already
+	// reaches it through Warnings.
+	HostedConnectError string `json:"-"`
 }
 
 func newSetupCommand(opts Options) *cobra.Command {
@@ -702,7 +726,6 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 --effort the previous run was given unless you pass the flag again.`, base.SetupCommandPrefix(os.LookupEnv)),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			setupOpts.explicitPath = len(args) == 1
 			return runSetup(cmd.Context(), cmd, opts, setupOpts, agentSurfaceTarget(opts, args), setupSteps{})
 		},
 	}
@@ -725,6 +748,8 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 	cmd.Flags().DurationVar(&setupOpts.interval, "interval", setupOpts.interval, "Daemon poll interval")
 	cmd.Flags().DurationVar(&setupOpts.distillEvery, "distill-every", setupOpts.distillEvery, "Minimum interval between the daemon's gated agent runs")
 	cmd.Flags().StringVar(&setupOpts.daemonName, "daemon-name", setupOpts.daemonName, "RENAME the machine's single watcher (launchd label / systemd unit stem). It moves the watcher, it does not add a second one: the previous unit is retired first")
+	cmd.Flags().BoolVar(&setupOpts.hosted, setupFlagHosted, false, "Connect to the hosted memory store without asking (remembered)")
+	cmd.Flags().BoolVar(&setupOpts.localOnly, setupFlagLocalOnly, false, "Keep memories local to this machine for this run; never prompts and never syncs")
 	cmd.Flags().BoolVar(&setupOpts.json, "json", false, "Emit the setup report as JSON")
 	_ = cmd.Flags().MarkHidden("daemon-name")
 	return cmd
@@ -742,21 +767,6 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 	if !local {
 		return fmt.Errorf("setup requires a local repository path: %s", target)
-	}
-	// Name both roots when this one sits inside another repository. Building
-	// the brain and writing the guide into a nested clone is silent and looks
-	// like success, and the instruction files land where the outer repository
-	// cannot see them. Warn BEFORE any phase runs — the person may want to
-	// abort — and only when no explicit path was given, which is consent to
-	// the nested target. The path in the SUGGESTED COMMAND is shell-quoted;
-	// the two in the prose are not, because they are prose. An unquoted path
-	// with a space — ordinary on macOS — made the remedy silently do the wrong
-	// thing when copied, and one with $ or a backtick would expand. See
-	// agentsetup.OuterRepo.
-	if outer := agentsetup.OuterRepo(repoDir); outer != "" && !setupOpts.explicitPath && !setupOpts.uninstallDaemon {
-		fmt.Fprintf(cmd.ErrOrStderr(),
-			"warning: %s is a git repository inside %s.\nThe brain, the guide, AGENTS.md and CLAUDE.md go to the inner one. If you meant the project, run:\n    %s %s\n\n",
-			repoDir, outer, base.BrainInvocation(os.LookupEnv, "setup"), shellQuotedRepoDir(outer))
 	}
 	// Refuse a non-repository UP FRONT. Everything below is a side effect --
 	// a workspace registration, a machine watch-plan row, a per-repo state
@@ -796,7 +806,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 	changed := setupFlagChanged(cmd)
 	if err := rejectConflictingSetupToggles(changed); err != nil {
-		return err
+		return setupRefusal(cmd, setupOpts, err)
 	}
 	mode, err := agentsetup.SelectMode(setupOpts.strict, setupOpts.normal)
 	if err != nil {
@@ -944,6 +954,17 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// repository where nothing is wrong; a Precondition is two.
 	emptyRepo := commitsKnown && detected.Repo.Commits == 0
 
+	// The hosted-or-local question comes before anything is built or spent: a
+	// coworker whose team already distilled this repo should pull those
+	// memories BEFORE the facts phase counts what is pending.
+	if err := runSetupHostedChoice(ctx, ui, cmd.InOrStdin(), setupPromptWriter(promptOut), cmd.ErrOrStderr(),
+		perRepo, &setupOpts, steps, storage, repoDir, &report, brainCmd); err != nil {
+		return err
+	}
+
+	if err := setupInterrupted(ctx); err != nil {
+		return err
+	}
 	// Phase 2 — BUILD. Per-component BEST-EFFORT: a component that fails is
 	// reported as one line and the phase carries on, because first-run
 	// onboarding must not die on one broken source. Losing the workspace, the
@@ -1067,6 +1088,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// still has a working brain — so a failure is one warning, never an exit
 	// code.
 
+	if err := setupInterrupted(ctx); err != nil {
+		return err
+	}
 	// Phase 3 — AGENTS. The hooks that make every later session feed the brain
 	// without anyone remembering to run anything.
 	agentsPhase := run.Begin(setupui.PhaseAgents)
@@ -1106,12 +1130,16 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		ui.ShortWarning(agentWarning, brainCmd)
 	}
 
+	if err := setupInterrupted(ctx); err != nil {
+		return err
+	}
 	// Phase 4 — FACTS. The only phase that can spend money, and the only one
 	// that asks first.
 	backfillStarted := time.Now()
 	factsPhase := run.Begin(setupui.PhaseFacts)
 	ui.StartTask("Checking remaining sessions…")
-	report.Facts = factsBackfillStatusForBrain(storage.BrainDir)
+	feedDir, _ := hostedFeedDirForKey(perRepo.Env, storage.Key)
+	report.Facts = factsBackfillStatusForBrain(storage.BrainDir, coveredSessionIDs(storage.BrainDir, feedDir))
 	report.Backfill = runSetupBackfill(ctx, factsPhase, ui, cmd.InOrStdin(), setupPromptWriter(promptOut),
 		perRepo, setupOpts, steps, storage, repoDir, &report, brainCmd)
 	timings.record("backfill", time.Since(backfillStarted))
@@ -1120,6 +1148,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
 	}
 
+	if err := setupInterrupted(ctx); err != nil {
+		return err
+	}
 	// Phase 5 — WORKSPACE.
 	workspaceStarted := time.Now()
 	workspacePhase := run.Begin(setupui.PhaseWorkspace)
@@ -1150,6 +1181,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		}
 	}
 
+	if err := setupInterrupted(ctx); err != nil {
+		return err
+	}
 	// Phase 6 — WATCHER. Nine reasons, one line. Whichever of them applies is
 	// the line; none of them is worth a row of its own.
 	daemonStarted := time.Now()
@@ -1224,6 +1258,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		NoDaemon:     setupOpts.noDaemon,
 		NoBackfill:   setupOpts.noBackfill,
 		NoAgentHooks: setupOpts.noAgentHooks,
+		HostedChoice: setupOpts.hostedChoice,
 	}); err != nil {
 		report.Warnings = append(report.Warnings, "setup record not saved: "+err.Error())
 		ui.ShortWarning("Setup settings could not be saved: "+err.Error(), brainCmd)
@@ -1470,6 +1505,244 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 // clear line and never an error: a machine with no agent CLI, or a repo with no
 // captured sessions yet, is a completely valid setup — it just has no facts to
 // extract.
+
+// setupInterrupted aborts a canceled run at the next phase boundary. The
+// phases are deliberately best-effort about their OWN failures, which made a
+// ctrl-c (context cancellation) invisible: every component failed quietly and
+// setup marched on to install the watcher and ask about spend.
+func setupInterrupted(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("setup interrupted")
+	}
+	return nil
+}
+
+// setupNoteWriter re-emits the sync engine's stderr lines through the sink, so
+// a line never lands mid-spinner (observed: "(20s)hosted sync: pushed…" glued
+// to the live task). The stats line is dropped here: its counts settle into
+// the Connected line, and printing both said the same thing twice.
+type setupNoteWriter struct {
+	note func(string)
+	buf  []byte
+}
+
+func (w *setupNoteWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			return len(p), nil
+		}
+		line := strings.TrimRight(string(w.buf[:i]), "\r")
+		w.buf = w.buf[i+1:]
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "hosted sync: pushed ") {
+			continue
+		}
+		w.note(line)
+	}
+}
+
+// The hosted step's two task labels and its two settled rows.
+const (
+	hostedConnectLabel = "Connecting to hosted memory store…"
+	hostedSyncLabel    = "Syncing hosted memory store…"
+	hostedConnectedRow = "Connected to hosted memory store"
+)
+
+// setupSyncedRow is the settled sync row. Kept counts THIS run's pull, so
+// zero means "nothing new", not "nothing": a quiet delta re-sync must not
+// claim an established store is empty.
+func setupSyncedRow(outcome hostedSyncOutcome) string {
+	detail := "memories up to date"
+	if outcome.Kept > 0 {
+		detail = "pulled " + formatCount(outcome.Kept) + " team memories"
+	}
+	if pushed := outcome.PushedAdded + outcome.PushedChanged; pushed > 0 {
+		detail += ", pushed " + formatCount(pushed)
+	}
+	return "Hosted memory store synced: " + detail + "; new facts sync automatically"
+}
+
+// formatCount groups thousands ("3544" reads worse than "3,544" in a sentence
+// about how much just moved).
+func formatCount(n int) string {
+	s := strconv.Itoa(n)
+	if n < 0 || len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	lead := len(s) % 3
+	if lead == 0 {
+		lead = 3
+	}
+	b.WriteString(s[:lead])
+	for i := lead; i < len(s); i += 3 {
+		b.WriteString(",")
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
+}
+
+// setupRefusal renders a pre-flight refusal as its own block — a blank line
+// each side and a painted "error:" prefix — and returns the rendered marker so
+// main.go's catch-all does not print the same text again bare. --json runs
+// return the error untouched: the JSON wrapper owns that rendering.
+func setupRefusal(cmd *cobra.Command, setupOpts setupCommandOptions, err error) error {
+	if setupOpts.json {
+		return err
+	}
+	errW := cmd.ErrOrStderr()
+	r := tui.NewRenderer(errW)
+	fmt.Fprintf(errW, "\n%s %s\n\n", r.Paint(tui.CLIError, "error:"), err.Error())
+	return renderedCommandError{Err: err}
+}
+
+// runSetupHostedChoice answers the hosted-or-local question. First match wins:
+// an opt-out is an explicit "local" (never resurrected), --local-only is a
+// one-run local override, a live binding or a remembered/flagged "hosted"
+// syncs, a remembered "local" stays quiet, an interactive terminal gets the
+// prompt, and automation defaults to local with nothing recorded. Hosted
+// failures never fail setup: the remedy prints and the run continues local.
+func runSetupHostedChoice(ctx context.Context, ui *setupSink, in io.Reader, promptOut, errW io.Writer, opts Options, setupOpts *setupCommandOptions, steps setupSteps, storage repoStorage, repoDir string, report *setupReport, brainCmd string) error {
+	connectCmd := base.SetupBrainCommand(brainCmd) + " connect"
+	rend := ui.Renderer()
+	hostedRows := func(text string) []setupui.Line {
+		rows := make([]setupui.Line, 0, 3)
+		for _, line := range rend.WrapFlush(text) {
+			rows = append(rows, setupui.Line{Text: line, Accent: tui.PhaseDaemon, Flush: true})
+		}
+		return rows
+	}
+	binding, present, _ := brainstore.ReadHostedRepoBinding(storage.BrainDir)
+	switch {
+	case present && binding.OptedOut:
+		ui.Note(hostedRows("hosted sync is disconnected for this repo; memories stay local. Run `" + connectCmd + "` to re-enable it.")...)
+		return nil
+	case setupOpts.localOnly:
+		if present {
+			ui.Note(hostedRows("connected to the hosted store, but skipping hosted sync this run (--local-only). `" +
+				base.SetupBrainCommand(brainCmd) + " disconnect` opts out for good.")...)
+		}
+		return nil
+	case present:
+		// Already bound: sync only. Establish would re-resolve placement and
+		// overwrite the binding — moving a custom --repo-id binding and
+		// clearing the no-access pause.
+		setupOpts.hostedChoice = "hosted"
+		setupSyncHosted(ctx, ui, errW, opts, steps, storage, repoDir, report, brainCmd)
+		return nil
+	case setupOpts.hosted, setupOpts.hostedChoice == "hosted":
+		setupEstablishHosted(ctx, ui, errW, opts, setupOpts, steps, report, brainCmd)
+		return nil
+	case setupOpts.hostedChoice == "local":
+		return nil
+	}
+	if !setupCanAskAHuman(ui.tty, readerIsTerminal(in)) {
+		return nil
+	}
+	ui.Suspend()
+	outcome := setupui.Select(setupui.SelectRequest{
+		Title: "Where should this repo's memories live?",
+		Options: []setupui.SelectOption{
+			{Label: "Hosted", Detail: "sync memories with your team (push and pull)"},
+			{Label: "Local", Detail: "this machine only"},
+		},
+		TTY: true,
+	}, in, promptOut, rend)
+	if outcome.Interrupted {
+		return fmt.Errorf("setup interrupted")
+	}
+	if !outcome.Answered {
+		return nil
+	}
+	if outcome.Index == 0 {
+		setupEstablishHosted(ctx, ui, errW, opts, setupOpts, steps, report, brainCmd)
+		return nil
+	}
+	setupOpts.hostedChoice = "local"
+	// No result line here: the summary's closing connect offer already says
+	// memories stay local and how to sync, and saying it twice was noise.
+	return nil
+}
+
+// setupSyncHosted runs one sync for an already-bound repo and reports the
+// outcome without failing setup.
+func setupSyncHosted(ctx context.Context, ui *setupSink, errW io.Writer, opts Options, steps setupSteps, storage repoStorage, repoDir string, report *setupReport, brainCmd string) {
+	ui.OutcomeRow(tui.MarkDone, hostedConnectedRow)
+	if base.BrainNoEgressMode() {
+		ui.OutcomeRow(tui.MarkSkipped, "Hosted memory sync disabled while "+base.NoEgressToggleName()+" is set")
+		return
+	}
+	ui.StartTask(hostedSyncLabel)
+	outcome, err := steps.hostedSync(ctx, setupHostedNoteWriter(ui, errW), opts, repoDir, storage)
+	switch {
+	case err != nil:
+		detail := "hosted sync failed: " + setupui.FlattenError(err) + "; memories stay local until a sync succeeds"
+		setupHostedFailed(report, detail)
+		ui.OutcomeRow(tui.MarkFailed, "Hosted memory store sync failed — "+setupui.FlattenError(err)+"; memories stay local until a sync succeeds")
+	case !outcome.PullSucceeded:
+		verdict := "failed"
+		if !outcome.Attempted {
+			verdict = "did not run"
+		}
+		setupHostedFailed(report, "hosted sync "+verdict+" (details above); memories stay local until a sync succeeds")
+		ui.OutcomeRow(tui.MarkFailed, "Hosted memory store sync "+verdict+"; memories stay local until a sync succeeds")
+	default:
+		ui.OutcomeRow(tui.MarkDone, setupSyncedRow(outcome))
+	}
+}
+
+// setupHostedNoteWriter routes the sync engine's stderr through the sink. In
+// verbose mode the sink's Interject needs no live-line care and the raw writer
+// would be fine, but one path keeps the two modes identical.
+func setupHostedNoteWriter(ui *setupSink, _ io.Writer) io.Writer {
+	return &setupNoteWriter{note: func(line string) {
+		ui.Note(setupui.Line{Text: line, Accent: tui.PhaseDaemon, Flush: true})
+	}}
+}
+
+// setupHostedFailed records a hosted-step failure once, in the two places the
+// two output modes read: the warnings block (verbose) and the terse closing
+// line, which replaces the generic connect offer — telling someone to run
+// connect right after connect-shaped work failed, with no reason shown, is
+// worse than no offer.
+func setupHostedFailed(report *setupReport, detail string) {
+	report.Warnings = append(report.Warnings, detail)
+	report.HostedConnectError = detail
+}
+
+// setupEstablishHosted runs the binding + first sync and records the choice.
+// Only a written binding records "hosted": a pre-bind failure leaves the
+// record empty so the next interactive run asks again.
+func setupEstablishHosted(ctx context.Context, ui *setupSink, errW io.Writer, opts Options, setupOpts *setupCommandOptions, steps setupSteps, report *setupReport, brainCmd string) {
+	ui.StartTask(hostedConnectLabel)
+	// The binding lands first, the sync runs second; onConnected fires between
+	// the two so the Connected row settles the moment it is TRUE and the sync
+	// gets its own spinner.
+	onConnected := func() {
+		ui.OutcomeRow(tui.MarkDone, hostedConnectedRow)
+		ui.StartTask(hostedSyncLabel)
+	}
+	result, outcome, err := steps.establishHosted(ctx, opts, setupHostedNoteWriter(ui, errW), onConnected)
+	switch {
+	case err == nil && result.NoEgress:
+		// The sync never ran, so onConnected never fired; both rows land here.
+		setupOpts.hostedChoice = "hosted"
+		ui.OutcomeRow(tui.MarkDone, hostedConnectedRow)
+		ui.OutcomeRow(tui.MarkSkipped, "Hosted memory sync disabled while "+base.NoEgressToggleName()+" is set — binding recorded")
+	case err == nil:
+		setupOpts.hostedChoice = "hosted"
+		ui.OutcomeRow(tui.MarkDone, setupSyncedRow(outcome))
+	case result.Bound:
+		setupOpts.hostedChoice = "hosted"
+		setupHostedFailed(report, setupui.FlattenError(err))
+		ui.OutcomeRow(tui.MarkFailed, "Hosted memory store sync failed — memories stay local until a sync succeeds")
+	default:
+		setupHostedFailed(report, "hosted store not connected: "+setupui.FlattenError(err)+"; continuing local-only")
+		ui.OutcomeRow(tui.MarkFailed, "Could not connect to hosted memory store — continuing local-only")
+	}
+}
+
 func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSink, in io.Reader, promptOut io.Writer, opts Options, setupOpts setupCommandOptions, steps setupSteps, storage repoStorage, repoDir string, report *setupReport, brainCmd string) setupPhase {
 	rend := ui.Renderer()
 	dash := rend.Dash()
@@ -1485,6 +1758,12 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 			setupui.ConsentReasonPaused)
 	}
 	if report.Facts.Sessions > 0 && report.Facts.Pending() == 0 {
+		if report.Facts.Covered > 0 {
+			return setupBackfillSkippedBecause(phase, "all sessions covered by team memories",
+				fmt.Sprintf("already complete (%d/%d sessions distilled here, %d covered by team memories)",
+					report.Facts.Distilled, report.Facts.Sessions, report.Facts.Covered),
+				setupui.ConsentReasonAlreadyDistilled)
+		}
 		return setupBackfillSkippedBecause(phase, "all sessions already distilled",
 			fmt.Sprintf("already complete (%d/%d sessions distilled)", report.Facts.Distilled, report.Facts.Sessions),
 			setupui.ConsentReasonAlreadyDistilled)
@@ -1527,6 +1806,8 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 		Compact:  ui.quiet,
 		Sessions: queued,
 		Total:    report.Facts.Pending(),
+		Covered:  report.Facts.Covered,
+		Corpus:   report.Facts.Sessions,
 		Agent:    agent,
 		Model:    strings.TrimSpace(setupOpts.model),
 		Effort:   strings.TrimSpace(setupOpts.effort),
@@ -1643,6 +1924,10 @@ func setupBackfillSkippedBecause(phase *setupui.PhaseRun, detail, line string, w
 func setupFactsCounter(rend *setupui.Renderer, facts factsBackfillStatus) string {
 	if facts.Sessions <= 0 {
 		return ""
+	}
+	if facts.Covered > 0 {
+		return fmt.Sprintf(" %s %d/%d sessions distilled, %d covered by team memories",
+			rend.Bullet(), facts.Distilled, facts.Sessions, facts.Covered)
 	}
 	return fmt.Sprintf(" %s %d/%d sessions distilled", rend.Bullet(), facts.Distilled, facts.Sessions)
 }
@@ -2024,6 +2309,25 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			return uninstallDaemon(ctx, opts.Runner, plan)
 		}
 	}
+	if steps.establishHosted == nil {
+		steps.establishHosted = func(ctx context.Context, opts Options, stderr io.Writer, onConnected func()) (connect.EstablishResult, hostedSyncOutcome, error) {
+			var captured hostedSyncOutcome
+			cfg := connectConfig(opts)
+			cfg.Deps.HostedFactsSyncAndPull = func(ctx context.Context, errW io.Writer, opts base.Options, repoDir string, storage base.RepoStorage) (bool, bool, error) {
+				if onConnected != nil {
+					onConnected()
+				}
+				outcome, err := hostedFactsSyncAndPull(ctx, errW, opts, repoDir, storage)
+				captured = outcome
+				return outcome.Attempted, outcome.PullSucceeded, err
+			}
+			result, err := connect.Establish(ctx, cfg, stderr, "", "")
+			return result, captured, err
+		}
+	}
+	if steps.hostedSync == nil {
+		steps.hostedSync = hostedFactsSyncAndPull
+	}
 	return steps
 }
 
@@ -2058,6 +2362,11 @@ type setupRecord struct {
 	NoDaemon     bool `json:"no_daemon,omitempty"`
 	NoBackfill   bool `json:"no_backfill,omitempty"`
 	NoAgentHooks bool `json:"no_agent_hooks,omitempty"`
+	// HostedChoice remembers the hosted-or-local answer ("hosted" or "local"),
+	// so a re-run never re-asks. Empty means the question was never answered:
+	// a failed hosted attempt records nothing, so the next interactive run
+	// asks again.
+	HostedChoice string `json:"hosted_choice,omitempty"`
 }
 
 // setupFlagNames maps each remembered option to its flag, so "was this passed?"
@@ -2077,6 +2386,8 @@ const (
 	setupFlagBackfill       = "backfill"
 	setupFlagNoAgentHooks   = "no-agent-hooks"
 	setupFlagAgentHooks     = "agent-hooks"
+	setupFlagHosted         = "hosted"
+	setupFlagLocalOnly      = "local-only"
 )
 
 // setupToggleConflicts pairs each decline with the affirmative that reverses it.
@@ -2086,6 +2397,7 @@ var setupToggleConflicts = [][2]string{
 	{setupFlagNoDaemon, setupFlagDaemon},
 	{setupFlagNoBackfill, setupFlagBackfill},
 	{setupFlagNoAgentHooks, setupFlagAgentHooks},
+	{setupFlagLocalOnly, setupFlagHosted},
 }
 
 // rejectConflictingSetupToggles refuses a run that both declines and demands the
@@ -2186,6 +2498,10 @@ func applySetupRecordDefaults(setupOpts setupCommandOptions, recorded setupComma
 	if changed == nil {
 		changed = func(string) bool { return false }
 	}
+	// Always loaded: the flags override behavior for ONE run, never the
+	// remembered answer. --hosted overwrites the record only through a
+	// successful establish; --local-only never touches it.
+	setupOpts.hostedChoice = recorded.hostedChoice
 	if !changed(setupFlagDaemonName) {
 		setupOpts.daemonName = recorded.daemonName
 	}
@@ -2317,6 +2633,9 @@ func setupOptionsFromRecord(stateDir string) (setupCommandOptions, bool, error) 
 	}
 	if d, err := time.ParseDuration(strings.TrimSpace(record.DistillEvery)); err == nil && d > 0 {
 		opts.distillEvery = d
+	}
+	if choice := strings.TrimSpace(record.HostedChoice); choice == "hosted" || choice == "local" {
+		opts.hostedChoice = choice
 	}
 	if strings.TrimSpace(record.Model) != "" {
 		opts.model = record.Model

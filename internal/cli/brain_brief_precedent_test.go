@@ -27,9 +27,7 @@ func TestPrecedentSourcesDegradeAndDedupe(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(brainDir, "sessions", "main", "link.jsonl")); err != nil {
-		t.Fatal(err)
-	}
+	symlinkForTest(t, outside, filepath.Join(brainDir, "sessions", "main", "link.jsonl"))
 
 	anchors := []factAnchor{
 		{SessionID: "sess-a", Commit: "commit-a", CheckpointID: "cp-a"},

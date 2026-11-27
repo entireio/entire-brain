@@ -98,9 +98,7 @@ func TestPathRefusesSymlinkedStoreRoot(t *testing.T) {
 	if err := os.MkdirAll(elsewhere, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(elsewhere, filepath.Join(dataDir, base.RepoStoreDirName)); err != nil {
-		t.Fatal(err)
-	}
+	symlinkForTest(t, elsewhere, filepath.Join(dataDir, base.RepoStoreDirName))
 
 	cmd := NewRootCommand(Options{
 		Version: "test-version",
@@ -146,9 +144,7 @@ func TestHeadPathForKeyAppliesTheSameGuardsAsBrainDirForKey(t *testing.T) {
 
 	// A symlinked component must be refused, exactly as brainDirForKey refuses it.
 	linked := filepath.Join(stateDir, base.RepoStoreDirName, "linked")
-	if err := os.Symlink(t.TempDir(), linked); err != nil {
-		t.Fatal(err)
-	}
+	symlinkForTest(t, t.TempDir(), linked)
 	if head, err := base.HeadPathForKey(env, "linked/acme/repo"); err == nil {
 		t.Fatalf("headPathForKey followed a symlinked component to %s", head)
 	}

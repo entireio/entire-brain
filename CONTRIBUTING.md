@@ -79,6 +79,27 @@ CI runs the complete Go suite on Linux, macOS, and Windows. Go tooling divides
 the Windows CLI suite into six groups and verifies complete test results.
 Required checks also include real Brain–Graph integration and repository publication checks.
 
+#### Cloning on Windows needs `core.longpaths`
+
+Thirteen tracked files under `benchmarks/agent-brain/evidence/` have relative
+paths long enough that a stock Git for Windows cannot check them out: the
+longest is 215 characters, and classic Win32 caps a path at 260 **including**
+the clone root. `git clone` fails with `Filename too long`.
+
+```sh
+git clone -c core.longpaths=true https://github.com/entireio/entire-brain
+```
+
+Or set it globally once, `git config --global core.longpaths true`. Either makes
+Git use the extended-length API; neither needs administrator rights, unlike the
+machine-wide `LongPathsEnabled` policy.
+
+A short clone root is not a reliable workaround. At a 48-character root all 13
+paths are over the limit; only a very short root such as `C:\b` clears them, and
+nothing stops the next evidence directory from being longer. See
+[docs/limits.md](docs/limits.md#windows-path-length) for the related ceiling on
+the brain's own export tree, which is a separate limit with a separate cause.
+
 See the [development reference](docs/reference.md#development) for mise tasks
 and [installation options](docs/operations.md#local-install-brain-only) for local builds.
 

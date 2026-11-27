@@ -45,19 +45,12 @@ func largeCoverageResults(count int) []unifiedResult {
 	return results
 }
 
-func largeRetrievalExtras(results []unifiedResult) retrievalTransportExtras {
-	previews := make([]sessionAbstractPreview, min(len(results), 10))
-	for i := range previews {
-		previews[i] = sessionAbstractPreview{
-			SessionRef: results[i].SessionRef, AbstractStatus: abstractStatusCurrent,
-			Overview: &abstractStatement{Text: strings.Repeat("preview ", 500), EvidenceIDs: results[i].EvidenceIDs},
-		}
-	}
+func largeRetrievalExtras(_ []unifiedResult) retrievalTransportExtras {
 	related := make([]relatedPatternRef, 20)
 	for i := range related {
 		related[i] = relatedPatternRef{Type: "pattern", ID: "pattern:" + strings.Repeat("p", 100), Title: strings.Repeat("optional title ", 100)}
 	}
-	return retrievalTransportExtras{AbstractPreviews: previews, Related: related}
+	return retrievalTransportExtras{Related: related}
 }
 
 func TestMultiConceptExactTransportBudgets(t *testing.T) {
@@ -141,33 +134,20 @@ func TestWorkspaceQualificationIsRecursive(t *testing.T) {
 		RelatedIDs: []string{"fact:r"}, EvidenceIDs: []string{"conversation:e"},
 		ConceptMatches: []conceptMatch{{ConversationID: "conversation:e"}},
 		Turns:          []conversationTurn{{ConversationID: "conversation:t"}},
-		Abstract: &sessionAbstract{
-			SessionRef: "conversation-session:s",
-			Overview:   abstractStatement{EvidenceIDs: []string{"conversation:e"}},
-			Decisions:  []abstractStatement{{EvidenceIDs: []string{"conversation:d"}}},
-		},
 	}
 	qualified := qualifyWorkspaceUnifiedResult(repoKey, "workspace", result)
 	for name, got := range map[string]string{
 		"id": qualified.ID, "session": qualified.SessionRef, "target": qualified.TargetID,
 		"related": qualified.RelatedIDs[0], "evidence": qualified.EvidenceIDs[0],
 		"match": qualified.ConceptMatches[0].ConversationID, "turn": qualified.Turns[0].ConversationID,
-		"abstract session": qualified.Abstract.SessionRef, "abstract evidence": qualified.Abstract.Overview.EvidenceIDs[0],
-		"abstract decision": qualified.Abstract.Decisions[0].EvidenceIDs[0],
 	} {
 		if !strings.HasPrefix(got, repoKey+"/") {
 			t.Errorf("%s not qualified: %q", name, got)
 		}
 	}
-	preview := qualifyWorkspacePreview(repoKey, "workspace", sessionAbstractPreview{
-		SessionRef: "conversation-session:s", Overview: &abstractStatement{EvidenceIDs: []string{"conversation:e"}},
-	})
-	if !strings.HasPrefix(preview.SessionRef, repoKey+"/") || !strings.HasPrefix(preview.Overview.EvidenceIDs[0], repoKey+"/") {
-		t.Fatalf("preview not recursively qualified: %+v", preview)
-	}
 	// The input structs must remain unmodified so single-repo serialization is
 	// byte-compatible with the pre-workspace contract.
-	if result.ID != "conversation-session:s" || result.Abstract.Overview.EvidenceIDs[0] != "conversation:e" {
+	if result.ID != "conversation-session:s" || result.EvidenceIDs[0] != "conversation:e" {
 		t.Fatalf("qualification mutated single-repo value: %+v", result)
 	}
 }

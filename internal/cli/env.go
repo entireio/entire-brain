@@ -142,15 +142,15 @@ func resolveRepoStorageSetWithSlug(ctx context.Context, runner CommandRunner, en
 		return repoStorageSet{}, err
 	}
 	set := repoStorageSet{Canonical: canonical, Local: identity.Local}
-	if !identity.Local {
-		return set, nil
-	}
 	canonicalExists, err := repoStorageContainsState(canonical)
 	if err != nil {
 		return repoStorageSet{}, err
 	}
 	if canonicalExists {
 		set.Populated = append(set.Populated, canonical)
+	}
+	if !identity.Local {
+		return set, nil
 	}
 	for _, key := range identity.AlternateKeys {
 		alternate := clibase.RepoStorageForKey(dirs, key)

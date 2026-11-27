@@ -240,39 +240,4 @@ func TestOtherMemoryMutatorsClassifyOutputFailureAfterSuccessfulMutation(t *test
 		}
 	})
 
-	t.Run("configure abstracts", func(t *testing.T) {
-		t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
-		t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
-		opts, brainDir := memoryAdminCommandFixture(t)
-		local := &privacyCountingAbstractor{}
-		oldFactory := memoryAbstractorFactory
-		memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) { return local, nil }
-		t.Cleanup(func() { memoryAbstractorFactory = oldFactory })
-		out, err := executeMemoryCommandWithFailOnce(t, newMemoryConfigureCommand(opts), "abstracts", "--enable", "--provider", "ollama", "--model", "local", "--json")
-		assertFailureReceipt(t, out, err, "configure_abstracts", string(memoryConfigCurrent))
-		config, state, loadErr := loadMemoryConfigChecked(brainDir)
-		if loadErr != nil || state != memoryConfigCurrent || !config.Abstracts.Enabled {
-			t.Fatalf("configure mutation config=%+v state=%s err=%v", config, state, loadErr)
-		}
-	})
-
-	t.Run("manual abstract", func(t *testing.T) {
-		t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
-		t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
-		opts, brainDir := memoryAdminCommandFixture(t)
-		ref := addMemoryAdminConversationFixture(t, brainDir, time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC))
-		local := &privacyCountingAbstractor{}
-		oldFactory := memoryAbstractorFactory
-		memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) { return local, nil }
-		t.Cleanup(func() { memoryAbstractorFactory = oldFactory })
-		out, err := executeMemoryCommandWithFailOnce(t, newMemoryAbstractCommand(opts), ref, "--provider", "ollama", "--model", "local", "--json")
-		receipt := assertFailureReceipt(t, out, err, "abstract_generate", memoryJobStateComplete)
-		if local.calls.Load() != 1 || len(receipt.JobIDs) != 1 {
-			t.Fatalf("manual abstract provider_calls=%d receipt=%+v", local.calls.Load(), receipt)
-		}
-		stored, loadErr := memoryJobByID(brainDir, receipt.JobIDs[0])
-		if loadErr != nil || stored.State != memoryJobStateComplete {
-			t.Fatalf("manual abstract mutation stored=%+v err=%v", stored, loadErr)
-		}
-	})
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -133,16 +134,15 @@ func TestRootHelpAllShowsDeveloperCommands(t *testing.T) {
 		}
 		// Include previously hidden machine surfaces as well as the newly
 		// hidden developer paths. All-help must not mutate dispatch visibility.
-		for _, path := range []string{"bench", "bench index", "bench scale", "memories eval", "memories eval-gen", "memories eval-compare", "memories reclassify", "inspect graph-schema", "docs formats", "history-eval", "hook", "review"} {
+		// The eval/bench harness paths are covered by the brain_harness-tagged
+		// variant in harness_commands_tagged_test.go (COR-2322).
+		for _, path := range []string{"memories reclassify", "inspect graph-schema", "docs formats", "hook", "review"} {
 			if !strings.Contains(out, "\n  "+path+" ") {
 				t.Errorf("all-help missing %q", path)
 			}
 			c, _, err := root.Find(strings.Fields(path))
-			// Bench children remain visible within the hidden family so
-			// explicit `bench --help` can describe its subcommands.
-			wantHidden := path != "bench index" && path != "bench scale"
-			if err != nil || c.Hidden != wantHidden {
-				t.Errorf("%q hidden should remain %v after all-help: %v", path, wantHidden, err)
+			if err != nil || !c.Hidden {
+				t.Errorf("%q hidden should remain true after all-help: %v", path, err)
 			}
 		}
 	}
@@ -159,37 +159,6 @@ func TestRootHelpAllShowsDeveloperCommands(t *testing.T) {
 			if strings.Contains(out, "\n  "+name+" ") {
 				t.Errorf("%s --help lists developer command %q", family, name)
 			}
-		}
-	}
-}
-
-func TestBenchmarkHelpKeepsHiddenFamilyDiscoverable(t *testing.T) {
-	root := NewRootCommand(Options{Version: "test"})
-	out, err := execute(t, root, "bench", "--help")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"entire-brain bench [command]", "Available Commands:", "\n  index ", "\n  scale "} {
-		if !strings.Contains(out, want) {
-			t.Errorf("bench help missing %q:\n%s", want, out)
-		}
-	}
-	bench, _, err := root.Find([]string{"bench"})
-	if err != nil || !bench.Hidden {
-		t.Fatalf("benchmark family should remain hidden: %v", err)
-	}
-	for _, child := range bench.Commands() {
-		if child.Hidden {
-			t.Errorf("bench child %q should be visible in contextual help", child.Name())
-		}
-	}
-	out, err = execute(t, NewRootCommand(Options{Version: "test"}), "--help")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, path := range []string{"bench", "bench index", "bench scale"} {
-		if strings.Contains(out, "\n  "+path+" ") {
-			t.Errorf("default root help should not list %q:\n%s", path, out)
 		}
 	}
 }
@@ -325,6 +294,18 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	t.Setenv(base.XDGStateHome, filepath.Join(xdg, "state"))
 	t.Setenv(base.XDGCacheHome, filepath.Join(xdg, "cache"))
 
+	// The data dir is the one root whose rule is not XDG everywhere: on Windows
+	// the host CLI ignores XDG and reads %LOCALAPPDATA%, and the brain follows it
+	// so a standalone run and a dispatched run agree. Pin it inside this test's
+	// temp dir and expect the Windows answer there, rather than asserting an XDG
+	// path the product deliberately does not produce on that platform.
+	localAppData := filepath.Join(xdg, "localappdata")
+	t.Setenv(base.EnvLocalAppData, localAppData)
+	wantDataRoot := filepath.Join(xdg, "data", "entire")
+	if runtime.GOOS == "windows" {
+		wantDataRoot = filepath.Join(localAppData, "entire")
+	}
+
 	// This test is about the PATHS doctor resolves, not about its exit code:
 	// see doctorReportText. A runner with no `entire` on PATH makes doctor
 	// report a host-environment error, which is none of this test's business.
@@ -340,7 +321,7 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	for _, want := range []string{
 		"ENTIRE_PLUGIN_DATA_DIR=<unset>",
 		"plugin config dir: ok (" + filepath.Join(xdg, "config", "entire"),
-		"plugin data dir: ok (" + filepath.Join(xdg, "data", "entire", "plugins", "data", base.PluginDataName),
+		"plugin data dir: ok (" + filepath.Join(wantDataRoot, "plugins", "data", base.PluginDataName),
 		"plugin state dir: ok (" + filepath.Join(xdg, "state", "entire"),
 		"plugin cache dir: ok (" + filepath.Join(xdg, "cache", "entire"),
 	} {
@@ -348,7 +329,7 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 			t.Fatalf("doctor output missing %q:\n%s", want, out)
 		}
 	}
-	for _, path := range []string{filepath.Join(xdg, "config", "entire"), filepath.Join(xdg, "data", "entire"), filepath.Join(xdg, "state", "entire"), filepath.Join(xdg, "cache", "entire")} {
+	for _, path := range []string{filepath.Join(xdg, "config", "entire"), wantDataRoot, filepath.Join(xdg, "state", "entire"), filepath.Join(xdg, "cache", "entire")} {
 		if _, err := os.Lstat(path); !os.IsNotExist(err) {
 			t.Fatalf("doctor must not create %s: %v", path, err)
 		}

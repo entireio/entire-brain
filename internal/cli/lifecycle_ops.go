@@ -161,28 +161,11 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 			add("write_lock", state, detail)
 		}
 	}
-	if provider, ok := install["provider_egress"].(map[string]any); ok {
-		state := "ok"
-		detail := fmt.Sprintf("config %v; provider %v; configured egress %v; global policy %v; effective %v", provider["state"], provider["provider"], provider["egress_class"], provider["global_policy"], provider["effective_state"])
-		if code, _ := provider["error_code"].(string); code != "" {
-			state = "error"
-			detail = code
-		} else if effectiveState, _ := provider["effective_state"].(string); strings.HasPrefix(effectiveState, "blocked_") {
-			state = "warn"
-			if blockCode, _ := provider["block_code"].(string); blockCode != "" {
-				detail += "; " + blockCode
-			}
-		} else if providerState, _ := provider["provider_state"].(string); providerState == brainstore.ProviderUnavailCode {
-			state = "warn"
-			detail += "; " + providerState
-		}
-		add("memory_provider_egress", state, detail)
-	}
 	// There is deliberately no memory_schema_capabilities check either. Its
 	// state was the literal "ok" and its detail was formatted purely from
 	// untyped compile-time constants (bmanifest.SchemaVersion = 3,
 	// historyShortTermVersion = 3, historyFTSSchema = "3", memoryVectorSchema
-	// = 2, abstractSchemaVersion = 1, memoryJobSchemaVersion = 2): the same
+	// = 2, memoryJobSchemaVersion = 2): the same
 	// sentence for every brain built from a given binary. What this build
 	// SUPPORTS is a property of the build, not a diagnosis of the brain --
 	// memory_schemas below is the check that compares it with what is on disk.
@@ -368,6 +351,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	snapshot := memoryReadOnlyHealth(brainDir, opts.Now().UTC())
 	payload = snapshot.Payload
 	checks = append(checks, memoryDoctorChecks(snapshot)...)
+	checks = append(checks, settledHistoryFailureChecks(brainDir)...)
 	manifest := snapshot.Manifest
 	switch snapshot.ManifestHealth.State {
 	case "current":
@@ -469,7 +453,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	// the exact current source fingerprint with nothing failed, dropped, or
 	// truncated. Anything less is at best partial coverage.
 	shortTermCurrentForSources := shortTermState == shortTermStateCurrent && shortTerm.SessionsFingerprint == current
-	shortTermCovers := shortTermCurrentForSources && len(shortTerm.Files) > 0
+	shortTermCovers := shortTermCurrentForSources && shortTerm.complete()
 	switch {
 	case history.SessionsFingerprint == "":
 		add("history_freshness", "warn", "index predates fingerprinting; run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`")
@@ -479,7 +463,9 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 		add("history_freshness", "warn", "history index was built by "+extractorRevisionLabel(history.ExtractionVersion)+"; run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` to rebuild it")
 	case current == history.SessionsFingerprint:
 		add("history_freshness", "ok", "history and conversation projections were built from the current exported sessions")
-	case shortTermCovers && shortTerm.complete():
+	case shortTermCovers && len(shortTerm.Files) == 0:
+		add("history_freshness", "ok", "unchanged parse failures are settled; no repair needed")
+	case shortTermCovers:
 		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`)", len(shortTerm.Files)))
 	case shortTermCurrentForSources && !shortTerm.complete():
 		add("history_freshness", "warn", fmt.Sprintf("short-term memory covers the gap only partially (%s); run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` to consolidate", shortTermIncompleteness(shortTerm)))
@@ -536,4 +522,18 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	}
 
 	return checks, payload
+}
+
+func settledHistoryFailureChecks(brainDir string) []doctorCheckResult {
+	cache := loadHistoryScanCache(brainDir)
+	paths := make([]string, 0, len(cache.Failures))
+	for path := range cache.Failures {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	var checks []doctorCheckResult
+	for _, path := range paths {
+		checks = append(checks, doctorCheckResult{Name: "history_settled_failure", State: "warn", Detail: cache.Failures[path].Reason})
+	}
+	return checks
 }

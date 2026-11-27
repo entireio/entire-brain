@@ -29,7 +29,6 @@ func writeTestManifest(t *testing.T, body string) string {
 var decodersAllowedToRejectUnknownFields = map[string]string{
 	"internal/manifest/read.go": "dedicated file-backed manifest decoder: strict rewrites, tolerant read retry with unknown-field reporting",
 	"export.go":                 "user-authored settings, where an unknown key is usually a typo",
-	"memory_abstract.go":        "untrusted model output, not state a build of ours wrote",
 }
 
 func TestPersistedStateDecodersRouteThroughTheSharedDecoder(t *testing.T) {

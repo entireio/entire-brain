@@ -194,6 +194,23 @@ var installPreEditHookRaceHook func()
 
 func installPreEditHook(repoDir string) (string, bool, error) {
 	path := filepath.Join(repoDir, claudeSettingsDir, claudeSettingsFile)
+	// A repository whose root IS the home directory is the one case where
+	// "repository settings" and "the user's global settings" are the same file,
+	// and the merge argument above stops holding: an entry added here does not
+	// scope to this project, it runs in every Claude Code session on the machine.
+	//
+	// This is not hypothetical. On a Windows machine where C:\Users\<user> was
+	// itself a git repository, a run resolved that as the repo root and merged a
+	// PreToolUse hook into the user's global settings. Keeping a dotfiles
+	// repository in the home directory is common enough that refusing is the
+	// only safe default; the caller reports this as "pre-edit hook not wired"
+	// and the rest of setup still succeeds.
+	if home, err := os.UserHomeDir(); err == nil && isUserHomeDir(repoDir, home) {
+		return path, false, fmt.Errorf("%s is Claude Code's global settings file, not this "+
+			"repository's: the repository root is your home directory. A hook written there would run "+
+			"in every Claude Code session on this machine, for every project, so it was left alone. "+
+			"Add it by hand if that is what you want", path)
+	}
 	// Everything below goes through an os.Root: `.claude/settings.json` is a
 	// repository-committed path like AGENTS.md, and a symlink there must not be
 	// able to redirect this write outside the repository.
@@ -240,11 +257,17 @@ func installPreEditHook(repoDir string) (string, bool, error) {
 	hooks["PreToolUse"] = entries
 	settings["hooks"] = hooks
 
-	encoded, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
+	// Encode without HTML escaping: hook commands are shell (`>/dev/null 2>&1`),
+	// and MarshalIndent would rewrite the reader's `>` and `&` as >/&,
+	// churning every entry in a file this merge promised to preserve.
+	var encodedBuf bytes.Buffer
+	enc := json.NewEncoder(&encodedBuf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(settings); err != nil {
 		return path, false, err
 	}
-	encoded = append(encoded, '\n')
+	encoded := encodedBuf.Bytes()
 	if err := root.MkdirAll(claudeSettingsDir, 0o755); err != nil {
 		return path, false, err
 	}
@@ -398,4 +421,17 @@ func commandInvokesPreEditHook(command string) bool {
 		return false
 	}
 	return commandInvokesEntireHook(command)
+}
+
+// isUserHomeDir reports whether repoDir and homeDir are the same directory.
+//
+// It reuses the synced-store comparison deliberately: that one is case
+// insensitive and separator independent on every OS, which is what this needs
+// too — Windows hands back %USERPROFILE% in whatever casing the profile was
+// created with, and a repository root can arrive with either separator.
+func isUserHomeDir(repoDir, homeDir string) bool {
+	if repoDir == "" || homeDir == "" {
+		return false
+	}
+	return normalizePathForCompare(repoDir) == normalizePathForCompare(homeDir)
 }

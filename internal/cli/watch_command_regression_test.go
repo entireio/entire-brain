@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -103,7 +104,7 @@ func TestWatchRootCommandOnceRefreshesThenRepeatsAsNoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second root watch once: %v\n%s", err, out)
 	}
-	if got := readWatchCursor(t, cursorPath); got != first {
+	if got := readWatchCursor(t, cursorPath); !reflect.DeepEqual(got, first) {
 		t.Fatalf("unchanged root watch rewrote cursor: got=%+v want=%+v", got, first)
 	}
 	if !strings.Contains(out, "no change; nothing to do") {

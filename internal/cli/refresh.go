@@ -487,10 +487,10 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			reportStageAndShouldAbort(brainComponentBranches, nil)
 		}
 	}
-	// Strict mirror: drop fact provenance, session abstracts, and egress
-	// receipts citing sessions gone from the checkpoint catalog; distilled
-	// facts left with no provenance are deleted. A partial catalog (branch
-	// scope or a checkpoint limit) makes this a no-op.
+	// Strict mirror: drop fact provenance citing sessions gone from the
+	// checkpoint catalog; distilled facts left with no provenance are deleted.
+	// A partial catalog (branch scope or a checkpoint limit) makes this a
+	// no-op.
 	manifest, _ = bmanifest.Load(brainDir)
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		finishMirror := progress.Step("mirror checkpoint catalog")
@@ -502,8 +502,8 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		} else {
 			finishMirror(nil)
 			if !counts.empty() {
-				fmt.Fprintf(cmd.ErrOrStderr(), "mirror: removed %d memory(ies), %d anchor(s), %d abstract(s), %d egress receipt(s) for sessions no longer in the checkpoint catalog\n",
-					counts.FactsDeleted, counts.AnchorsStripped, counts.Abstracts, counts.EgressReceipts)
+				fmt.Fprintf(cmd.ErrOrStderr(), "mirror: removed %d memory(ies), %d anchor(s) for sessions no longer in the checkpoint catalog\n",
+					counts.FactsDeleted, counts.AnchorsStripped)
 			}
 		}
 	}

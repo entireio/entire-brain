@@ -70,9 +70,7 @@ func TestSkillWriteRefusesSymlinkedDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The untrusted tree pre-seeds a DANGLING symlink where SKILL.md will go.
-	if err := os.Symlink(victim, filepath.Join(skillDir, "SKILL.md")); err != nil {
-		t.Fatal(err)
-	}
+	symlinkForTest(t, victim, filepath.Join(skillDir, "SKILL.md"))
 
 	dest := skillDestination{
 		Agents: []string{"claude-code"},
@@ -116,9 +114,7 @@ func TestSkillFileExistsSeesDanglingSymlink(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	link := filepath.Join(dir, "SKILL.md")
-	if err := os.Symlink(filepath.Join(dir, "nothing-here"), link); err != nil {
-		t.Fatal(err)
-	}
+	symlinkForTest(t, filepath.Join(dir, "nothing-here"), link)
 	if !skillFileExists(filepath.ToSlash(link)) {
 		t.Fatalf("overwrite guard does not see a dangling symlink at the destination")
 	}
@@ -144,9 +140,7 @@ func TestSkillWriteRefusesSymlinkedBase(t *testing.T) {
 	}
 	// The checked-out tree ships .claude as a link to the real home config.
 	base := filepath.Join(repo, ".claude")
-	if err := os.Symlink(home, base); err != nil {
-		t.Fatal(err)
-	}
+	symlinkForTest(t, home, base)
 
 	dest := skillDestination{
 		Agents: []string{"claude-code"},
