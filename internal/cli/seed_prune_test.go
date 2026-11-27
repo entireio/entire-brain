@@ -1159,6 +1159,42 @@ func TestAClaimOwnsOnlyTheCopyItDescribes(t *testing.T) {
 	}
 }
 
+// TestAClaimNeverReadsMoreThanASeedDocument: a claim for a file larger than
+// any seed document the index reads owns nothing, even when its size and
+// digest describe that file. The claim's own size was the only bound on
+// that read, and in a directory --update was pointed at, such as the
+// analyzed repository, the marker may be that directory's own, so a claim
+// for a huge file there read all of it into memory.
+func TestAClaimNeverReadsMoreThanASeedDocument(t *testing.T) {
+	t.Parallel()
+	outputDir := t.TempDir()
+	rel := "seed/docs/big.bin"
+	path := filepath.Join(outputDir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	size := int64(clibase.MaxSeedDocBytes) + 1
+	if err := f.Truncate(size); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	claims := map[string][]seedCopyClaim{rel: {seedCopyClaimOf(make([]byte, size))}}
+	if err := writeSeedPruneMarker(outputDir, []string{rel}, claims); err != nil {
+		t.Fatal(err)
+	}
+	ownership := seedDocsOwnershipOf(outputDir, false)
+	if ownership.recorded[rel] || len(ownership.unreadClaims) != 0 {
+		t.Errorf("a claim for a file over the seed document limit: recorded = %v, unread = %v; want neither", ownership.recorded, ownership.unreadClaims)
+	}
+}
+
 // TestARewrittenMarkerKeepsItsClaims: a claim a seed found matching stays a
 // claim, with its digest, whenever the marker is written again, a copy
 // written over a claimed one adds its own digest, and a new copy stays

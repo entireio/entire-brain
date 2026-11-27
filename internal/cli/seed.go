@@ -1439,14 +1439,18 @@ func seedCopyClaimOf(data []byte) seedCopyClaim {
 // rel, if one does. A path through a symlink, a file that is gone or not
 // regular, and one with other bytes match none. A failure to check that may
 // pass (seedPruneFailureMayPass), such as a permission, is returned instead,
-// since it says nothing of what the file holds.
+// since it says nothing of what the file holds. A file larger than any seed
+// document the index reads (clibase.MaxSeedDocBytes) matches none without
+// being read: otherwise the claimed size alone would bound the read, and in
+// a directory --update was pointed at, the marker may be that directory's own.
 func seedCopyClaimMatch(outputDir, rel string, claims []seedCopyClaim) (seedCopyClaim, bool, error) {
 	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, filepath.FromSlash(rel)); err != nil {
 		return seedCopyClaim{}, false, seedClaimCheckFailure(err)
 	}
 	path := filepath.Join(outputDir, filepath.FromSlash(rel))
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || !slices.ContainsFunc(claims, func(c seedCopyClaim) bool { return c.size == info.Size() }) {
+	if err != nil || !info.Mode().IsRegular() || info.Size() > clibase.MaxSeedDocBytes ||
+		!slices.ContainsFunc(claims, func(c seedCopyClaim) bool { return c.size == info.Size() }) {
 		return seedCopyClaim{}, false, seedClaimCheckFailure(err)
 	}
 	data, err := clibase.SafeReadFile(path, info.Size()+1)
