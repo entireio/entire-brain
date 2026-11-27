@@ -52,6 +52,18 @@ func writeSeedPruneFiles(t *testing.T, root string, files map[string]string) {
 	}
 }
 
+// seedPruneOutput returns an explicit --output that is not the brain store
+// and holds files of its own. An --update output must be missing, empty or a
+// brain (issue #637), so a first seed of repoDir with args makes it a brain,
+// and files then land in it as the output's own: no seed recorded them.
+func seedPruneOutput(t *testing.T, repoDir string, files map[string]string, args ...string) string {
+	t.Helper()
+	outputDir := filepath.Join(t.TempDir(), "out")
+	seedPruneRun(t, repoDir, outputDir, append(args, "--update")...)
+	writeSeedPruneFiles(t, outputDir, files)
+	return outputDir
+}
+
 // seedPruneRun seeds repoDir into outputDir with no agent.
 func seedPruneRun(t *testing.T, repoDir, outputDir string, args ...string) {
 	t.Helper()
@@ -478,12 +490,22 @@ func (r *seedStatusHookRunner) Run(ctx context.Context, dir, name string, args .
 
 // TestUpdateIntoTheRepositoryKeepsItsOwnSeedDocs: --update skips the output
 // checks a fresh or --force seed makes, so it can seed into the repository
-// itself. Its own files under seed/docs are not this seed's to prune.
+// itself once the repository holds a brain's manifest (the --update output
+// gate, issue #637). Its own files under seed/docs are not this seed's to
+// prune.
 func TestUpdateIntoTheRepositoryKeepsItsOwnSeedDocs(t *testing.T) {
 	repoDir := seedPruneRepo(t, map[string]string{
 		"seed/docs/README.md": "# tracked\n",
 		seedPrunePendingPath:  "a tracked file that only shares the marker's name\n",
 	})
+	brain := seedPruneOutput(t, repoDir, nil)
+	manifest, err := os.ReadFile(filepath.Join(brain, bmanifest.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeSeedPruneFiles(t, repoDir, map[string]string{bmanifest.FileName: string(manifest)})
+	gitAt(t, repoDir, "add", bmanifest.FileName)
+	gitAt(t, repoDir, "commit", "-q", "-m", "keep a brain manifest")
 	seedPruneRun(t, repoDir, repoDir, "--update")
 	got, err := os.ReadFile(filepath.Join(repoDir, "seed", "docs", "README.md"))
 	if err != nil || string(got) != "# tracked\n" {
@@ -496,14 +518,14 @@ func TestUpdateIntoTheRepositoryKeepsItsOwnSeedDocs(t *testing.T) {
 	}
 }
 
-// TestUpdateIntoAnotherDirectoryRemovesOnlyWhatASeedThereRecorded: --update
-// accepts any existing directory, such as another repository with files of
-// its own under seed/docs. Only the documents an earlier seed of that output
-// recorded in its manifest are a seed's to remove there; the rest, and an
-// empty directory no removal emptied, stay, and are reported. That holds on
-// every later --update too, not only on the first, for a hard link to a
-// document the seed recorded, and for the directory's own file named like the
-// pending marker, which the seed neither reads as a list nor replaces.
+// TestUpdateIntoAnotherDirectoryRemovesOnlyWhatASeedThereRecorded: an
+// --update output that is a brain can hold files of its own under seed/docs.
+// Only the documents an earlier seed of that output recorded in its manifest
+// are a seed's to remove there; the rest, and an empty directory no removal
+// emptied, stay, and are reported. That holds on every later --update too,
+// not only on the first, for a hard link to a document the seed recorded, and
+// for the directory's own file named like the pending marker, which the seed
+// neither reads as a list nor replaces.
 func TestUpdateIntoAnotherDirectoryRemovesOnlyWhatASeedThereRecorded(t *testing.T) {
 	repoDir := seedPruneRepo(t, map[string]string{
 		"README.md":   "# readme\n",
@@ -513,7 +535,7 @@ func TestUpdateIntoAnotherDirectoryRemovesOnlyWhatASeedThereRecorded(t *testing.
 		"seed/docs/notes/theirs.md": "# Not a seed's\n",
 		seedPrunePendingPath:        "seed/docs/notes/theirs.md is this repository's own\n",
 	}
-	outputDir := seedPruneRepo(t, theirs)
+	outputDir := seedPruneOutput(t, repoDir, theirs)
 	if err := os.MkdirAll(filepath.Join(outputDir, seedDirName, seedDocsDirName, "empty"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -550,8 +572,7 @@ func TestAForeignMarkerIsReportedWhenEveryRemovalWorks(t *testing.T) {
 		"README.md":   "# readme\n",
 		"docs/old.md": "# Old guide\n",
 	})
-	outputDir := seedPruneRepo(t, map[string]string{seedPrunePendingPath: "this repository's own\n"})
-	seedPruneRun(t, repoDir, outputDir, "--update")
+	outputDir := seedPruneOutput(t, repoDir, map[string]string{seedPrunePendingPath: "this repository's own\n"})
 	gitAt(t, repoDir, "rm", "-q", "docs/old.md")
 	gitAt(t, repoDir, "commit", "-q", "-m", "drop old doc")
 	seedPruneRun(t, repoDir, outputDir, "--update")
@@ -787,8 +808,7 @@ func refreshSeedFailingItsManifestWrite(t *testing.T, repoDir, outputDir, wantDo
 // not delete it as well.
 func TestAStoppedSeedLeavesAFileThatWasThereBeforeIt(t *testing.T) {
 	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
-	outputDir := seedPruneRepo(t, map[string]string{seedPrunePendingPath: "this repository's own\n"})
-	seedPruneRun(t, repoDir, outputDir, "--worktree", "--update")
+	outputDir := seedPruneOutput(t, repoDir, map[string]string{seedPrunePendingPath: "this repository's own\n"}, "--worktree")
 	writeSeedPruneFiles(t, outputDir, map[string]string{"seed/docs/docs/new.md": "# the output's own\n"})
 	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/new.md": "# New\n"})
 
@@ -803,8 +823,7 @@ func TestAStoppedSeedLeavesAFileThatWasThereBeforeIt(t *testing.T) {
 // gone.
 func TestAStoppedSeedRemovesTheCopiesNoRecordCanList(t *testing.T) {
 	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
-	outputDir := seedPruneRepo(t, map[string]string{seedPrunePendingPath: "this repository's own\n"})
-	seedPruneRun(t, repoDir, outputDir, "--worktree", "--update")
+	outputDir := seedPruneOutput(t, repoDir, map[string]string{seedPrunePendingPath: "this repository's own\n"}, "--worktree")
 	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/new.md": "# New\n"})
 
 	refreshSeedFailingItsManifestWrite(t, repoDir, outputDir, "docs/new.md")
@@ -861,8 +880,7 @@ func TestAStoppedSeedLeavesADocumentRenamedOnlyInCase(t *testing.T) {
 		"README.md":     "# readme\n",
 		"docs/Guide.md": "# Guide\n",
 	})
-	outputDir := seedPruneRepo(t, map[string]string{seedPrunePendingPath: "this repository's own\n"})
-	seedPruneRun(t, repoDir, outputDir, "--worktree", "--update")
+	outputDir := seedPruneOutput(t, repoDir, map[string]string{seedPrunePendingPath: "this repository's own\n"}, "--worktree")
 	gitAt(t, repoDir, "mv", "docs/Guide.md", "docs/renaming.md")
 	gitAt(t, repoDir, "mv", "docs/renaming.md", "docs/guide.md")
 
@@ -1000,8 +1018,7 @@ func TestSeedThatCannotRecordItsCopiesLeavesNone(t *testing.T) {
 // gone.
 func TestReadmeFailureKeepsTheCopiesItsPublishedManifestLists(t *testing.T) {
 	repoDir := seedPruneRepo(t, map[string]string{"README.md": "# readme\n"})
-	outputDir := seedPruneRepo(t, map[string]string{seedPrunePendingPath: "this repository's own\n"})
-	seedPruneRun(t, repoDir, outputDir, "--update")
+	outputDir := seedPruneOutput(t, repoDir, map[string]string{seedPrunePendingPath: "this repository's own\n"})
 	writeSeedPruneFiles(t, repoDir, map[string]string{"docs/new.md": "# New\n\nThe zebra pipeline.\n"})
 	gitAt(t, repoDir, "add", "docs/new.md")
 	gitAt(t, repoDir, "commit", "-q", "-m", "add new doc")
